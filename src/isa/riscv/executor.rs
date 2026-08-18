@@ -1,4 +1,7 @@
-use std::hint::cold_path;
+use std::{
+    hint::cold_path,
+    ops::{Deref, DerefMut},
+};
 
 use crate::{
     board::virt::RiscvIRQHandler,
@@ -25,6 +28,20 @@ use crate::{
 pub struct BatchResult {
     pub cycles: u64,
     pub hook_stopped: bool,
+}
+
+pub trait ExecutorBackend {
+    /// Execute exactly `cycles` cycles.
+    fn step_batch(&mut self, cpu: &mut RVCPU, cycles: u64);
+}
+
+#[derive(Default)]
+pub struct InterpreterBackend;
+
+impl ExecutorBackend for InterpreterBackend {
+    fn step_batch(&mut self, cpu: &mut RVCPU, cycles: u64) {
+        cpu.step_batch(cycles);
+    }
 }
 
 pub trait ExecutionHook {
@@ -55,13 +72,19 @@ impl ExecutionHook for NoopExecutionHook {
     }
 }
 
+#[repr(C)]
+pub struct CpuContext {
+    pub(crate) reg_file: RegFile,
+    pub(crate) pc: WordType,
+}
+
 pub struct RVCPU {
-    pub(super) reg_file: RegFile,
+    context: CpuContext,
     pub(super) memory: VirtAddrManager,
-    pub(super) pc: WordType,
     pub(super) decoder: Decoder,
     pub(super) csr: CsrRegFile,
     pub(super) icache: Cache<DirectCache<DecodeInstr, 8192>>,
+    icache_epoch: u64,
     pub(super) fpu: SoftFPU,
     pub(super) vector: Vector,
 
@@ -70,6 +93,23 @@ pub struct RVCPU {
 
     /// The trap value pending to be written to `mtval`/`stval`.
     pub(super) pending_tval: Option<WordType>,
+}
+
+// A workaround so that legacy code can use `cpu.pc` to access `cpu.context.pc`.
+impl Deref for RVCPU {
+    type Target = CpuContext;
+
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.context
+    }
+}
+
+impl DerefMut for RVCPU {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.context
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -117,13 +157,16 @@ impl RVCPU {
         let fpu = SoftFPU::from(true);
 
         Self {
-            reg_file: RegFile::new(),
+            context: CpuContext {
+                reg_file: RegFile::new(),
+                pc: DEFAULT_PC_VALUE,
+            },
             memory: v_memory,
-            pc: DEFAULT_PC_VALUE,
             decoder,
             csr: csr,
             vector: Vector::new(),
             icache: Cache::new(),
+            icache_epoch: 0,
             fpu,
             time_addr: None,
             pending_tval: None,
@@ -181,13 +224,13 @@ impl RVCPU {
             return Err(Exception::IllegalInstruction);
         }
 
-        // Changing satp.MODE from Bare to other modes and vice versa also takes effect immediately,
-        // without the need to execute an SFENCE.VMA instruction.
+        // Changing satp.MODE takes effect immediately, without SFENCE.VMA.
         if addr == Satp::get_index() {
             let satp = self.csr.get_by_type_existing::<Satp>();
             self.memory.set_mode(satp.get_mode() as u8);
             self.memory.set_root_ppn(satp.get_ppn() as u64);
             self.memory.flush_tlb();
+            self.flush_icache();
         }
 
         Ok(())
@@ -204,6 +247,18 @@ impl RVCPU {
         self.step_batch_with_hook(cycles, &mut hook);
     }
 
+    #[inline]
+    pub(crate) fn step_batch_no_interrupt(&mut self, cycles: u64) {
+        let mut executed = 0;
+        while executed < cycles {
+            self.step_impl();
+            self.increment_mcycle();
+            executed += 1;
+
+            debug_assert!(self.pending_tval.is_none());
+        }
+    }
+
     pub fn step_batch_with_hook<H: ExecutionHook>(
         &mut self,
         cycles: u64,
@@ -217,8 +272,6 @@ impl RVCPU {
         }
 
         let mut executed = 0;
-        // TODO: By design, interrupts should be checked once per batch, but doing so currently
-        // causes issues when linux poweroff for reasons that have not yet been identified.
         let interrupt_pc = self.pc;
         if TrapController::try_take_interrupt(self).is_some() {
             let context = hook.on_interrupt_taken(interrupt_pc);
@@ -256,18 +309,52 @@ impl RVCPU {
     }
 
     fn increment_mcycle(&mut self) {
+        self.increment_mcycle_by(1);
+    }
+
+    fn increment_mcycle_by(&mut self, cycles: u64) {
         let mcycle = self.csr.get_by_type_existing::<Mcycle>();
-        mcycle.set_mcycle_directly(mcycle.data().wrapping_add(1));
+        mcycle.set_mcycle_directly(mcycle.data().wrapping_add(cycles as WordType));
+    }
+
+    pub(crate) fn try_take_pending_interrupt(&mut self) -> bool {
+        if TrapController::try_take_interrupt(self).is_none() {
+            return false;
+        }
+
+        self.increment_mcycle();
+        true
+    }
+
+    pub(crate) fn finish_jit_block(&mut self, next_pc: WordType, instr_count: u64) {
+        self.pc = next_pc;
+        self.reg_file[0] = 0;
+        self.increment_mcycle_by(instr_count);
+        self.csr
+            .get_by_type_existing::<Minstret>()
+            .wrapping_add(instr_count as WordType);
+    }
+
+    pub(crate) fn context_mut(&mut self) -> &mut CpuContext {
+        &mut self.context
+    }
+
+    pub(crate) fn icache_epoch(&self) -> u64 {
+        self.icache_epoch
     }
 
     fn ifetch(&mut self) -> Result<RawInstr, ExceptionInfo> {
+        self.ifetch_at(self.pc)
+    }
+
+    fn ifetch_at(&mut self, addr: WordType) -> Result<RawInstr, ExceptionInfo> {
         let mut bytes: RawInstr =
             (self
                 .memory
-                .ifetch::<u16>(self.pc, &mut self.csr)
+                .ifetch::<u16>(addr, &mut self.csr)
                 .map_err(|err| ExceptionInfo {
                     cause: Exception::from_instr_fetch_err(err),
-                    tval: self.pc,
+                    tval: addr,
                 })? as u32)
                 .into();
 
@@ -278,12 +365,12 @@ impl RVCPU {
             // with the latter now able to start on any 16-bit boundary."
 
             // but the next half may sit on the next page, causing a page fault.
-            let next_half = match self.memory.ifetch::<u16>(self.pc + 2, &mut self.csr) {
+            let next_half = match self.memory.ifetch::<u16>(addr + 2, &mut self.csr) {
                 Ok(half) => half as u32,
                 Err(err) => {
                     return Err(ExceptionInfo {
                         cause: Exception::from_instr_fetch_err(err),
-                        tval: self.pc.wrapping_add(2),
+                        tval: addr.wrapping_add(2),
                     });
                 }
             };
@@ -291,6 +378,12 @@ impl RVCPU {
         };
 
         Ok(bytes)
+    }
+
+    #[inline]
+    pub(crate) fn decode_at(&mut self, addr: WordType) -> Option<DecodeInstr> {
+        let raw = self.ifetch_at(addr).ok()?;
+        self.decoder.decode(raw)
     }
 
     fn step_impl(&mut self) {
@@ -357,8 +450,9 @@ impl RVCPU {
         }
     }
 
-    pub fn flush_icache(&mut self) {
+    pub(crate) fn flush_icache(&mut self) {
         self.icache.clear();
+        self.icache_epoch = self.icache_epoch.wrapping_add(1);
     }
 
     pub fn flush_tlb(&mut self) {
@@ -367,6 +461,24 @@ impl RVCPU {
 
     pub fn power_off(&mut self) {
         self.memory.sync();
+    }
+}
+
+#[cfg(test)]
+mod context_layout_test {
+    use super::*;
+
+    #[test]
+    fn cpu_context_layout_is_stable_for_codegen() {
+        assert_eq!(std::mem::offset_of!(CpuContext, reg_file), 0);
+        assert_eq!(
+            std::mem::offset_of!(CpuContext, pc),
+            std::mem::size_of::<RegFile>()
+        );
+        assert_eq!(
+            std::mem::size_of::<CpuContext>(),
+            std::mem::size_of::<RegFile>() + std::mem::size_of::<WordType>()
+        );
     }
 }
 

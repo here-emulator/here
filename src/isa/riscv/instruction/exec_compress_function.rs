@@ -69,7 +69,8 @@ pub(super) fn exec_compress_jump<const LINK: bool>(
     };
     let target = cpu.pc.wrapping_add(target);
     if LINK {
-        cpu.reg_file.write(1, cpu.pc.wrapping_add(2)); // C.JAL always write to ra(x1)
+        let link = cpu.pc.wrapping_add(2);
+        cpu.reg_file.write(1, link); // C.JAL always write to ra(x1)
     }
     cpu.pc = target;
 

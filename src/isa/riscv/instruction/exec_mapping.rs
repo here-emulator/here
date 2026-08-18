@@ -95,7 +95,8 @@ pub(in crate::isa::riscv) fn get_exec_func(
 
                 super::check_jump_alignment(cpu, target)?;
 
-                cpu.reg_file.write(rd, cpu.pc.wrapping_add(4));
+                let link = cpu.pc.wrapping_add(4);
+                cpu.reg_file.write(rd, link);
                 cpu.pc = target;
             } else {
                 std::unreachable!();
@@ -124,7 +125,8 @@ pub(in crate::isa::riscv) fn get_exec_func(
 
         RiscvInstr::AUIPC => |inst_info, cpu| {
             if let RVInstrInfo::U { rd, imm } = inst_info {
-                cpu.reg_file.write(rd, cpu.pc.wrapping_add(imm)); // imm has been sign_extended
+                let value = cpu.pc.wrapping_add(imm); // imm has been sign_extended
+                cpu.reg_file.write(rd, value);
                 cpu.pc = cpu.pc.wrapping_add(4);
                 cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
                 Ok(())
