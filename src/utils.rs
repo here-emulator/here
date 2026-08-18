@@ -11,6 +11,8 @@ use crate::{
     fpu::soft_float::APFloatOf,
 };
 
+// TODO: Too many things here. Do some cleanup.
+
 #[macro_export]
 macro_rules! debug_unreachable {
     () => {
@@ -700,9 +702,84 @@ pub(crate) const fn make_mask(left: usize, right: usize) -> WordType {
     BIT_ONES_ARRAY[width] << left
 }
 
+#[macro_export]
+/// Concatenates bit fields into a `u64` from high to low bits.
+///
+/// ```
+/// # use here::pack_bits;
+/// assert_eq!(
+///     pack_bits! {
+///         0b101, 3;
+///         0b11, 4;
+///         0, 3;
+///     },
+///     0b101_0011_000
+/// );
+/// ```
+macro_rules! pack_bits {
+    ($($value:expr, $bits:expr);* $(;)?) => {{
+        #[cfg(debug_assertions)]
+        {
+            let mut total = 0usize;
+
+            $(
+                {
+                    let v: u128 = $value as u128;
+                    let b: usize = $bits as usize;
+                    debug_assert!(v < (1u128 << b));
+
+                    total += b;
+                }
+            )*
+
+            debug_assert!(total <= 64 as usize);
+        }
+
+        pack_bits!(@build $($value, $bits;)*)
+    }};
+
+    (@build) => {
+        0u64
+    };
+
+    (@build $value:expr, $bits:expr; $($rest:tt)*) => {{
+        (($value as u64) << pack_bits!(@width $($rest)*))
+            | pack_bits!(@build $($rest)*)
+    }};
+
+    (@width) => {
+        0usize
+    };
+
+    (@width $value:expr, $bits:expr; $($rest:tt)*) => {
+        ($bits as usize) + pack_bits!(@width $($rest)*)
+    };
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_pack_bits_uses_source_order_from_high_to_low() {
+        assert_eq!(
+            crate::pack_bits! {
+                0b101, 3;
+                0b11, 2;
+                0, 3;
+            },
+            0b101_11_000
+        );
+
+        assert_eq!(
+            crate::pack_bits! {
+                0b101, 3;
+                0b11, 3;
+                0, 3;
+            },
+            0b101_011_000
+        );
+    }
 
     #[test]
     fn test_sign_extend() {

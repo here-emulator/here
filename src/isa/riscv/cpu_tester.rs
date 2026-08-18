@@ -227,45 +227,94 @@ impl<'a> CPUChecker<'a> {
     }
 }
 
+fn assert_register_state_eq(label: &str, expected: &RVCPU, actual: &RVCPU) {
+    for register in 0..REGFILE_CNT {
+        assert_eq!(
+            actual.reg_file[register], expected.reg_file[register],
+            "{label}: x{register} differs"
+        );
+    }
+}
+
+fn assert_execution_state_eq(label: &str, expected: &mut RVCPU, actual: &mut RVCPU) {
+    assert_eq!(actual.pc, expected.pc, "{label}: PC differs");
+    assert_register_state_eq(label, expected, actual);
+}
+
+#[cfg(all(target_arch = "x86_64", feature = "riscv64"))]
+fn run_codegen_if_supported<F>(instr: RiscvInstr, info: RVInstrInfo, build: &F, interpreter: &RVCPU)
+where
+    F: Fn(TestCPUBuilder) -> TestCPUBuilder,
+{
+    let mut jit_cpu = build(TestCPUBuilder::new()).build();
+    if !crate::jit::engine::try_execute_instruction_for_test(&mut jit_cpu, instr, info) {
+        return;
+    }
+
+    assert_register_state_eq("jit/interpreter", interpreter, &jit_cpu);
+}
+
 pub(super) fn run_test_exec<F, G>(instr: RiscvInstr, info: RVInstrInfo, build: F, check: G)
 where
-    F: FnOnce(TestCPUBuilder) -> TestCPUBuilder,
-    G: FnOnce(CPUChecker) -> CPUChecker,
+    F: Fn(TestCPUBuilder) -> TestCPUBuilder,
+    G: Fn(CPUChecker) -> CPUChecker,
 {
     let mut cpu = build(TestCPUBuilder::new()).build();
     cpu.execute(instr, info).unwrap();
     check(CPUChecker::new(&mut cpu));
+
+    #[cfg(all(target_arch = "x86_64", feature = "riscv64"))]
+    run_codegen_if_supported(instr, info, &build, &cpu);
 }
 
 pub(super) fn run_test_exec_decode<F, G>(raw_instr: u32, build: F, check: G)
 where
-    F: FnOnce(TestCPUBuilder) -> TestCPUBuilder,
-    G: FnOnce(CPUChecker) -> CPUChecker,
+    F: Fn(TestCPUBuilder) -> TestCPUBuilder,
+    G: Fn(CPUChecker) -> CPUChecker,
 {
     let mut cpu = build(TestCPUBuilder::new()).build();
-    let DecodeInstr { instr, info, .. } = cpu.decoder.decode(raw_instr.into()).unwrap();
+    let decoded = cpu.decoder.decode(raw_instr.into()).unwrap();
+    let DecodeInstr { instr, info, .. } = decoded;
     // FIXME: [`RVCPU::execute`] don't handle the raised exception
     cpu.execute(instr, info).unwrap();
     check(CPUChecker::new(&mut cpu));
+
+    #[cfg(all(target_arch = "x86_64", feature = "riscv64"))]
+    run_codegen_if_supported(instr, info, &build, &cpu);
 }
 
 pub(super) fn run_test_cpu_step<F, G>(raw_instrs: &[u32], build: F, check: G)
 where
-    F: FnOnce(TestCPUBuilder) -> TestCPUBuilder,
-    G: FnOnce(CPUChecker) -> CPUChecker,
+    F: Fn(TestCPUBuilder) -> TestCPUBuilder,
+    G: Fn(CPUChecker) -> CPUChecker,
 {
-    let mut builder = build(TestCPUBuilder::new());
-    for (i, inst) in raw_instrs.iter().enumerate() {
-        builder = builder.mem(
-            (size_of::<u32>() * i) as WordType + ram_config::BASE_ADDR,
-            *inst,
-        );
-    }
-    let mut cpu = builder.build();
+    let make_cpu = || {
+        let mut builder = build(TestCPUBuilder::new());
+        for (i, inst) in raw_instrs.iter().enumerate() {
+            builder = builder.mem(
+                (size_of::<u32>() * i) as WordType + ram_config::BASE_ADDR,
+                *inst,
+            );
+        }
+        builder.build()
+    };
+
+    let mut cpu = make_cpu();
     for _ in 0..raw_instrs.len() {
         cpu.step();
     }
     check(CPUChecker::new(&mut cpu));
+
+    #[cfg(all(target_arch = "x86_64", feature = "riscv64"))]
+    {
+        use crate::isa::riscv::executor::ExecutorBackend;
+
+        let mut jit_cpu = make_cpu();
+        let mut jit = crate::jit::engine::RvJitEngine::new();
+        jit.step_batch(&mut jit_cpu, raw_instrs.len() as u64);
+        check(CPUChecker::new(&mut jit_cpu));
+        assert_execution_state_eq("JIT executor/interpreter", &mut cpu, &mut jit_cpu);
+    }
 }
 
 pub(super) struct ExecTester {

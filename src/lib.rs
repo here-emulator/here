@@ -30,6 +30,8 @@ pub mod byte_io;
 pub mod config;
 pub mod device;
 pub mod isa;
+#[cfg(all(target_arch = "x86_64", feature = "riscv64"))]
+mod jit;
 pub mod load;
 pub mod ram;
 pub mod task_spawner;

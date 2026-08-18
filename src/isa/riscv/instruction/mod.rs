@@ -330,6 +330,20 @@ macro_rules! define_riscv_isa {
         define_instr_enum!($tot_instr_name, $($($name,)*)*);
 
         impl $tot_instr_name {
+            /// Returns the encoded instruction length in bytes.
+            #[allow(clippy::len_without_is_empty)]
+            pub const fn len(&self) -> $crate::config::arch_config::WordType {
+                match self {
+                    $(
+                        $(
+                            $tot_instr_name::$name => {
+                                if ($key as u32) & 0b11 == 0b11 { 4 } else { 2 }
+                            }
+                        )*
+                    )*
+                }
+            }
+
             pub fn isa_name(&self) -> &'static str {
                 match self {
                     $(

@@ -5,6 +5,7 @@ use std::{
 
 use crate::config::arch_config::{REG_NAME, REGFILE_CNT, WordType};
 
+#[repr(transparent)]
 pub struct RegFile {
     data: [WordType; REGFILE_CNT],
 }

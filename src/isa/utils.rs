@@ -2,7 +2,7 @@
 macro_rules! define_instr_enum {
     ($isa_name:ident, $($name:ident),* $(,)?) => {
         #[allow(non_camel_case_types)]
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
         pub enum $isa_name {
             $($name),*
         }

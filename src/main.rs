@@ -20,7 +20,7 @@ use here::isa::riscv::isa_builder::DEFAULT_ISA;
 use here::rvdb::{Printer, RvdbSession, SyncREPL};
 use here::{
     DeviceConfig,
-    board::virt::{MemoryImage, UartIoMode, VirtBoard, VirtBoardConfig},
+    board::virt::{ExecutorBackendKind, MemoryImage, UartIoMode, VirtBoard, VirtBoardConfig},
     config::arch_config::WordType,
 };
 
@@ -179,6 +179,15 @@ struct Args {
     /// Stop after this many emulated cycles; 0 disables the limit.
     #[arg(long = "max-cycles", value_name = "COUNT", default_value_t = 0)]
     max_cycles: u64,
+
+    /// Select the CPU executor backend.
+    #[arg(
+        long = "executor",
+        value_enum,
+        value_name = "BACKEND",
+        default_value_t = ExecutorBackendKind::Interpreter
+    )]
+    executor: ExecutorBackendKind,
 
     /// Load a DTB and pass its guest address to OpenSBI in register a1.
     #[arg(long = "dtb", value_name = "FILE")]
@@ -355,7 +364,8 @@ fn main() {
     let mut board_config = VirtBoardConfig::new()
         .with_decoder(decoder)
         .with_virtio_devices(cli_args.devices.clone())
-        .with_uart_io(uart_io);
+        .with_uart_io(uart_io)
+        .with_executor_backend(cli_args.executor);
 
     if let Some(dtb_path) = &cli_args.dtb {
         let dtb_address = cli_args.dtb_address.unwrap_or(DEFAULT_DTB_ADDRESS);

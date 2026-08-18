@@ -16,7 +16,7 @@ pub trait Cacheable: Clone + Copy {
 }
 
 /// A thin warpper that provide hit rate statistics.
-pub(super) struct Cache<P: CachePolicy> {
+pub struct Cache<P: CachePolicy> {
     policy: P,
     hit_count: Cell<u64>,
     access_count: Cell<u64>,
@@ -71,7 +71,7 @@ impl<P: CachePolicy> CachePolicy for Cache<P> {
     }
 }
 
-pub(super) trait CachePolicy {
+pub trait CachePolicy {
     type T: Cacheable;
 
     fn new() -> Self;
@@ -81,7 +81,7 @@ pub(super) trait CachePolicy {
     fn clear(&mut self);
 }
 
-pub(super) struct DirectCache<T, const N: usize> {
+pub struct DirectCache<T, const N: usize> {
     cache: Box<[(WordType, Option<T>); N]>,
 }
 
@@ -167,7 +167,7 @@ impl<T: Cacheable, const W: usize> CacheSet<T, W> {
 /// ```
 /// SetCache<DecodeInstr, 4, 2> // 4 sets, 2 ways per set
 /// ```
-pub(super) struct SetCache<T: Cacheable, const S: usize, const W: usize> {
+pub struct SetCache<T: Cacheable, const S: usize, const W: usize> {
     cache: Box<[CacheSet<T, W>]>,
 }
 
@@ -217,7 +217,7 @@ impl<T: Cacheable, const S: usize, const W: usize> CachePolicy for SetCache<T, S
 }
 
 /// Used to test the performance of other cache implementations.
-pub(super) struct NullCache<T: Cacheable> {
+pub struct NullCache<T: Cacheable> {
     _phantom: std::marker::PhantomData<T>,
 }
 

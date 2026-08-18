@@ -312,6 +312,7 @@ impl CsrRegFile {
         self.read_uncheck_privilege(addr)
     }
 
+    /// Write with privilege check and validation.
     #[must_use]
     fn write_checked(&mut self, addr: WordType, data: WordType) -> bool {
         if !self.is_write_priv_legal(addr) {

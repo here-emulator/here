@@ -85,6 +85,8 @@ pub struct RVCPU {
     pub(crate) time_addr: Option<WordType>,
 
     /// The trap value pending to be written to `mtval`/`stval`.
+    ///
+    /// [`TrapController`] won't read this field, take that and pass by argument.
     pub(super) pending_tval: Option<WordType>,
 }
 
@@ -96,7 +98,7 @@ struct ExceptionInfo {
 
 impl Drop for RVCPU {
     fn drop(&mut self) {
-        log::info!("iCache hit rate {}", self.icache.hit_rate());
+        log::info!("iCache hit rate: {}", self.icache.hit_rate());
     }
 }
 
@@ -153,7 +155,6 @@ impl RVCPU {
         info: RVInstrInfo,
     ) -> Result<(), Exception> {
         let rst = get_exec_func(instr)(info, self);
-        self.reg_file[0] = 0;
 
         if let Err(ex) = rst {
             cold_path();
@@ -261,17 +262,43 @@ impl RVCPU {
         true
     }
 
-    pub(crate) fn finish_jit_block(&mut self, next_pc: WordType, instr_count: u64) {
+    pub(crate) fn finish_jit_block(
+        &mut self,
+        next_pc: WordType,
+        instr_count: u64,
+        exception: Option<(Exception, WordType)>,
+    ) {
         self.pc = next_pc;
-        self.reg_file[0] = 0;
-        self.increment_mcycle_by(instr_count);
+        self.increment_mcycle_by(instr_count + u64::from(exception.is_some()));
         self.csr
             .get_by_type_existing::<Minstret>()
             .wrapping_add(instr_count as WordType);
+
+        if let Some((exception, tval)) = exception {
+            // Memory helpers still call the interpreter-facing read/write APIs, which may leave
+            // a compatibility tval behind. JIT exception data comes exclusively from JitContext.
+            self.pending_tval = None;
+            TrapController::take_exception(self, exception, tval);
+        } else {
+            debug_assert!(self.pending_tval.is_none());
+        }
     }
 
     pub(crate) fn icache_epoch(&self) -> u64 {
         self.icache_epoch
+    }
+
+    pub(crate) fn instruction_alignment(&mut self) -> WordType {
+        if self.csr.get_by_type_existing::<Misa>().c_enabled() {
+            2
+        } else {
+            4
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_privilege_for_test(&mut self, privilege: PrivilegeLevel) {
+        self.csr.set_current_privileged(privilege);
     }
 
     fn ifetch(&mut self) -> Result<RawInstr, ExceptionInfo> {
@@ -342,6 +369,7 @@ impl RVCPU {
                     cold_path();
                     log::warn!("Illegal instruction: {:#x} at {:#x}", err.tval, self.pc);
                 }
+
                 TrapController::take_exception(self, err.cause, err.tval);
                 return;
             }

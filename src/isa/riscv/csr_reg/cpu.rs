@@ -29,7 +29,7 @@ impl RVCPU {
             return Err(Exception::IllegalInstruction);
         }
 
-        // satp.MODE changes take effect immediately, without SFENCE.VMA.
+        // satp.MODE changes take effect immediately, without an SFENCE.VMA.
         if addr == Satp::get_index() {
             let satp = self.csr.get_by_type_existing::<Satp>();
             self.memory.set_mode(satp.get_mode() as u8);
