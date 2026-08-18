@@ -598,7 +598,7 @@ impl<B: Board> Debugger<B> {
             ftrace: &mut self.ftrace,
             symtab: self.symtab.as_ref(),
         };
-        let result = self.board.step_cycles_with_hook(max_steps, &mut hook);
+        let result = self.board.run_cycles_hooked(max_steps, &mut hook);
         let event = if result.hook_stopped {
             DebugEvent::BreakpointHit
         } else if self.board.status() == crate::board::BoardStatus::Halt {
@@ -731,12 +731,20 @@ mod test {
     }
 
     impl Board for TestEmptyBoard {
-        fn step_cycles_with_hook<H: ExecutionHook>(
+        fn step_batch_with_hook<H: ExecutionHook>(
             &mut self,
             steps: u64,
             hook: &mut H,
         ) -> crate::isa::riscv::executor::BatchResult {
             self.cpu.step_batch_with_hook(steps, hook)
+        }
+
+        fn step_batch(&mut self, steps: u64) -> crate::isa::riscv::executor::BatchResult {
+            self.cpu.step_batch(steps);
+            crate::isa::riscv::executor::BatchResult {
+                cycles: steps,
+                hook_stopped: false,
+            }
         }
 
         fn status(&self) -> crate::board::BoardStatus {

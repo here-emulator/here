@@ -460,7 +460,7 @@ fn main() {
         if cli_args.max_cycles == 0 {
             board.run();
         } else {
-            board.step_cycles(cli_args.max_cycles);
+            board.run_cycles(cli_args.max_cycles);
             if board.status() != here::board::BoardStatus::Halt {
                 log::error!(
                     "Max cycles reached: {} at pc {}",

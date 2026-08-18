@@ -61,7 +61,7 @@ impl WasmEmulator {
     }
 
     pub fn continue_for_steps(&mut self, max_steps: u64) -> Result<u64, JsValue> {
-        Ok(self.inner.step_cycles(max_steps))
+        Ok(self.inner.run_cycles(max_steps))
     }
 
     pub fn is_halted(&self) -> bool {

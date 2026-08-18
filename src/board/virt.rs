@@ -541,7 +541,10 @@ impl VirtBoard {
     }
 
     #[inline]
-    fn step_batch_with_hook<H: ExecutionHook>(&mut self, cycles: u64, hook: &mut H) -> BatchResult {
+    fn execute_cpu_batch<F>(&mut self, execute: F) -> BatchResult
+    where
+        F: FnOnce(&mut Self) -> BatchResult,
+    {
         if self.status != BoardStatus::Running {
             return BatchResult {
                 cycles: 0,
@@ -550,38 +553,14 @@ impl VirtBoard {
         }
 
         self.prepare_cpu_batch();
-        let result = self.cpu.step_batch_with_hook(cycles, hook);
+        let result = execute(self);
         self.finish_cpu_batch(result.cycles);
         result
     }
 }
 
 impl Board for VirtBoard {
-    fn step_cycles_with_hook<H: ExecutionHook>(
-        &mut self,
-        cycles: u64,
-        hook: &mut H,
-    ) -> BatchResult {
-        let initial_cycles = self.cycles();
-        let target_cycles = self.cycles() + cycles;
-
-        while self.cycles() < target_cycles && self.status == BoardStatus::Running {
-            let batch_cycles = (target_cycles - self.cycles()).min(STEP_BATCH_CYCLES);
-            let result = self.step_batch_with_hook(batch_cycles, hook);
-
-            if result.hook_stopped {
-                return BatchResult {
-                    cycles: self.cycles().wrapping_sub(initial_cycles),
-                    hook_stopped: true,
-                };
-            }
-        }
-
-        BatchResult {
-            cycles: self.cycles().wrapping_sub(initial_cycles),
-            hook_stopped: false,
-        }
-    }
+    const STEP_BATCH_CYCLES: u64 = 1024;
 
     fn status(&self) -> BoardStatus {
         self.status
@@ -597,6 +576,21 @@ impl Board for VirtBoard {
 
     fn loader(&self) -> Option<&crate::load::ELFLoader> {
         self.loader.as_ref()
+    }
+
+    #[inline]
+    fn step_batch_with_hook<H: ExecutionHook>(&mut self, cycles: u64, hook: &mut H) -> BatchResult {
+        self.execute_cpu_batch(|board| board.cpu.step_batch_with_hook(cycles, hook))
+    }
+
+    fn step_batch(&mut self, cycles: u64) -> BatchResult {
+        self.execute_cpu_batch(|board| {
+            board.cpu.step_batch(cycles);
+            BatchResult {
+                cycles,
+                hook_stopped: false,
+            }
+        })
     }
 }
 
@@ -625,9 +619,9 @@ mod tests {
     #[test]
     fn test_step_cycles_advances_board_clock() {
         let mut board = create_test_board();
-        let requested = STEP_BATCH_CYCLES + 3;
+        let requested = <VirtBoard as Board>::STEP_BATCH_CYCLES + 3;
 
-        let executed = board.step_cycles(requested);
+        let executed = board.run_cycles(requested);
 
         assert_eq!(executed, requested);
         assert_eq!(board.cycles(), requested);
