@@ -1,7 +1,4 @@
-use std::{
-    hint::cold_path,
-    ops::{Deref, DerefMut},
-};
+use std::hint::cold_path;
 
 use crate::{
     board::virt::RiscvIRQHandler,
@@ -73,13 +70,9 @@ impl ExecutionHook for NoopExecutionHook {
 }
 
 #[repr(C)]
-pub struct CpuContext {
+pub struct RVCPU {
     pub(crate) reg_file: RegFile,
     pub(crate) pc: WordType,
-}
-
-pub struct RVCPU {
-    context: CpuContext,
     pub(super) memory: VirtAddrManager,
     pub(super) decoder: Decoder,
     pub(super) csr: CsrRegFile,
@@ -93,23 +86,6 @@ pub struct RVCPU {
 
     /// The trap value pending to be written to `mtval`/`stval`.
     pub(super) pending_tval: Option<WordType>,
-}
-
-// A workaround so that legacy code can use `cpu.pc` to access `cpu.context.pc`.
-impl Deref for RVCPU {
-    type Target = CpuContext;
-
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        &self.context
-    }
-}
-
-impl DerefMut for RVCPU {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.context
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,10 +133,8 @@ impl RVCPU {
         let fpu = SoftFPU::from(true);
 
         Self {
-            context: CpuContext {
-                reg_file: RegFile::new(),
-                pc: DEFAULT_PC_VALUE,
-            },
+            reg_file: RegFile::new(),
+            pc: DEFAULT_PC_VALUE,
             memory: v_memory,
             decoder,
             csr: csr,
@@ -195,45 +169,6 @@ impl RVCPU {
         }
 
         rst
-    }
-
-    pub fn read_csr(&mut self, addr: WordType) -> Result<WordType, Exception> {
-        if addr == 0xc01 {
-            // time CSR
-            if let Some(time_addr) = self.time_addr {
-                if let Ok(time) = self.memory.read_by_paddr::<u64>(time_addr) {
-                    return Ok(time as WordType);
-                }
-            }
-        } else if let Some(data) = self.csr.read(addr) {
-            // Normal CSR read
-            return Ok(data);
-        }
-
-        Err(Exception::IllegalInstruction)
-    }
-
-    /// Write CSR and update context correctly.
-    ///
-    /// XXX: Use this function instead of `self.csr.write`, unless you are sure about what you are doing.
-    ///
-    /// You may need [`CsrRegFile::write_directly`] in some cases.
-    pub fn write_csr(&mut self, addr: WordType, data: WordType) -> Result<(), Exception> {
-        if !self.csr.write(addr, data) {
-            log::warn!("Failed to write CSR {:#x} with data {:#x}", addr, data);
-            return Err(Exception::IllegalInstruction);
-        }
-
-        // Changing satp.MODE takes effect immediately, without SFENCE.VMA.
-        if addr == Satp::get_index() {
-            let satp = self.csr.get_by_type_existing::<Satp>();
-            self.memory.set_mode(satp.get_mode() as u8);
-            self.memory.set_root_ppn(satp.get_ppn() as u64);
-            self.memory.flush_tlb();
-            self.flush_icache();
-        }
-
-        Ok(())
     }
 
     /// Execute one cycle. This may be slower than batching; prefer
@@ -335,10 +270,6 @@ impl RVCPU {
             .wrapping_add(instr_count as WordType);
     }
 
-    pub(crate) fn context_mut(&mut self) -> &mut CpuContext {
-        &mut self.context
-    }
-
     pub(crate) fn icache_epoch(&self) -> u64 {
         self.icache_epoch
     }
@@ -350,8 +281,7 @@ impl RVCPU {
     fn ifetch_at(&mut self, addr: WordType) -> Result<RawInstr, ExceptionInfo> {
         let mut bytes: RawInstr =
             (self
-                .memory
-                .ifetch::<u16>(addr, &mut self.csr)
+                .read_for_ifetch::<u16>(addr)
                 .map_err(|err| ExceptionInfo {
                     cause: Exception::from_instr_fetch_err(err),
                     tval: addr,
@@ -365,7 +295,7 @@ impl RVCPU {
             // with the latter now able to start on any 16-bit boundary."
 
             // but the next half may sit on the next page, causing a page fault.
-            let next_half = match self.memory.ifetch::<u16>(addr + 2, &mut self.csr) {
+            let next_half = match self.read_for_ifetch::<u16>(addr + 2) {
                 Ok(half) => half as u32,
                 Err(err) => {
                     return Err(ExceptionInfo {
@@ -382,8 +312,22 @@ impl RVCPU {
 
     #[inline]
     pub(crate) fn decode_at(&mut self, addr: WordType) -> Option<DecodeInstr> {
-        let raw = self.ifetch_at(addr).ok()?;
-        self.decoder.decode(raw)
+        self.decode_at_checked(addr).ok()
+    }
+
+    #[inline]
+    fn decode_at_checked(&mut self, addr: WordType) -> Result<DecodeInstr, ExceptionInfo> {
+        if let Some(decoded) = self.icache.get(addr) {
+            return Ok(decoded);
+        }
+
+        let raw_instr = self.ifetch_at(addr)?;
+        let decoded = self.decoder.decode(raw_instr).ok_or(ExceptionInfo {
+            cause: Exception::IllegalInstruction,
+            tval: raw_instr.val as WordType,
+        })?;
+        self.icache.put(addr, decoded);
+        Ok(decoded)
     }
 
     fn step_impl(&mut self) {
@@ -391,36 +335,16 @@ impl RVCPU {
             instr,
             info,
             len: _,
-        } = if let Some(decode_instr) = self.icache.get(self.pc) {
-            decode_instr
-        } else {
-            let raw_instr = match self.ifetch() {
-                Ok(bytes) => bytes,
-                Err(err) => {
-                    TrapController::take_exception(self, err.cause, err.tval);
-                    return;
+        } = match self.decode_at_checked(self.pc) {
+            Ok(decoded) => decoded,
+            Err(err) => {
+                if err.cause == Exception::IllegalInstruction {
+                    cold_path();
+                    log::warn!("Illegal instruction: {:#x} at {:#x}", err.tval, self.pc);
                 }
-            };
-
-            // ID
-            let decoder_result = self.decoder.decode(raw_instr);
-            let Some(decode_instr) = decoder_result else {
-                cold_path();
-                log::warn!(
-                    "Illegal instruction: {:#x} at {:#x}",
-                    raw_instr.val,
-                    self.pc
-                );
-                TrapController::take_exception(
-                    self,
-                    Exception::IllegalInstruction,
-                    raw_instr.val as WordType,
-                );
+                TrapController::take_exception(self, err.cause, err.tval);
                 return;
-            };
-
-            self.icache.put(self.pc, decode_instr.clone());
-            decode_instr
+            }
         };
 
         // EX && MEM && WB
@@ -461,24 +385,6 @@ impl RVCPU {
 
     pub fn power_off(&mut self) {
         self.memory.sync();
-    }
-}
-
-#[cfg(test)]
-mod context_layout_test {
-    use super::*;
-
-    #[test]
-    fn cpu_context_layout_is_stable_for_codegen() {
-        assert_eq!(std::mem::offset_of!(CpuContext, reg_file), 0);
-        assert_eq!(
-            std::mem::offset_of!(CpuContext, pc),
-            std::mem::size_of::<RegFile>()
-        );
-        assert_eq!(
-            std::mem::size_of::<CpuContext>(),
-            std::mem::size_of::<RegFile>() + std::mem::size_of::<WordType>()
-        );
     }
 }
 

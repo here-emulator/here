@@ -79,13 +79,11 @@ impl DebugTarget<RiscvTypes> for RVCPU {
     /// 32-bit fetch when a 4-byte instruction sits at a 2-byte boundary (e.g.
     /// right after a compressed instruction).
     fn read_instr(&mut self, vaddr: WordType) -> Result<RawInstr, MemError> {
-        let lo = self.memory.debug_ifetch::<u16>(vaddr, &mut self.csr)? as u32;
+        let lo = self.read_for_debug_ifetch::<u16>(vaddr)? as u32;
         if lo & 0b11 != 0b11 {
             return Ok(RawInstr::from(lo));
         }
-        let hi = self
-            .memory
-            .debug_ifetch::<u16>(vaddr.wrapping_add(2), &mut self.csr)? as u32;
+        let hi = self.read_for_debug_ifetch::<u16>(vaddr.wrapping_add(2))? as u32;
         Ok(RawInstr::from(lo | (hi << 16)))
     }
 
@@ -142,7 +140,7 @@ impl DebugTarget<RiscvTypes> for RVCPU {
         vaddr: WordType,
         access: AccessType,
     ) -> Result<u64, PageTableError> {
-        self.memory.debug_translate(vaddr, access, &mut self.csr)
+        self.translate_for_debug(vaddr, access)
     }
 }
 

@@ -2,6 +2,7 @@
 mod write_validator;
 #[macro_use]
 mod read_validator;
+mod cpu;
 
 pub mod csr_macro;
 pub mod utils;
@@ -304,22 +305,15 @@ impl CsrRegFile {
     }
 
     #[must_use]
-    pub fn read(&mut self, addr: WordType) -> Option<WordType> {
+    fn read_checked(&mut self, addr: WordType) -> Option<WordType> {
         if !self.is_read_priv_legal(addr) {
             return None;
         }
         self.read_uncheck_privilege(addr)
     }
 
-    /// Write with privilege check and validation.
-    ///
-    /// XXX: In most cases, you should use [`RVCPU::write_csr`] instead of this function directly,
-    /// because writting to CSR may have other side-effects in CPU.
-    ///
-    /// [`RVCPU::write_csr`]: crate::isa::riscv::executor::RVCPU::write_csr
-    ///
     #[must_use]
-    pub(crate) fn write(&mut self, addr: WordType, data: WordType) -> bool {
+    fn write_checked(&mut self, addr: WordType, data: WordType) -> bool {
         if !self.is_write_priv_legal(addr) {
             return false;
         }
@@ -475,11 +469,11 @@ mod test {
     #[test]
     fn test_rw_by_addr() {
         let mut reg = CsrRegFile::new();
-        assert!(reg.write(csr_index::mcause, 3));
-        assert!(reg.write(csr_index::mepc, 0x1234_5678));
+        assert!(reg.write_checked(csr_index::mcause, 3));
+        assert!(reg.write_checked(csr_index::mepc, 0x1234_5678));
 
-        let mcause = reg.read(csr_index::mcause).unwrap();
-        let mepc = reg.read(csr_index::mepc).unwrap();
+        let mcause = reg.read_checked(csr_index::mcause).unwrap();
+        let mepc = reg.read_checked(csr_index::mepc).unwrap();
 
         assert_eq!(mcause, 3);
         assert_eq!(mepc, 0x1234_5678);
@@ -495,14 +489,14 @@ mod test {
 
         assert_eq!(mstatus.get_mpp(), 3);
         assert_eq!(mstatus.get_sie(), 1);
-        let mstatus_val = reg.read(csr_index::mstatus).unwrap();
+        let mstatus_val = reg.read_checked(csr_index::mstatus).unwrap();
         assert_eq!(mstatus_val, (1 << 1 | 3 << 11));
 
         mstatus.set_mpp(0b10);
         assert_eq!(mstatus.get_mpp(), 0b10);
 
         let mtvec = reg.get_by_type::<Mtvec>().unwrap();
-        assert!(reg.write(csr_index::mtvec, 0x114514));
+        assert!(reg.write_checked(csr_index::mtvec, 0x114514));
         assert_eq!(mtvec.get_base(), 0x114514 >> 2);
     }
 
@@ -510,14 +504,14 @@ mod test {
     fn test_read_privilege() {
         let mut reg = CsrRegFile::new();
         reg.set_current_privileged(PrivilegeLevel::M);
-        assert!(reg.write(csr_index::mcause, 0xFEFE));
+        assert!(reg.write_checked(csr_index::mcause, 0xFEFE));
         assert_eq!(
             reg.read_uncheck_privilege(csr_index::mcause).unwrap(),
             0xFEFE
         );
 
         reg.set_current_privileged(PrivilegeLevel::S);
-        assert!(!reg.write(csr_index::mcause, 0xFEFE));
+        assert!(!reg.write_checked(csr_index::mcause, 0xFEFE));
         assert_eq!(
             reg.read_uncheck_privilege(csr_index::mcause).unwrap(),
             0xFEFE

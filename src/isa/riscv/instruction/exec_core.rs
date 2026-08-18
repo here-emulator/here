@@ -13,7 +13,7 @@ pub(super) fn handle_load<T, const EXTEND: bool>(
 where
     T: UnsignedInteger,
 {
-    let ret = cpu.memory.read::<T>(addr, &mut cpu.csr);
+    let ret = cpu.read::<T>(addr);
 
     match ret {
         Ok(data) => {
@@ -24,11 +24,7 @@ where
             }
             cpu.reg_file.write(rd, data);
         }
-        Err(err) => {
-            cpu.pending_tval = Some(addr);
-
-            return Err(Exception::from_memory_err(err));
-        }
+        Err(err) => return Err(err),
     }
     Ok(())
 }
@@ -38,17 +34,14 @@ pub(super) fn handle_float_load<F>(cpu: &mut RVCPU, addr: WordType, rd: u8) -> R
 where
     F: FloatPoint,
 {
-    let rst = cpu.memory.read::<F::BitsType>(addr, &mut cpu.csr);
+    let rst = cpu.read::<F::BitsType>(addr);
 
     match rst {
         Ok(data) => {
             cpu.fpu.store_raw::<F>(rd, data.truncate_to());
             Ok(())
         }
-        Err(err) => {
-            cpu.pending_tval = Some(addr);
-            Err(Exception::from_memory_err(err))
-        }
+        Err(err) => Err(err),
     }
 }
 
@@ -61,12 +54,7 @@ pub(super) fn handle_store<T>(
 where
     T: UnsignedInteger,
 {
-    let ret = cpu.memory.write(addr, T::truncate_from(data), &mut cpu.csr);
-    if let Err(err) = ret {
-        cpu.pending_tval = Some(addr);
-        return Err(Exception::from_memory_err(err));
-    }
-    Ok(())
+    cpu.write(addr, T::truncate_from(data))
 }
 
 #[inline(always)]
@@ -78,10 +66,5 @@ pub(super) fn handle_float_store<F>(
 where
     F: FloatPoint,
 {
-    let ret = cpu.memory.write(addr, data, &mut cpu.csr);
-    if let Err(err) = ret {
-        cpu.pending_tval = Some(addr);
-        return Err(Exception::from_memory_err(err));
-    }
-    Ok(())
+    cpu.write(addr, data)
 }

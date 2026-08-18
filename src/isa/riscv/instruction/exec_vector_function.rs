@@ -2027,12 +2027,9 @@ mod test {
             let data_addr = data_base + data_off;
             let val = ((i as ElemType) * 17 + 101) ^ 0x5A5A_1234;
 
-            cpu.memory
-                .write::<ElemType>(idx_addr, data_off as ElemType, &mut cpu.csr)
+            cpu.write::<ElemType>(idx_addr, data_off as ElemType)
                 .unwrap();
-            cpu.memory
-                .write::<ElemType>(data_addr, val, &mut cpu.csr)
-                .unwrap();
+            cpu.write::<ElemType>(data_addr, val).unwrap();
             expected[i] = val;
         }
 
@@ -2100,7 +2097,7 @@ mod test {
         for i in 0..vreg_len {
             let addr = TEST_DATA_BASE + (i * size_of::<ElemType>()) as WordType;
             let expected = data[i];
-            let read: ElemType = cpu.memory.read::<ElemType>(addr, &mut cpu.csr).unwrap();
+            let read: ElemType = cpu.read::<ElemType>(addr).unwrap();
             assert_eq!(read, expected, "Memory mismatch at index {}", i);
         }
     }
@@ -2160,18 +2157,9 @@ mod test {
             .mask_store(8, 0, base_addr, &mut cpu.memory.mmio)
             .unwrap();
 
-        assert_eq!(
-            cpu.memory.read::<u8>(base_addr, &mut cpu.csr).unwrap(),
-            0b1010_0101
-        );
-        assert_eq!(
-            cpu.memory.read::<u8>(base_addr + 1, &mut cpu.csr).unwrap(),
-            0b0001_0011
-        );
-        assert_eq!(
-            cpu.memory.read::<u8>(base_addr + 2, &mut cpu.csr).unwrap(),
-            0xee
-        );
+        assert_eq!(cpu.read::<u8>(base_addr).unwrap(), 0b1010_0101);
+        assert_eq!(cpu.read::<u8>(base_addr + 1).unwrap(), 0b0001_0011);
+        assert_eq!(cpu.read::<u8>(base_addr + 2).unwrap(), 0xee);
         assert_eq!(
             cpu.vector.read_as_type::<u32>(8).unwrap().len(),
             VLEN_BYTE * 4 / 4
@@ -2256,7 +2244,7 @@ mod test {
         for i in 0..vreg_len {
             let addr = TEST_DATA_BASE + (i as WordType) * STRIDE;
             let expected = data[i];
-            let read: ElemType = cpu.memory.read::<ElemType>(addr, &mut cpu.csr).unwrap();
+            let read: ElemType = cpu.read::<ElemType>(addr).unwrap();
             assert_eq!(read, expected, "Memory mismatch at index {}", i);
         }
     }
@@ -2291,9 +2279,7 @@ mod test {
         for i in 0..elem_cnt {
             let idx_addr = index_base + (i * size_of::<ElemType>()) as WordType;
             let data_off = (i * size_of::<ElemType>()) as WordType;
-            cpu.memory
-                .write::<ElemType>(idx_addr, data_off as u32, &mut cpu.csr)
-                .unwrap();
+            cpu.write::<ElemType>(idx_addr, data_off as u32).unwrap();
         }
 
         let instr_info = RVInstrInfo::V {
@@ -2309,7 +2295,7 @@ mod test {
 
         for (i, expected) in data.iter().enumerate() {
             let addr = data_base + (i * size_of::<ElemType>()) as WordType;
-            let read: ElemType = cpu.memory.read::<ElemType>(addr, &mut cpu.csr).unwrap();
+            let read: ElemType = cpu.read::<ElemType>(addr).unwrap();
             assert_eq!(read, *expected, "Store mismatch at index {}", i);
         }
     }

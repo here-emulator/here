@@ -39,8 +39,7 @@ fn test_step_batch_debug_stops_without_affecting_normal_execution() {
         fn before_step(&mut self, cpu: &mut RVCPU) -> Self::CycleContext {
             let pc = cpu.pc;
             let raw = cpu
-                .memory
-                .debug_ifetch::<u32>(pc, &mut cpu.csr)
+                .read_for_debug_ifetch::<u32>(pc)
                 .ok()
                 .map(RawInstr::from);
             (pc, raw, raw.and_then(|raw| cpu.decoder.decode(raw)))

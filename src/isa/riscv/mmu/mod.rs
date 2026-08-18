@@ -1,5 +1,6 @@
 pub mod address;
 pub mod config;
+mod cpu;
 mod page_table;
 
 pub use page_table::PageTableError;
@@ -12,14 +13,7 @@ use self::page_table::*;
 use crate::{
     config::arch_config::WordType,
     device::{DeviceTrait, MemError, mmio::MemoryMapIO},
-    isa::riscv::{
-        csr_reg::{
-            CsrRegFile, PrivilegeLevel,
-            csr_macro::{Mstatus, Sstatus},
-        },
-        debugger::Address,
-        trap::Exception,
-    },
+    isa::riscv::{debugger::Address, trap::Exception},
     ram::Ram,
     ram_config,
     utils::UnsignedInteger,
@@ -43,60 +37,6 @@ enum AccessPolicy {
     },
 }
 
-enum AccessPrivilege {
-    /// only U-flag
-    UserOnly,
-
-    /// only S-flag
-    SupervisorOnly,
-
-    /// ignore U-flag in S mode, except ifetch.
-    SupervisorAndUser,
-
-    /// physical address directly
-    MachineOnly,
-}
-
-/// Determine in which mode the data access should be performed, and which PTE flags should be checked,
-/// based on the current privilege level and relevant CSR settings.
-fn determine_data_access_privilege(csr: &mut CsrRegFile) -> AccessPrivilege {
-    match csr.privelege_level() {
-        PrivilegeLevel::M => {
-            let mstatus = csr.get_by_type_existing::<Mstatus>();
-
-            if mstatus.get_mprv() == 0 {
-                AccessPrivilege::MachineOnly
-            } else {
-                match PrivilegeLevel::try_from(mstatus.get_mpp() as u8)
-                    .expect("mstatus.mpp must contain a valid privilege level")
-                {
-                    PrivilegeLevel::M => AccessPrivilege::MachineOnly,
-                    PrivilegeLevel::S => {
-                        if mstatus.get_sum() == 0 {
-                            AccessPrivilege::SupervisorOnly
-                        } else {
-                            AccessPrivilege::SupervisorAndUser
-                        }
-                    }
-                    PrivilegeLevel::U => AccessPrivilege::UserOnly,
-                    PrivilegeLevel::V => unreachable!(), // Doesn't have V-mode.
-                }
-            }
-        }
-        PrivilegeLevel::S => {
-            let sstatus = csr.get_by_type_existing::<Sstatus>();
-
-            if sstatus.get_sum() == 0 {
-                AccessPrivilege::SupervisorOnly
-            } else {
-                AccessPrivilege::SupervisorAndUser
-            }
-        }
-        PrivilegeLevel::U => AccessPrivilege::UserOnly,
-        PrivilegeLevel::V => unreachable!(), // Doesn't have V-mode.
-    }
-}
-
 pub(crate) struct VirtAddrManager {
     pub(crate) mmio: MemoryMapIO,
     page_table: PageTableWalker,
@@ -113,96 +53,6 @@ impl VirtAddrManager {
             mmio: mmio,
             page_table: PageTableWalker::new(0, config::VirtualMemoryMode::None),
             ram: ram_ref,
-        }
-    }
-
-    /// NOTE: This function only resolves data access, for ifetch, please use `resolve_ifetch_policy`.
-    #[inline]
-    fn resolve_data_policy(
-        csr: &mut CsrRegFile,
-        access: AccessType,
-        side_effect: bool,
-    ) -> AccessPolicy {
-        let fault = match access {
-            AccessType::Read => MemError::LoadPageFault,
-            AccessType::Write | AccessType::ReadWrite => MemError::StorePageFault,
-        };
-
-        let effect = match (side_effect, access) {
-            (false, _) => AccessEffect::None,
-            (true, AccessType::Read) => AccessEffect::Accessed,
-            (true, AccessType::Write | AccessType::ReadWrite) => AccessEffect::AccessedDirty,
-        };
-
-        let (masks, flags) = match determine_data_access_privilege(csr) {
-            AccessPrivilege::MachineOnly => return AccessPolicy::Direct,
-
-            AccessPrivilege::SupervisorAndUser => (PTEFlags::empty(), PTEFlags::empty()),
-            AccessPrivilege::SupervisorOnly => (PTEFlags::U, PTEFlags::empty()),
-            AccessPrivilege::UserOnly => (PTEFlags::U, PTEFlags::U),
-        };
-
-        if csr.get_by_type_existing::<Mstatus>().get_mxr() == 1 && access == AccessType::Read {
-            // "The MXR (Make eXecutable Readable) bit modifies the privilege with which loads access virtual memory.
-            // When MXR=0, only loads from pages marked readable (R=1) will succeed.
-            // When MXR=1, loads from pages marked either readable or executable (R=1 or X=1) will succeed."
-            return AccessPolicy::Translated {
-                check: PermissionCheck {
-                    any_of: PTEFlags::R | PTEFlags::X,
-                    exact_mask: masks,
-                    exact_flags: flags,
-                },
-                effect,
-                fault,
-            };
-        }
-
-        let rwx_base = match access {
-            AccessType::Read => PTEFlags::R,
-            AccessType::Write => PTEFlags::W,
-            AccessType::ReadWrite => PTEFlags::R | PTEFlags::W,
-        };
-
-        AccessPolicy::Translated {
-            check: PermissionCheck {
-                any_of: PTEFlags::empty(),
-                exact_mask: masks | rwx_base,
-                exact_flags: flags | rwx_base,
-            },
-            effect,
-            fault,
-        }
-    }
-
-    #[inline]
-    fn resolve_ifetch_policy(csr: &mut CsrRegFile, with_side_effect: bool) -> AccessPolicy {
-        let effect = if with_side_effect {
-            AccessEffect::Accessed
-        } else {
-            AccessEffect::None
-        };
-
-        match csr.privelege_level() {
-            PrivilegeLevel::M => AccessPolicy::Direct,
-            PrivilegeLevel::S => AccessPolicy::Translated {
-                check: PermissionCheck {
-                    any_of: PTEFlags::empty(),
-                    exact_mask: PTEFlags::X | PTEFlags::U,
-                    exact_flags: PTEFlags::X,
-                },
-                effect,
-                fault: MemError::LoadPageFault,
-            },
-            PrivilegeLevel::U => AccessPolicy::Translated {
-                check: PermissionCheck {
-                    any_of: PTEFlags::empty(),
-                    exact_mask: PTEFlags::X | PTEFlags::U,
-                    exact_flags: PTEFlags::X | PTEFlags::U,
-                },
-                effect,
-                fault: MemError::LoadPageFault,
-            },
-            PrivilegeLevel::V => unreachable!(), // Doesn't have V-mode.
         }
     }
 
@@ -223,38 +73,36 @@ impl VirtAddrManager {
         }
     }
 
-    pub(crate) fn read<T>(&mut self, addr: WordType, csr: &mut CsrRegFile) -> Result<T, MemError>
+    fn read_with_policy<T>(&mut self, addr: WordType, policy: AccessPolicy) -> Result<T, MemError>
     where
         T: UnsignedInteger,
     {
         // Don't check alignment here since some devices may allow unaligned access.
         // Only check alignment in device's implementations.
 
-        let policy = Self::resolve_data_policy(csr, AccessType::Read, true);
         let paddr = self.translate_with_policy(addr, policy)?;
 
         self.mmio.read_by_type(paddr)
     }
 
-    pub(crate) fn write<T>(
+    fn write_with_policy<T>(
         &mut self,
         addr: WordType,
         data: T,
-        csr: &mut CsrRegFile,
+        policy: AccessPolicy,
     ) -> Result<(), MemError>
     where
         T: UnsignedInteger,
     {
-        let policy = Self::resolve_data_policy(csr, AccessType::Write, true);
         let paddr = self.translate_with_policy(addr, policy)?;
 
         self.mmio.write_by_type(paddr, data)
     }
 
-    pub(crate) fn load_reserved<T>(
+    fn load_reserved_with_policy<T>(
         &mut self,
         addr: WordType,
-        csr: &mut CsrRegFile,
+        policy: AccessPolicy,
     ) -> Result<T, MemError>
     where
         T: UnsignedInteger,
@@ -263,17 +111,16 @@ impl VirtAddrManager {
             return Err(MemError::LoadMisaligned);
         }
 
-        let policy = Self::resolve_data_policy(csr, AccessType::Read, true);
         let paddr = self.translate_with_policy(addr, policy)?;
 
         self.mmio.load_reserved(paddr)
     }
 
-    pub(crate) fn store_conditional<T>(
+    fn store_conditional_with_policy<T>(
         &mut self,
         addr: WordType,
         data: T,
-        csr: &mut CsrRegFile,
+        policy: AccessPolicy,
     ) -> Result<bool, MemError>
     where
         T: UnsignedInteger,
@@ -285,7 +132,6 @@ impl VirtAddrManager {
             return Err(MemError::StoreMisaligned);
         }
 
-        let policy = Self::resolve_data_policy(csr, AccessType::Write, true);
         let paddr = self.translate_with_policy(addr, policy)?;
 
         let res = self.mmio.store_conditional(paddr, data);
@@ -293,44 +139,18 @@ impl VirtAddrManager {
         res
     }
 
-    pub(crate) fn ifetch<T>(&mut self, addr: WordType, csr: &mut CsrRegFile) -> Result<T, MemError>
-    where
-        T: UnsignedInteger,
-    {
-        let policy = Self::resolve_ifetch_policy(csr, true);
-        let paddr = self.translate_with_policy(addr, policy)?;
-        self.mmio.read_by_type(paddr)
-    }
-
-    /// Fetch instruction without side-effect, respecting the privilege mode.
-    ///
-    /// Provided for debugger.
-    pub(crate) fn debug_ifetch<T>(
-        &mut self,
-        addr: WordType,
-        csr: &mut CsrRegFile,
-    ) -> Result<T, MemError>
-    where
-        T: UnsignedInteger,
-    {
-        let policy = Self::resolve_ifetch_policy(csr, false);
-        let paddr = self.translate_with_policy(addr, policy)?;
-        self.mmio.read_by_type(paddr)
-    }
-
     /// Atomic Memory Operation.
-    pub(crate) fn fetch_and_op_amo<T, F>(
+    fn fetch_and_op_amo_with_policy<T, F>(
         &mut self,
         addr: WordType,
         rhs_val: T,
-        csr: &mut CsrRegFile,
+        policy: AccessPolicy,
         f: F,
     ) -> Result<T, Exception>
     where
         T: UnsignedInteger,
         F: Fn(&T::AtomicType, T) -> Result<T, Exception>,
     {
-        let policy = Self::resolve_data_policy(csr, AccessType::ReadWrite, true);
         let mut paddr = match self.translate_with_policy(addr, policy) {
             Ok(p) => p,
             Err(_) => return Err(Exception::StorePageFault),
@@ -462,20 +282,18 @@ impl VirtAddrManager {
     /// Translates an address to a physical address as a real instruction would, but without side effects (such as writing A/D bits).
     ///
     /// This means the function will check PTE flags, and consider CPU state like CSR settings and privilege mode.
-    pub(crate) fn debug_translate(
+    fn translate_for_debug_with_policy(
         &mut self,
         addr: u64,
-        access: AccessType,
-        csr: &mut CsrRegFile,
+        policy: AccessPolicy,
     ) -> Result<u64, PageTableError> {
-        let policy = Self::resolve_data_policy(csr, access, false);
         match policy {
             AccessPolicy::Direct => Ok(addr),
             AccessPolicy::Translated {
                 check,
                 effect,
                 fault: _fault,
-            } => self.translate_vaddr(addr, check, effect),
+            } => self.translate_vaddr(addr as WordType, check, effect),
         }
     }
 
@@ -533,22 +351,22 @@ mod tests {
         let devices_ptr = NonNull::from(devices.as_mut());
         let mmio = unsafe { MemoryMapIO::from_mmio_items(ram.clone(), devices_ptr, table) };
         let mut memory = VirtAddrManager::from_ram_and_mmio(ram, mmio);
-        let mut csr = CsrRegFile::new();
-
         assert_eq!(
-            memory.load_reserved::<u32>(0x1000, &mut csr),
+            memory.load_reserved_with_policy::<u32>(0x1000, AccessPolicy::Direct),
             Err(MemError::LoadFault)
         );
 
         let ram_addr = ram_config::BASE_ADDR;
-        memory.load_reserved::<u32>(ram_addr, &mut csr).unwrap();
+        memory
+            .load_reserved_with_policy::<u32>(ram_addr, AccessPolicy::Direct)
+            .unwrap();
         assert_eq!(
-            memory.store_conditional::<u32>(0x1000, 1, &mut csr),
+            memory.store_conditional_with_policy::<u32>(0x1000, 1, AccessPolicy::Direct),
             Err(MemError::StoreFault)
         );
         assert!(
             !memory
-                .store_conditional::<u32>(ram_addr, 1, &mut csr)
+                .store_conditional_with_policy::<u32>(ram_addr, 1, AccessPolicy::Direct)
                 .unwrap()
         );
     }
@@ -558,21 +376,36 @@ mod tests {
         let ram = Rc::new(UnsafeCell::new(Ram::new()));
         let mmio = MemoryMapIO::from_ram(ram.clone());
         let mut memory = VirtAddrManager::from_ram_and_mmio(ram, mmio);
-        let mut csr = CsrRegFile::new();
         let addr = ram_config::BASE_ADDR + 8;
 
-        memory.write::<u32>(addr, 0, &mut csr).unwrap();
-        memory.load_reserved::<u32>(addr, &mut csr).unwrap();
+        memory
+            .write_with_policy::<u32>(addr, 0, AccessPolicy::Direct)
+            .unwrap();
+        memory
+            .load_reserved_with_policy::<u32>(addr, AccessPolicy::Direct)
+            .unwrap();
         assert_eq!(
             memory
-                .fetch_and_op_amo::<u32, _>(addr, 1, &mut csr, |lhs, rhs| {
-                    Ok(lhs.fetch_add(rhs, Ordering::SeqCst))
-                })
+                .fetch_and_op_amo_with_policy::<u32, _>(
+                    addr,
+                    1,
+                    AccessPolicy::Direct,
+                    |lhs, rhs| Ok(lhs.fetch_add(rhs, Ordering::SeqCst)),
+                )
                 .unwrap(),
             0
         );
 
-        assert!(!memory.store_conditional::<u32>(addr, 2, &mut csr).unwrap());
-        assert_eq!(memory.read::<u32>(addr, &mut csr).unwrap(), 1);
+        assert!(
+            !memory
+                .store_conditional_with_policy::<u32>(addr, 2, AccessPolicy::Direct)
+                .unwrap()
+        );
+        assert_eq!(
+            memory
+                .read_with_policy::<u32>(addr, AccessPolicy::Direct)
+                .unwrap(),
+            1
+        );
     }
 }

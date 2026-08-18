@@ -95,10 +95,7 @@ impl TestCPUBuilder {
     }
 
     pub(super) fn mem<T: UnsignedInteger>(mut self, addr: WordType, value: T) -> Self {
-        self.cpu
-            .memory
-            .write(addr, value, &mut self.cpu.csr)
-            .unwrap();
+        self.cpu.write(addr, value).unwrap();
         self
     }
 
@@ -112,29 +109,20 @@ impl TestCPUBuilder {
     {
         for i in indexs {
             let (addr, data) = f(i);
-            self.cpu
-                .memory
-                .write(addr, data, &mut self.cpu.csr)
-                .unwrap();
+            self.cpu.write(addr, data).unwrap();
         }
         self
     }
 
     pub(super) fn mem_base<T: UnsignedInteger>(mut self, addr: WordType, value: T) -> Self {
-        self.cpu
-            .memory
-            .write(BASE_ADDR + addr, value, &mut self.cpu.csr)
-            .unwrap();
+        self.cpu.write(BASE_ADDR + addr, value).unwrap();
         self
     }
 
     pub(super) fn program(mut self, instrs: &[u32]) -> Self {
         let mut addr = BASE_ADDR;
         for instr in instrs {
-            self.cpu
-                .memory
-                .write(addr, *instr, &mut self.cpu.csr)
-                .unwrap();
+            self.cpu.write(addr, *instr).unwrap();
             addr += 4;
         }
         self
@@ -206,11 +194,7 @@ impl<'a> CPUChecker<'a> {
         T: UnsignedInteger,
     {
         assert_eq!(
-            self.cpu
-                .memory
-                .read::<T>(addr, &mut self.cpu.csr)
-                .unwrap()
-                .into(),
+            self.cpu.read::<T>(addr).unwrap().into(),
             value,
             "Memory value incorrect at pos {}",
             addr

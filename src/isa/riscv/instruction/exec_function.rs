@@ -123,13 +123,7 @@ where
         let (val1, val2) = cpu.reg_file.read(rs1, rs2);
         let addr = wrapping_add_as_signed(val1, imm);
 
-        let ret = cpu.memory.write(addr, T::truncate_from(val2), &mut cpu.csr);
-        if let Err(err) = ret {
-            cpu.pending_tval = Some(addr);
-
-            return Err(Exception::from_memory_err(err));
-        }
-        Ok(())
+        cpu.write(addr, T::truncate_from(val2))
     })
 }
 

@@ -248,21 +248,7 @@ where
 
     let (val1, val2) = cpu.reg_file.read(rs1, rs2);
     let order = get_amo_order(aq, rl);
-    let res = cpu
-        .memory
-        .fetch_and_op_amo(val1, T::truncate_from(val2), &mut cpu.csr, |l, r| {
-            F::exec(l, r, order)
-        });
-
-    let res = match res {
-        Err(e) => {
-            // TODO: Use a wrapper function in every instruction
-            // that read/write memory to set pending_tval on MemError.
-            cpu.pending_tval = Some(val1);
-            return Err(e);
-        }
-        Ok(v) => v,
-    };
+    let res = cpu.fetch_and_op_amo(val1, T::truncate_from(val2), |l, r| F::exec(l, r, order))?;
 
     let res = res.sign_extend_to_wordtype();
 
@@ -287,18 +273,7 @@ where
 
     let addr = cpu.reg_file[rs1 as usize];
 
-    let res = cpu
-        .memory
-        .load_reserved::<T>(addr, &mut cpu.csr)
-        .map_err(|e| Exception::from_memory_err(e));
-
-    let res = match res {
-        Err(e) => {
-            cpu.pending_tval = Some(addr);
-            return Err(e);
-        }
-        Ok(v) => v,
-    };
+    let res = cpu.load_reserved::<T>(addr)?;
 
     let res = if EXTEND {
         res.sign_extend_to_wordtype()
@@ -320,18 +295,7 @@ where
         let (addr, val) = cpu.reg_file.read(rs1, rs2);
         let val_t = T::truncate_from(val);
 
-        let res = cpu
-            .memory
-            .store_conditional(addr, val_t, &mut cpu.csr)
-            .map_err(|e| Exception::from_memory_err(e));
-
-        let success = match res {
-            Ok(v) => v,
-            Err(e) => {
-                cpu.pending_tval = Some(addr);
-                return Err(e);
-            }
-        };
+        let success = cpu.store_conditional(addr, val_t)?;
 
         cpu.reg_file.write(rd, if success { 0 } else { 1 });
         cpu.pc = cpu.pc.wrapping_add(4);
