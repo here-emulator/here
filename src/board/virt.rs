@@ -8,7 +8,7 @@ use std::{
     sync::atomic::Ordering,
 };
 
-pub use crate::device::fast_uart::{UartIoError, UartIoMode};
+pub use crate::device::uart16550a::{UartIoError, UartIoMode};
 
 use crate::{
     DeviceConfig,

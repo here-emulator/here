@@ -1,6 +1,7 @@
+pub mod io;
 mod reg;
 
-pub use crate::device::fast_uart::{UART_INPUT_CAPACITY, UartBytePort};
+pub use io::{UART_INPUT_CAPACITY, UartBytePort, UartIoError, UartIoMode};
 
 use std::ops::Not;
 
@@ -201,7 +202,7 @@ impl DeviceTrait for Uart16550A {
                 let _ = self.output_tx.send(byte);
                 // In a real 16550, writing THR clears LSR[5] (THRE) momentarily,
                 // then sets it again when the shift register accepts the byte.
-                // Since fast_uart sends instantly, we just re-arm the THRE event.
+                // Since this UART sends instantly, we just re-arm the THRE event.
                 self.ip.insert(InterruptReasonBitflags::THRE);
             }
             let old_ier = self.reg.interrupt_enable_register;
@@ -273,7 +274,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn output_matches_fast_uart() {
+    fn output_test() {
         let (mut uart, mut port) = Uart16550A::new();
 
         uart.write_u8(0, b'a').unwrap();
@@ -283,7 +284,7 @@ mod tests {
     }
 
     #[test]
-    fn input_matches_fast_uart() {
+    fn input_test() {
         let (mut uart, port) = Uart16550A::new();
 
         port.push_input(b"abcd").unwrap();
@@ -302,7 +303,7 @@ mod tests {
         port.push_input(&vec![b'a'; UART_INPUT_CAPACITY]).unwrap();
         assert_eq!(
             port.push_input(b"b"),
-            Err(crate::device::fast_uart::UartIoError::InputFull { accepted: 0 })
+            Err(UartIoError::InputFull { accepted: 0 })
         );
 
         assert_eq!(uart.read_u8(0).unwrap(), b'a');
