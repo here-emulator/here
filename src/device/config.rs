@@ -18,6 +18,9 @@ pub const PLIC_NAME: &'static str = "plic";
 pub const PLIC_BASE: WordType = 0xc00_0000;
 pub const PLIC_SIZE: WordType = 0x400_0000;
 
+// The emulator does not model a physical input clock.  Keep the reset
+// divisor at the value used by the previous UART implementation; guests that
+// need a particular baud rate can program DLL/DLM through DLAB.
 pub const UART_DEFAULT_DIV: usize = 1;
 pub const UART_NAME: &'static str = "uart";
 pub const UART_BASE: WordType = 0x1000_0000;

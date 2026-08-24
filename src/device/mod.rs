@@ -44,6 +44,7 @@ pub(crate) mod config;
 pub mod device_manager;
 pub mod fast_uart;
 mod id_allocator;
+pub mod uart16550a;
 pub(crate) use id_allocator::*;
 pub(crate) mod mmio;
 pub(crate) mod plic;
@@ -123,7 +124,7 @@ pub trait PlicDevice: DeviceTrait {
     /// remain asserted until serviced. A source that can emit short pulses
     /// must drive [`crate::device::plic::irq_line::PlicIRQLine`] directly so a
     /// pulse cannot occur entirely between PLIC samples.
-    fn irq_level(&self) -> bool;
+    fn irq_level(&mut self) -> bool;
 }
 
 // TODO: Remove this

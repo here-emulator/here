@@ -177,7 +177,7 @@ impl MemMappedDeviceTrait for SampleTimerDevice {
 }
 
 impl PlicDevice for SampleTimerDevice {
-    fn irq_level(&self) -> bool {
+    fn irq_level(&mut self) -> bool {
         self.irq_pending.load(Ordering::Acquire) && (self.layout.interrupt_mask_reg & 1) == 1
     }
 }

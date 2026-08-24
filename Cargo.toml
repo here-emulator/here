@@ -24,12 +24,7 @@ riscv-tests = []
 test-device = ["riscv64"]
 custom-instr = ["riscv64"]
 
-default = [
-    "riscv64",
-    "native-cli",
-    "test-device",
-    "riscv-tests",
-]
+default = ["riscv64", "native-cli", "test-device", "riscv-tests"]
 
 [dependencies]
 xmas-elf = "0.7.0"
@@ -54,6 +49,7 @@ clap = { version = "4.5.43", features = ["derive"], optional = true }
 noline = { version = "0.5.1", default-features = false, features = ["alloc"] }
 embedded-io = { version = "0.6.1" }
 embedded-io-async = { version = "0.6.1" }
+bitfield-struct = { version = "0.13.0" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 flexi_logger = { version = "0.31.2", optional = true }

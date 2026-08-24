@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 use crate::{
     board::{Board, BoardStatus, virt::VirtBoard},
     config::arch_config::REGFILE_CNT,
-    device::fast_uart::UartBytePort,
+    device::uart16550a::UartBytePort,
     isa::DebugTarget,
     load::{ELFLoader, SymTab},
     rvdb::{AsyncREPL, REPLResponse, RvdbChannelTx, RvdbChannels},

@@ -280,8 +280,8 @@ impl DeviceTrait for MemoryMapIO {
 mod test {
     use crate::device::{
         config::{POWER_MANAGER_BASE, POWER_MANAGER_SIZE, UART_BASE, UART_SIZE},
-        fast_uart::FastUart16550,
         power_manager::PowerManager,
+        uart16550a::Uart16550A,
     };
 
     use super::*;
@@ -290,7 +290,7 @@ mod test {
     fn mmio_mem_test() {
         let ram = Rc::new(UnsafeCell::new(Ram::new()));
 
-        let (uart1, _port) = FastUart16550::new();
+        let (uart1, _port) = Uart16550A::new();
         let power_manager = PowerManager::new();
         let mut arena_builder = crate::device::device_manager::DeviceArenaBuilder::new();
         let power_manager = arena_builder.register(Box::new(power_manager));
@@ -320,7 +320,7 @@ mod test {
     #[test]
     fn mmio_stdout_test() {
         let ram = Rc::new(UnsafeCell::new(Ram::new()));
-        let (uart1, mut port1) = FastUart16550::new();
+        let (uart1, mut port1) = Uart16550A::new();
         let power_manager = PowerManager::new();
         let mut arena_builder = crate::device::device_manager::DeviceArenaBuilder::new();
         let power_manager = arena_builder.register(Box::new(power_manager));

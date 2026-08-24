@@ -23,13 +23,13 @@ use crate::{
             UART_IRQ, VIRTIO_IRQ_BASE,
         },
         device_manager::{DeviceArena, DeviceArenaBuilder, DeviceHandle},
-        fast_uart::{FastUart16550, UartBytePort},
         mmio::{MemoryMapIO, MemoryMapItem},
         plic::{
             PLIC, PeriphIrqId,
             irq_line::{PlicIRQHandler, PlicIRQSource},
         },
         power_manager::{POWER_OFF_CODE, POWER_STATUS, PowerManager},
+        uart16550a::{Uart16550A, UartBytePort},
         virtio::{
             virtio_blk::VirtIOBlkDeviceBuilder, virtio_device::VirtIODeviceEnum,
             virtio_mmio::VirtIOMMIO,
@@ -228,7 +228,7 @@ impl RVBoardBuilder {
         let ram_ref = Rc::new(UnsafeCell::new(ram));
 
         // Construct devices
-        let (uart1, uart_port1) = FastUart16550::new();
+        let (uart1, uart_port1) = Uart16550A::new();
         self = self.add_plic_device(Box::new(uart1), UART_IRQ);
 
         let mut uart_port = None;
@@ -665,6 +665,32 @@ mod tests {
         board.push_uart_input(b"a").unwrap();
         board.uart_port().unwrap().push_input(b"b").unwrap();
         assert!(board.take_uart_output().unwrap().is_empty());
+    }
+
+    #[test]
+    fn virtboard_mmio_uses_uart16550a() {
+        use crate::{device::config::UART_BASE, isa::riscv::debugger::Address};
+
+        let mut board = VirtBoard::from_binary_with(&[], VirtBoardConfig::new()).unwrap();
+
+        board
+            .cpu
+            .write_memory(Address::Phys(UART_BASE), b'a')
+            .unwrap();
+        assert_eq!(board.take_uart_output().unwrap(), vec![b'a']);
+
+        board.push_uart_input(b"b").unwrap();
+        board
+            .cpu
+            .write_memory(Address::Phys(UART_BASE + 1), 0x01u8)
+            .unwrap();
+        assert_eq!(
+            board
+                .cpu
+                .read_memory::<u8>(Address::Phys(UART_BASE))
+                .unwrap(),
+            b'b'
+        );
     }
 
     #[test]

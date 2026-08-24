@@ -188,7 +188,7 @@ async fn forward_bytes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::device::{DeviceTrait, config::UART_IRQ, fast_uart::FastUart16550};
+    use crate::device::{DeviceTrait, PlicDevice, uart16550a::Uart16550A};
 
     fn test_router() -> (StdinRouter, watch::Receiver<StdinHandle>) {
         let (target_tx, target_rx) = watch::channel(StdinHandle::NONE);
@@ -230,7 +230,7 @@ mod tests {
     fn uart_sender_is_registered_directly() {
         let runtime = Builder::new_current_thread().enable_all().build().unwrap();
         let (router, mut target_rx) = test_router();
-        let (mut uart, port) = FastUart16550::new();
+        let (mut uart, port) = Uart16550A::new();
         let uart_handle = router.register(port.input_sender());
         router.switch_to(uart_handle);
         uart.write_u8(1, 0x01).unwrap();
@@ -239,11 +239,11 @@ mod tests {
             .block_on(forward_bytes(&mut target_rx, &router.senders, b"uart"))
             .unwrap();
 
-        assert_eq!(uart.irq_status(), Some(UART_IRQ));
+        assert!(uart.irq_level());
         for expected in b"uart" {
             assert_eq!(uart.read_u8(0).unwrap(), *expected);
         }
-        assert_eq!(uart.irq_status(), None);
+        assert!(!uart.irq_level());
     }
 
     #[test]

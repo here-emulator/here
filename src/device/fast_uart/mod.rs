@@ -41,8 +41,8 @@ pub enum UartIoError {
 }
 
 pub struct UartBytePort {
-    input_tx: Sender<u8>,
-    output_rx: UnboundedReceiver<u8>,
+    pub input_tx: Sender<u8>,
+    pub output_rx: UnboundedReceiver<u8>,
 }
 
 impl UartBytePort {
@@ -321,7 +321,7 @@ impl FastUart16550 {
 
     /// Snapshot the current interrupt state.
     #[cfg(test)]
-    pub fn irq_status(&self) -> Option<PeriphIrqId> {
+    pub fn irq_status(&mut self) -> Option<PeriphIrqId> {
         self.irq_level().then_some(UART_IRQ)
     }
 
@@ -446,7 +446,7 @@ impl FastUart16550 {
 }
 
 impl PlicDevice for FastUart16550 {
-    fn irq_level(&self) -> bool {
+    fn irq_level(&mut self) -> bool {
         let reg = self.reg.borrow();
         FastUart16550::eval_irq(
             reg.IER,
@@ -534,7 +534,7 @@ mod test {
     /// Without RDA enabled, incoming bytes are buffered but must not interrupt.
     #[test]
     fn input_without_rda_enabled_does_not_interrupt() {
-        let (uart, port) = FastUart16550::new();
+        let (mut uart, port) = FastUart16550::new();
 
         port.push_input(b"x").unwrap();
 

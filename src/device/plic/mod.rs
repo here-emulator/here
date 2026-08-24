@@ -452,12 +452,12 @@ impl PLIC {
     }
 
     fn sync_peripheral_irq_levels(&mut self) {
-        for (interrupt_id, device) in self.peripheral_irq_devices.iter().enumerate() {
+        for (interrupt_id, device) in self.peripheral_irq_devices.iter_mut().enumerate() {
             let Some(device) = device else {
                 continue;
             };
 
-            let level = unsafe { device.as_ref() }.irq_level();
+            let level = unsafe { device.as_mut() }.irq_level();
             self.layout
                 .set_source_level(interrupt_id as PeriphIrqId, level);
         }
@@ -830,7 +830,7 @@ mod test {
     }
 
     impl PlicDevice for TestPlicDevice {
-        fn irq_level(&self) -> bool {
+        fn irq_level(&mut self) -> bool {
             self.samples.set(self.samples.get() + 1);
             self.level
         }
