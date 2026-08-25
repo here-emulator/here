@@ -1,10 +1,10 @@
-ARCH := riscv64-unknown
-SRC  := ./src
-INC  := ./include
-LIB  := ./lib
-OBJ  := ./obj
-BIN  := ./bin
-DUMP := ./dump
+ARCH ?= riscv64-unknown
+SRC  ?= ./src
+INC  ?= ./include
+LIB  ?= ./lib
+OBJ  ?= ./obj
+BIN  ?= ./bin
+DUMP ?= ./dump
 
 # toolchain
 RV_CC ?= $(ARCH)-elf-gcc
@@ -20,9 +20,12 @@ QEMU ?= qemu-system-$(ARCH)
 
 # prompt
 VERBOSE ?= 0
-# ifeq ($(VERBOSE), 0)
-# 	Q := @
-# else
+ifeq ($(VERBOSE), 0)
+	Q := @
+else
+	Q := 
+endif
+
 RV_CC_PROMPT := RV_CC
 RV_LD_PROMPT := RV_LD
 RV_DUMP_PROMPT := RV_DUMP
@@ -41,50 +44,50 @@ LIBS_OBJ := $(patsubst %,$(OBJ)/%.o,$(LIBS))
 
 .PHONY: build_lib build run clean debug_makefile
 DEFAULT_TARGET: build dump_all
-echo_cmd = printf "%-10s %s\n" "$(1)" "$(strip $(2))"
+echo_cmd = printf "\033[1;34m%-10s %s\033[0m\n" "$(strip $(1))" "$(strip $(2))"
 
 build: $(TARGET_ELFS)
 
 # trap.o
 $(OBJ)/trap.o: $(LIB)/trap.S
-	@ mkdir -p $(OBJ) $(BIN)
 	@ $(call echo_cmd, $(RV_CC_PROMPT), $@)
-	@ $(RV_CC) $(RV_CFLAG) -c $< -o $@
+	$(Q) mkdir -p $(OBJ) $(BIN)
+	$(Q) $(RV_CC) $(RV_CFLAG) -c $< -o $@
 
 # boot.o
 $(OBJ)/boot.o: $(SRC)/boot.S
-	@ mkdir -p $(OBJ) $(BIN)
 	@ $(call echo_cmd, $(RV_CC_PROMPT), $@)
-	@ $(RV_CC) $(RV_CFLAG) -c $< -o $@
+	$(Q) mkdir -p $(OBJ) $(BIN)
+	$(Q) $(RV_CC) $(RV_CFLAG) -c $< -o $@
 
 # default lib file.
 $(OBJ)/%.o: $(LIB)/%.c
-	@ mkdir $(OBJ) $(BIN) -p
 	@ $(call echo_cmd, $(RV_CC_PROMPT), $@)
-	@ $(RV_CC) $(RV_CFLAG) -c $^ -o $@
+	$(Q) mkdir $(OBJ) $(BIN) -p
+	$(Q) $(RV_CC) $(RV_CFLAG) -c $^ -o $@
 
 $(BIN)/%.elf: $(OBJ)/%.o $(LIBS_OBJ) linker.ld
-	@ mkdir -p $(OBJ) $(BIN)
 	@ $(call echo_cmd, $(RV_LD_PROMPT), $@)
-	@ $(RV_LD) $(RV_LDFLAG) -T linker.ld -o $@ $(filter %.o,$^)
+	$(Q) mkdir -p $(OBJ) $(BIN)
+	$(Q) $(RV_LD) $(RV_LDFLAG) -T linker.ld -o $@ $(filter %.o,$^)
 	
 # default .c file
 $(OBJ)/%.o: $(SRC)/%.c
-	@ mkdir -p $(OBJ) $(BIN)
 	@ $(call echo_cmd, $(RV_CC_PROMPT), $@)
-	@ $(RV_CC) $(RV_CFLAG) -c $< -o $@
+	$(Q) mkdir -p $(OBJ) $(BIN)
+	$(Q) $(RV_CC) $(RV_CFLAG) -c $< -o $@
 
 
 # dump target elf
 dump_all: $(TARGET_DUMPS)
 
 $(DUMP)/%.dump: $(BIN)/%.elf
-	@ mkdir -p $(DUMP)
 	@ $(call echo_cmd, $(RV_DUMP_PROMPT), $@)
-	@ $(RV_DUMP) -d $(RV_DUMPFLAG) $< > $@
+	$(Q) mkdir -p $(DUMP)
+	$(Q) $(RV_DUMP) -d $(RV_DUMPFLAG) $< > $@
 
 
-run: build
+qemu_run: build
 	$(QEMU) -machine virt -bios $(BIN)/$(TARGET).elf -serial stdio
 
 clean:
