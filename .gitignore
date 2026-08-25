@@ -1,75 +1,21 @@
-*
+.vscode/
+.vscode/**
+logs/
+*.log
 
-!README.md
-!.gitignore
-!**/Makefile
-!**/makefile
-!Cargo.toml
-!build.rs
+target/
+target/**
+Cargo.lock
 
-# track `.github` directory
-!.github/
-!.github/**/
-# track all files in `.github/`
-!.github/**
+.cache/
+**/tmp/
 
-# track `.agents` directory
-!.agents/
-!.agents/**/
-!.agents/**
+**/compile_commands.json
 
-# track `src` directory
-!src/
-!src/**/
-# track `*.rs` files in `src/`
-!src/**/*.rs
+test_resources/dump/
+test_resources/bin/
+test_resources/obj/
 
-# track `doc` directory
-!doc/
-!doc/**/
-# track `*.md` files in `doc/`
-!doc/**/*.md
-
-# track `benches` directory
-!benches/
-!benches/**/
-!benches/**/*.rs
-
-!tests/
-!tests/**/
-!tests/**/*.rs
-!tests/**/*
-
-# track `test_resources` directory
-!test_resources/
-!test_resources/**/
-# track `*.h *.hpp *.c *.C *.cpp *.cxx *.cc *.s *.S *.ld` files in `test_resources/`
-!test_resources/**/*.h
-!test_resources/**/*.hpp
-!test_resources/**/*.c
-!test_resources/**/*.C
-!test_resources/**/*.cpp
-!test_resources/**/*.cxx
-!test_resources/**/*.cc
-!test_resources/**/*.s
-!test_resources/**/*.S
-!test_resources/**/*.ld
-
-# track `data` directory
-!data/
-# track all files in `data/`
-!data/**
-
-!dts/
-!dts/*.dts
-!dts/*.dtsi
-
-# track submodule
-!.gitmodules
-!riscv-tests/
-!riscv-tests/**
-
-**/__pycache__/*
-
-# agents skills
-!.agents/skills/bug-report/**
+*.dtb
+*.elf
+*.[oa]
