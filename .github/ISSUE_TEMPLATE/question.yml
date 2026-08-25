@@ -1,0 +1,44 @@
+name: 💬 Question / Support
+description: Ask a question about compiling, testing, or developing with the RISC-V emulator
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question or need help running workloads on HERE RISC-V Emulator? Please search existing issues and documentation first.
+
+  - type: checkboxes
+    id: is-existing
+    attributes:
+      label: Is there an existing issue for this?
+      description: Please search existing issues to see if your question has already been answered.
+      options:
+        - label: I have searched the existing issues and documentation
+          required: true
+
+  - type: input
+    id: topic
+    attributes:
+      label: Topic
+      description: Brief topic or area of interest (e.g., Booting Linux, Vector Extension, Debugging).
+      placeholder: "e.g., How to attach a VirtIO disk when booting Linux"
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question / Inquiry
+      description: Please describe your question in detail.
+      placeholder: "I would like to know..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Any relevant environment details, command invocations, or logs.
+    validations:
+      required: false

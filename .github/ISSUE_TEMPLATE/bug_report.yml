@@ -1,0 +1,81 @@
+name: 🐛 Bug Report
+description: Report a reproducible bug or unexpected behavior in the emulator
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report an issue! Please fill out the form below to help us investigate and resolve it quickly.
+
+  - type: checkboxes
+    id: is-existing
+    attributes:
+      label: Is there an existing issue for this?
+      description: Please search existing issues to see if this bug has already been reported.
+      options:
+        - label: I have searched the existing issues
+          required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: Which operating system and architecture are you running the emulator on?
+      multiple: false
+      options:
+        - Linux (x86_64)
+        - Linux (aarch64)
+        - macOS (Apple Silicon - aarch64)
+        - macOS (Intel - x86_64)
+        - Windows (x86_64)
+        - Web / WebAssembly (wasm32)
+        - Other (please specify in Additional context)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release version or git commit hash (e.g., `v0.1.0` or output of `git rev-parse --short HEAD`).
+      placeholder: "e.g., v0.1.0 or commit 78bd5fd"
+    validations:
+      required: true
+
+  - type: textarea
+    id: describe-bug
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is, steps to reproduce it, and the expected behavior.
+      placeholder: |
+        ### Bug Description
+        A clear description of what went wrong.
+
+        ### Steps to Reproduce
+        1. Run command: `cargo run -- ...`
+        2. Target ELF / Binary: `...`
+        3. Options / flags used: `...`
+
+        ### Expected Behavior
+        What you expected to happen instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Related Logs
+      description: Relevant logs, terminal output, or backtraces (e.g. output with `--loglevel=trace` or `RUST_BACKTRACE=1`).
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add any other context about the problem here (e.g., Rust toolchain `rustc --version`, guest OS/SBI version, custom instruction configuration).
+      placeholder: "e.g., rustc nightly 2025-xx-xx, Linux 6.18.2 kernel payload, etc."
+    validations:
+      required: false

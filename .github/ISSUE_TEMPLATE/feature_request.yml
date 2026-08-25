@@ -1,0 +1,71 @@
+name: 💡 Feature Request
+description: Propose a new feature, instruction extension, device, or improvement for the RISC-V emulator
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature or improvement! Please provide detailed context to help us understand your proposal.
+
+  - type: checkboxes
+    id: is-existing
+    attributes:
+      label: Is there an existing issue for this?
+      description: Please search existing issues to avoid creating duplicates.
+      options:
+        - label: I have searched the existing issues
+          required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: Which component of the emulator does this feature request relate to?
+      multiple: false
+      options:
+        - ISA / Instruction Extension (e.g., RVV Vector, Bitmanip, Float)
+        - Privilege Architecture / CSR / MMU / Virtual Memory
+        - Device & Peripheral (VirtIO, PLIC, CLINT, UART, etc.)
+        - Debugger & Tooling (rvdb, GDB stub, trace tools)
+        - Performance & Optimization
+        - Web / WebAssembly Support
+        - Build System & CI / Test Suite
+        - Documentation & Examples
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Problem or Motivation
+      description: Is your feature request related to a problem, workload, or missing specification?
+      placeholder: "I'm trying to run [...] but it requires support for [...]"
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution / Implementation Idea
+      description: Describe the solution or feature you would like to see added, and how it should behave.
+      placeholder: "Details about the ISA specification, register behaviors, CLI flags, or architectural changes..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions or workarounds you have considered.
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Any extra context, links to RISC-V specifications, papers, or sample code.
+    validations:
+      required: false
