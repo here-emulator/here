@@ -68,7 +68,7 @@ pub struct InterruptEnableRegister {
 
     /// Ignored
     #[bits(4, default=0b0000, access = RO)]
-    pub ignored: u8,
+    ignored: u8,
 }
 
 impl InterruptEnableRegister {
@@ -83,7 +83,7 @@ pub struct InterruptIdentificationRegister {
     #[bits(1, default = true)]
     pub pending_free_flag: bool,
 
-    /// Mossible interrupts reason, ordered by priority:
+    /// Possible interrupts reason, ordered by priority:
     /// 0b011: Parity, Overrun or Framing errors or Break Interrupt
     /// 0b010: FIFO trigger level reached
     /// 0b110: There’s at least 1 character in the FIFO but no character
@@ -95,7 +95,7 @@ pub struct InterruptIdentificationRegister {
 
     /// Ignored
     #[bits(4, default = 0b1100)]
-    pub ignored: u8,
+    ignored: u8,
 }
 
 impl InterruptIdentificationRegister {
@@ -149,9 +149,9 @@ pub struct FIFOControlRegister {
     /// ‘00’ - 1 byte
     /// ‘01’ - 4 bytes
     /// ‘10’ - 8 bytes
-    /// ‘11’ - 14 byte
+    /// ‘11’ - 14 bytes
     #[bits(2, default = 0b11)]
-    receiver_fifo_interrupt_trigger_level: u8,
+    pub receiver_fifo_interrupt_trigger_level: u8,
 }
 
 impl FIFOControlRegister {
@@ -223,21 +223,21 @@ pub struct ModemControlRegister {
     /// ‘0’ - DTR is ‘1’
     /// ‘1’ - DTR is ‘0’
     #[bits(1, default = false)]
-    dtr: bool,
+    pub dtr: bool,
 
     /// Request To Send (RTS) signal control
     /// ‘0’ - RTS is ‘1’
     /// ‘1’ - RTS is ‘0’
     #[bits(1, default = false)]
-    rts: bool,
+    pub rts: bool,
 
-    /// Out1. In loopback mode, connected Ring Indicator (RI) signal input
+    /// Out1. In loopback mode, connected to Ring Indicator (RI) signal input
     #[bits(1, default = false)]
-    out1: bool,
+    pub out1: bool,
 
     /// Out2. In loopback mode, connected to Data Carrier Detect (DCD) input
     #[bits(1, default = false)]
-    out2: bool,
+    pub out2: bool,
 
     /// Loopback mode
     /// ‘0’ - normal operation
@@ -250,7 +250,7 @@ pub struct ModemControlRegister {
     /// Out1 -> RI
     /// Out2 -> DCD
     #[bits(1, default = false)]
-    loopback_mode: bool,
+    pub loopback_mode: bool,
 
     /// Ignored
     #[bits(3, default = 0b000)]
@@ -295,7 +295,7 @@ pub struct LineStatusRegister {
     pub framing_error: bool,
 
     /// Break Interrupt (BI) indicator
-    /// ‘1’ -A break condition has been reached in the current character. The break occurs when the line is
+    /// ‘1’ - A break condition has been reached in the current character. The break occurs when the line is
     /// held in logic 0 for a time of one character (start bit + data + parity + stop bit). In that case, one zero
     /// character enters the FIFO and the UART waits for a valid start bit to receive next character. The bit is
     /// cleared upon reading from the register. Generates Receiver Line Status interrupt.
@@ -305,14 +305,14 @@ pub struct LineStatusRegister {
 
     /// Transmit FIFO is empty.
     /// ‘1’ - The transmitter FIFO is empty. Generates Transmitter Holding Register Empty interrupt. The
-    /// bit is cleared when data is being been written to the transmitter FIFO.
+    /// bit is cleared when data is being written to the transmitter FIFO.
     /// ‘0’ - Otherwise
     #[bits(1, default = true)]
     pub transmit_holding_empty: bool,
 
     /// Transmitter Empty indicator.
     /// ‘1’ - Both the transmitter FIFO and transmitter shift register are empty. The bit is cleared when data
-    /// is being been written to the transmitter FIFO.
+    /// is being written to the transmitter FIFO.
     /// ‘0’ - Otherwise
     #[bits(1, default = true)]
     pub transmit_empty: bool,

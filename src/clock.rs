@@ -1,4 +1,4 @@
-use std::{cell::Cell, rc::Rc, u64};
+use std::{cell::Cell, rc::Rc};
 
 pub trait Clock {
     fn now(&self) -> u64;

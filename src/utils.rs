@@ -1,7 +1,6 @@
 use std::{
     fmt::{Debug, Display},
     ops::*,
-    usize,
 };
 
 use rustc_apfloat::StatusAnd;

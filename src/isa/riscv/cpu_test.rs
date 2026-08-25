@@ -1,4 +1,4 @@
-use std::{f32, thread};
+use std::thread;
 
 use super::*;
 use crate::{

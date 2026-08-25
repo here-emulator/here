@@ -113,7 +113,7 @@ impl Uart16550A {
     }
 
     fn try_raise_thre_interrupt(&mut self, old_ier: IER, new_ier: IER) {
-        if old_ier.transmitter_holding_register_empty_interrupt().not()
+        if !old_ier.transmitter_holding_register_empty_interrupt()
             && new_ier.transmitter_holding_register_empty_interrupt()
             && self.reg.line_status_register.transmit_holding_empty()
         {
@@ -206,9 +206,9 @@ impl DeviceTrait for Uart16550A {
                 self.ip.insert(InterruptReasonBitflags::THRE);
             }
             let old_ier = self.reg.interrupt_enable_register;
-            let new_ier = IER::from_bits(data as u8 & 0xff);
+            let new_ier = IER::from_bits(data as u8);
 
-            self.reg.write(i, (data & (0xff)) as u8);
+            self.reg.write(i, data as u8);
 
             // FCR remains selected at offset 2 even while DLAB selects DLL/DLM
             // at offsets 0 and 1.
@@ -235,7 +235,7 @@ impl DeviceTrait for Uart16550A {
             }
             data >>= 8;
 
-            // if unmask ier.thre bit, and transmit FIFO is empty now, raise an thre interrupt.
+            // if unmask ier.thre bit, and transmit FIFO is empty now, raise a thre interrupt.
             if i == IER::offset() && !self.reg.divisor_latch_enable() {
                 self.try_raise_thre_interrupt(old_ier, new_ier);
             }
