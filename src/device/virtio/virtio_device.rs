@@ -5,7 +5,7 @@ use std::sync::{
 
 use lazy_static::lazy_static;
 
-use crate::device::{plic::irq_line::PlicIRQSource, virtio::config::VirtIOFeatureSet};
+use crate::device::virtio::config::VirtIOFeatureSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
@@ -56,14 +56,14 @@ pub enum VirtIODeviceEnum {
     VirtIOSpiMaster = 45,
 }
 
-pub(crate) trait VirtIODeviceTrait: PlicIRQSource {
+pub(crate) trait VirtIODeviceTrait {
     fn get_device_id(&self) -> u16;
     fn status(&mut self) -> &mut u8;
     fn get_generation(&self) -> u32;
     fn reset(&mut self);
 
     fn isr(&mut self) -> &mut AtomicU8;
-    fn update_irq(&mut self);
+    fn irq_level(&mut self) -> bool;
 
     fn get_host_feature(&self) -> VirtIOFeatureSet;
     fn set_feature(&mut self, feature: VirtIOFeatureSet);

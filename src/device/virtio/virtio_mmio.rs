@@ -6,12 +6,8 @@ use num_enum::TryFromPrimitive;
 
 use crate::{
     device::{
-        DeviceTrait, MemError, MemMappedDeviceTrait,
+        DeviceTrait, MemError, MemMappedDeviceTrait, PlicDevice,
         config::{VIRTIO_MMIO_BASE, VIRTIO_MMIO_SIZE},
-        plic::{
-            PeriphIrqId,
-            irq_line::{PlicIRQHandler, PlicIRQSource},
-        },
         virtio::{
             config::*,
             virtio_device::{VirtIODeviceEnum, VirtIODeviceTrait},
@@ -392,12 +388,8 @@ impl VirtIOMMIO {
                 VirtIO_MMIO_Offset::InterruptAck => {
                     let vdev = unsafe { &mut *vdev };
                     let clear_mask = value as u8;
-                    let old = vdev
-                        .isr()
+                    vdev.isr()
                         .fetch_and(!clear_mask, std::sync::atomic::Ordering::AcqRel);
-                    if old != old & !clear_mask {
-                        vdev.update_irq();
-                    }
                 }
                 VirtIO_MMIO_Offset::Status => {
                     if value == 0 {
@@ -524,9 +516,9 @@ impl MemMappedDeviceTrait for VirtIOMMIO {
     }
 }
 
-impl PlicIRQSource for VirtIOMMIO {
-    fn set_irq_line(&mut self, target: *mut dyn PlicIRQHandler, interrupt_id: PeriphIrqId) {
-        unsafe { self.device.as_mut_unchecked() }.set_irq_line(target, interrupt_id);
+impl PlicDevice for VirtIOMMIO {
+    fn irq_level(&mut self) -> bool {
+        unsafe { self.device.as_mut_unchecked() }.irq_level()
     }
 }
 
@@ -601,17 +593,12 @@ impl GuestFeatureBuilder {
 #[cfg(test)]
 mod test {
     use core::slice;
-    use std::{
-        cell::RefCell,
-        io::{Read, Seek},
-        rc::Rc,
-    };
+    use std::io::{Read, Seek};
 
     use super::*;
     use crate::{
         device::{
-            DeviceTrait,
-            plic::irq_line::PlicIRQHandler,
+            DeviceTrait, PlicDevice,
             virtio::{
                 virtio_blk::{
                     VirtIOBlkDeviceBuilder, VirtIOBlkReqStatus, VirtIOBlockFeature, VirtioBlkReq,
@@ -629,16 +616,6 @@ mod test {
 
     const QUEUE_NUM: usize = 8;
     const DESC_NUM: usize = 16;
-
-    struct MockPlicIRQHandler {
-        changes: Rc<RefCell<Vec<(PeriphIrqId, bool)>>>,
-    }
-
-    impl PlicIRQHandler for MockPlicIRQHandler {
-        fn handle_irq(&mut self, interrupt: PeriphIrqId, level: bool) {
-            self.changes.borrow_mut().push((interrupt, level));
-        }
-    }
 
     #[test]
     fn feature_registers_cover_all_128_bits() {
@@ -664,11 +641,6 @@ mod test {
         let mut buf: [u8; 512] = [0u8; 512];
         buf[0xff] = 0x55;
         let mut file = init_block_file(&file_name, 1, |_| &buf);
-        let irq_changes = Rc::new(RefCell::new(Vec::new()));
-        let mut irq_handler = Box::new(MockPlicIRQHandler {
-            changes: irq_changes.clone(),
-        });
-
         let mut ram = Ram::new();
         let ram_base = &mut ram[0] as *mut u8;
         let virt_device = VirtIOBlkDeviceBuilder::new(ram_base, file_name)
@@ -679,8 +651,6 @@ mod test {
             .get();
 
         let mut virtio_mmio_device = VirtIOMMIO::new(Box::new(UnsafeCell::new(virt_device)));
-        virtio_mmio_device.set_irq_line(&mut *irq_handler, 1);
-        irq_changes.borrow_mut().clear();
         assert_eq!(
             virtio_mmio_device.read_u32_impl(VirtIO_MMIO_Offset::DeviceId as u64),
             VIRTIO_DEVICE_ID_BLOCK as u32
@@ -794,12 +764,12 @@ mod test {
         let interrupt_status =
             virtio_mmio_device.read_u32_impl(VirtIO_MMIO_Offset::InterruptStatus as u64);
         assert_eq!(interrupt_status, 1);
-        assert_eq!(irq_changes.borrow().last(), Some(&(1, true)));
+        assert!(virtio_mmio_device.irq_level());
         virtio_mmio_device.write_u32_impl(VirtIO_MMIO_Offset::InterruptAck as u64, 1);
         let interrupt_status =
             virtio_mmio_device.read_u32_impl(VirtIO_MMIO_Offset::InterruptStatus as u64);
         assert_eq!(interrupt_status, 0);
-        assert_eq!(irq_changes.borrow().last(), Some(&(1, false)));
+        assert!(!virtio_mmio_device.irq_level());
 
         // FLUSH uses a two-descriptor chain: request header followed by status.
         *req = VirtioBlkReq::new(VirtioBlkReqType::Flush, 0);
@@ -816,6 +786,10 @@ mod test {
         assert_eq!(desc_status.status, VirtIOBlkReqStatus::Ok as u8);
         assert_eq!(virtq_used.get_index(), 2);
         assert_eq!(virtq_used.ring(QUEUE_NUM as u32)[1].get_len(), 1);
+        virtq_avail.set_flag(VirtQueueAvailFlag::NoInterrupt);
+        assert!(!virtio_mmio_device.irq_level());
+        virtq_avail.set_flag(VirtQueueAvailFlag::Default);
+        assert!(virtio_mmio_device.irq_level());
         virtio_mmio_device.write_u32_impl(VirtIO_MMIO_Offset::InterruptAck as u64, 1);
 
         assert_eq!(desc_status.status, VirtIOBlkReqStatus::Ok as u8);

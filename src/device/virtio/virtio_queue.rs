@@ -199,16 +199,23 @@ impl VirtQueueAvail {
     pub(crate) fn mut_ring(base: u64, queue_num: u32) -> &'static mut [u16] {
         unsafe { std::slice::from_raw_parts_mut((base + 4) as *mut u16, queue_num as usize) }
     }
+
     pub(crate) fn idx_atomic_add(&mut self, val: u16) {
         self.idx
             .fetch_add(val, std::sync::atomic::Ordering::Release);
     }
+
     pub(crate) fn idx_store(&mut self, val: u16) {
         self.idx.store(val, std::sync::atomic::Ordering::Release);
     }
+
     pub(crate) fn init(&mut self, flag: VirtQueueAvailFlag) {
         self.flags = flag;
         self.idx.store(0, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn set_flag(&mut self, flag: VirtQueueAvailFlag) {
+        self.flags = flag;
     }
 }
 
@@ -456,6 +463,14 @@ impl VirtQueue {
 
     pub(crate) fn get_avail_flag(&self) -> VirtQueueAvailFlag {
         unsafe { self.avail.as_ref().unwrap().flags }
+    }
+
+    pub(crate) fn interrupts_enabled(&self) -> bool {
+        unsafe {
+            self.avail
+                .as_ref()
+                .is_some_and(|avail| avail.flags == VirtQueueAvailFlag::Default)
+        }
     }
 
     pub(super) fn set_queue_num(&mut self, num: u32) {

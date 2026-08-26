@@ -1,4 +1,3 @@
-pub mod irq_line;
 pub mod types;
 
 use std::{hint::unlikely, ptr::NonNull};
@@ -6,9 +5,7 @@ use std::{hint::unlikely, ptr::NonNull};
 use crate::{
     board::virt::RiscvIRQSource,
     config::arch_config::WordType,
-    device::{
-        DeviceTrait, MemError, PlicDevice, config::PLIC_SIZE, plic::irq_line::PlicIRQHandler,
-    },
+    device::{DeviceTrait, MemError, PlicDevice, config::PLIC_SIZE},
 };
 use bit_set::BitSet;
 
@@ -528,14 +525,6 @@ impl RiscvIRQSource for PLIC {
     }
 }
 
-// Receive the interrupt signal from peripherals.
-impl PlicIRQHandler for PLIC {
-    fn handle_irq(&mut self, interrupt: PeriphIrqId, level: bool) {
-        // log::debug!("PLIC, receive an interrupt: {interrupt}, level = {level}");
-        self.set_interrupt_level(interrupt, level);
-    }
-}
-
 #[cfg(test)]
 mod test {
     use std::cell::Cell;
@@ -618,8 +607,8 @@ mod test {
     }
 
     fn pulse_interrupt(plic: &mut PLIC, interrupt_id: PeriphIrqId) {
-        plic.handle_irq(interrupt_id, true);
-        plic.handle_irq(interrupt_id, false);
+        plic.set_interrupt_level(interrupt_id, true);
+        plic.set_interrupt_level(interrupt_id, false);
     }
 
     #[test]
@@ -770,8 +759,8 @@ mod test {
         plic.set_priority(6, 5).unwrap();
         plic.set_enable_word(0, 0, 1 << 6).unwrap();
 
-        plic.handle_irq(6, true);
-        plic.handle_irq(6, false);
+        plic.set_interrupt_level(6, true);
+        plic.set_interrupt_level(6, false);
 
         assert!(plic.get_pending_bit(6).unwrap());
         assert_eq!(plic.get_claim_complete(0).unwrap(), 6);
@@ -785,20 +774,20 @@ mod test {
         plic.set_priority(7, 5).unwrap();
         plic.set_enable_word(0, 0, 1 << 7).unwrap();
 
-        plic.handle_irq(7, true);
-        plic.handle_irq(7, true);
+        plic.set_interrupt_level(7, true);
+        plic.set_interrupt_level(7, true);
         assert_eq!(plic.get_claim_complete(0).unwrap(), 7);
 
         // Repeated high notifications while claimed must not create another
         // pending request before completion.
-        plic.handle_irq(7, true);
+        plic.set_interrupt_level(7, true);
         assert!(!plic.get_pending_bit(7).unwrap());
 
         plic.set_claim_complete(0, 7).unwrap();
         assert!(plic.get_pending_bit(7).unwrap());
         assert_eq!(plic.get_claim_complete(0).unwrap(), 7);
 
-        plic.handle_irq(7, false);
+        plic.set_interrupt_level(7, false);
         plic.set_claim_complete(0, 7).unwrap();
         assert_eq!(plic.get_claim_complete(0).unwrap(), 0);
     }
@@ -890,7 +879,7 @@ mod test {
         plic.set_priority(11, 5).unwrap();
         plic.set_enable_word(0, 0, 1 << 11).unwrap();
 
-        plic.handle_irq(11, true);
+        plic.set_interrupt_level(11, true);
         assert_eq!(plic.update_context_irq_line(0), Some(11));
         assert_eq!(plic.update_context_irq_line(0), Some(11));
         assert_eq!(cpu_handler.levels, vec![false, true]);

@@ -24,10 +24,7 @@ use crate::{
         },
         device_manager::{DeviceArena, DeviceArenaBuilder, DeviceHandle},
         mmio::{MemoryMapIO, MemoryMapItem},
-        plic::{
-            PLIC, PeriphIrqId,
-            irq_line::{PlicIRQHandler, PlicIRQSource},
-        },
+        plic::{PLIC, PeriphIrqId},
         power_manager::{POWER_OFF_CODE, POWER_STATUS, PowerManager},
         uart16550a::{Uart16550A, UartBytePort},
         virtio::{
@@ -264,8 +261,6 @@ impl RVBoardBuilder {
             timer.clone(),
         ));
 
-        let plic_ptr = &mut *self.plic as *mut dyn PlicIRQHandler;
-
         let power_manager = self.arena_builder.register(power_manager);
         let clint = self.arena_builder.register(clint);
         self.mmio_items.extend([
@@ -274,9 +269,8 @@ impl RVBoardBuilder {
         ]);
 
         // Add VirtIO device.
-        let mut virtio_allocator =
-            device::IdAllocator::new::<VirtIOMMIO>(0, String::from("virtio"));
-        for (virtio_index, virtio_device_cfg) in self.virtio_devices.iter().enumerate() {
+        let virtio_devices = std::mem::take(&mut self.virtio_devices);
+        for (virtio_index, virtio_device_cfg) in virtio_devices.into_iter().enumerate() {
             let virtio_device = match virtio_device_cfg.dev_type {
                 VirtIODeviceEnum::VirtIOBlock => {
                     let ram_base = unsafe { &mut ram_ref.as_mut_unchecked()[0] as *mut u8 };
@@ -292,15 +286,11 @@ impl RVBoardBuilder {
                     panic!("unsupport device: {:#?}", dev_type);
                 }
             };
-            let mut virtio_mmio_device = VirtIOMMIO::new(Box::new(UnsafeCell::new(virtio_device)));
-            virtio_mmio_device.set_irq_line(plic_ptr, VIRTIO_IRQ_BASE + virtio_index as u32);
-            let virtio_info = virtio_allocator.get();
-            let virtio_handle = self.arena_builder.register(Box::new(virtio_mmio_device));
-            self.mmio_items.push(MemoryMapItem::new(
-                virtio_info.base,
-                virtio_info.size,
-                virtio_handle,
-            ));
+            let virtio_mmio_device = VirtIOMMIO::new(Box::new(UnsafeCell::new(virtio_device)));
+            self = self.add_plic_device(
+                Box::new(virtio_mmio_device),
+                VIRTIO_IRQ_BASE + virtio_index as u32,
+            );
         }
 
         let plic = self.arena_builder.register(self.plic);

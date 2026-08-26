@@ -8,17 +8,11 @@ use std::{
 use log::{error, info};
 use num_enum::TryFromPrimitive;
 
-use crate::device::{
-    plic::{
-        PeriphIrqId,
-        irq_line::{PlicIRQHandler, PlicIRQLine, PlicIRQSource},
-    },
-    virtio::{
-        config::{VirtIOFeatureSet, virtio_reserved_feature},
-        virtio_device::VirtIODeviceTrait,
-        virtio_mmio::{VIRTIO_DEVICE_ID_BLOCK, VirtIODeviceStatus},
-        virtio_queue::{VirtQueue, VirtQueueDesc},
-    },
+use crate::device::virtio::{
+    config::{VirtIOFeatureSet, virtio_reserved_feature},
+    virtio_device::VirtIODeviceTrait,
+    virtio_mmio::{VIRTIO_DEVICE_ID_BLOCK, VirtIODeviceStatus},
+    virtio_queue::{VirtQueue, VirtQueueAvailFlag, VirtQueueDesc},
 };
 
 pub(super) const SECTOR_SIZE: usize = 512;
@@ -203,7 +197,6 @@ pub(crate) struct VirtIOBlkDevice {
     pub(crate) name: &'static str,
     pub(crate) status: u8,
     pub(crate) isr: AtomicU8,
-    irq_line: Option<PlicIRQLine>,
 
     host_feature: VirtIOFeatureSet,
     guest_feature: VirtIOFeatureSet,
@@ -245,7 +238,6 @@ impl VirtIOBlkDevice {
             status: 0,
 
             isr: AtomicU8::new(0),
-            irq_line: None,
 
             host_feature: virtio_reserved_feature::VERSION_1,
             guest_feature: 0,
@@ -327,21 +319,15 @@ impl VirtIODeviceTrait for VirtIOBlkDevice {
         self.status = 0;
         self.guest_feature = 0;
         self.queue.reset();
-        if self.isr.swap(0, std::sync::atomic::Ordering::AcqRel) != 0 {
-            self.update_irq();
-        }
+        self.isr.store(0, std::sync::atomic::Ordering::Release);
     }
 
     fn isr(&mut self) -> &mut AtomicU8 {
         &mut self.isr
     }
 
-    fn update_irq(&mut self) {
-        let Some(line) = &mut self.irq_line else {
-            return;
-        };
-        let level = self.isr.load(std::sync::atomic::Ordering::Acquire) != 0;
-        line.set_irq(level);
+    fn irq_level(&mut self) -> bool {
+        self.isr.load(std::sync::atomic::Ordering::Acquire) != 0 && self.queue.interrupts_enabled()
     }
 
     fn get_host_feature(&self) -> VirtIOFeatureSet {
@@ -375,25 +361,39 @@ impl VirtIODeviceTrait for VirtIOBlkDevice {
         self.queue.set_used(addr);
     }
 
+    /// Process one complete VirtIO block I/O request.
+    ///
+    /// A request descriptor chain contains at least three parts:
+    /// the request header (`desc.addr` points to [`VirtioBlkReq`]), which
+    /// describes the operation; one or more request-body descriptors whose
+    /// `desc.addr` values point into guest RAM shared with the host, where the
+    /// data is read from or written to according to the header; and a request
+    /// tail whose descriptor returns the final [`VirtIOBlkReqStatus`].
     fn manage_one_request(&mut self) -> bool {
-        info!("manage virtio block request.");
+        info!("[virtio-block]: manage a request.");
         let mut req_type = VirtioBlkReqType::Unsupported;
         let mut data_offset = 0;
         let mut req_status = VirtIOBlkReqStatus::Ok;
         let res = self
             .queue
             .manage_one_request(|desc: &VirtQueueDesc, idx: usize| match idx {
+                // Request header: decode the operation and starting sector.
                 0 => {
-                    (req_type, data_offset) = Self::manage_request_header(self.ram_base_raw, desc);
-                    data_offset *= SECTOR_SIZE as u64;
+                    let sector_id;
+                    (req_type, sector_id) = Self::manage_request_header(self.ram_base_raw, desc);
+                    data_offset = sector_id * SECTOR_SIZE as u64;
+                    info!("[virtio-block]: req_type = {:?}.", req_type);
+
                     if req_type == VirtioBlkReqType::Unsupported {
                         req_status = VirtIOBlkReqStatus::Unsupported;
                     }
                     0
                 }
 
+                // Request body: transfer the shared RAM buffer for this descriptor.
                 _ if desc.has_next() => {
                     match req_type {
+                        // IN reads host storage into the guest-provided buffer.
                         VirtioBlkReqType::In => {
                             let buf = unsafe {
                                 slice::from_raw_parts_mut(
@@ -408,6 +408,7 @@ impl VirtIODeviceTrait for VirtIOBlkDevice {
                             data_offset += len as u64;
                             len
                         }
+                        // OUT writes the guest-provided buffer to host storage.
                         VirtioBlkReqType::Out => {
                             let buf = unsafe {
                                 slice::from_raw_parts(
@@ -423,6 +424,7 @@ impl VirtIODeviceTrait for VirtIOBlkDevice {
                             // OUT buffers are read by the device, not written.
                             0
                         }
+                        // Unsupported body operations cannot be serviced.
                         _ => {
                             req_status = VirtIOBlkReqStatus::Unsupported;
                             0
@@ -430,6 +432,7 @@ impl VirtIODeviceTrait for VirtIOBlkDevice {
                     }
                 }
 
+                // Request tail: write the final status back to the guest.
                 _ => {
                     if desc.len < size_of::<VirtioBlkStatus>() as u32 {
                         return 0;
@@ -458,14 +461,8 @@ impl VirtIODeviceTrait for VirtIOBlkDevice {
             used = true;
         }
 
-        if used
-            && self.queue.get_avail_flag()
-                == crate::device::virtio::virtio_queue::VirtQueueAvailFlag::Default
-        {
-            let isr = self.isr.fetch_or(1, std::sync::atomic::Ordering::AcqRel);
-            if isr & 1 == 0 {
-                self.update_irq();
-            }
+        if used && self.queue.get_avail_flag() == VirtQueueAvailFlag::Default {
+            self.isr.fetch_or(1, std::sync::atomic::Ordering::AcqRel);
         }
     }
 
@@ -505,14 +502,6 @@ impl VirtIODeviceTrait for VirtIOBlkDevice {
         for (idx, byte) in bytes[offset..offset + len].iter_mut().enumerate() {
             *byte = (data >> (idx * u8::BITS as usize)) as u8;
         }
-    }
-}
-
-impl PlicIRQSource for VirtIOBlkDevice {
-    fn set_irq_line(&mut self, target: *mut dyn PlicIRQHandler, interrupt_id: PeriphIrqId) {
-        let line = PlicIRQLine::new(target, interrupt_id);
-        self.irq_line = Some(line);
-        self.update_irq();
     }
 }
 

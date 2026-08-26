@@ -120,9 +120,7 @@ pub trait PlicDevice: DeviceTrait {
     /// Return the device's current absolute interrupt-line level.
     ///
     /// This sampled interface is intended for level-triggered sources that
-    /// remain asserted until serviced. A source that can emit short pulses
-    /// must drive [`crate::device::plic::irq_line::PlicIRQLine`] directly so a
-    /// pulse cannot occur entirely between PLIC samples.
+    /// remain asserted until serviced.
     fn irq_level(&mut self) -> bool;
 }
 
