@@ -122,6 +122,8 @@ impl Decoder {
 
 /// This function doesn't handle compressed instruction.
 fn decode_info(raw_instr: u32, instr: RiscvInstr, fmt: InstrFormat) -> RVInstrInfo {
+    // TODO: These codes can be simplified like the later written `decode_compressed_info`
+
     let rd = ((raw_instr >> 7) & 0b11111) as u8;
     let rs1 = ((raw_instr >> 15) & 0b11111) as u8;
     let rs2 = ((raw_instr >> 20) & 0b11111) as u8;

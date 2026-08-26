@@ -1,6 +1,6 @@
 use region::{Allocation, Protection};
 
-use super::jit_function::JitFunction;
+use super::runtime::JitFunction;
 
 const JIT_BUFFER_SIZE: usize = 2 * 1024 * 1024;
 
@@ -39,8 +39,11 @@ impl Drop for JitBuffer {
     fn drop(&mut self) {
         log::info!("JIT buffer statistics:");
         log::info!("  chunks: {}", self.chunk_count());
-        log::info!("  allocated: {:.2} MB", megabytes(self.allocated_bytes()));
-        log::info!("  used: {:.2} MB", megabytes(self.used_bytes()));
+        log::info!(
+            "  allocated: {:.2} MB",
+            megabytes(self.latest_allocated_bytes())
+        );
+        log::info!("  used: {:.2} MB", megabytes(self.latest_used_bytes()));
         log::info!("  peak used: {:.2} MB", megabytes(self.peak_used_bytes()));
     }
 }
@@ -86,7 +89,10 @@ impl JitBuffer {
             JitFunction::from_ptr(dst)
         };
         self.used_bytes += len;
-        self.peak_used_bytes = self.peak_used_bytes.max(self.used_bytes());
+        self.peak_used_bytes = self.peak_used_bytes.max(self.latest_used_bytes());
+
+        // FIXME: call clear cache here
+
         function
     }
 
@@ -98,17 +104,14 @@ impl JitBuffer {
         }
     }
 
-    /// Total executable memory currently reserved from the host.
-    pub fn allocated_bytes(&self) -> usize {
+    pub fn latest_allocated_bytes(&self) -> usize {
         self.chunks.iter().map(JitChunk::capacity).sum()
     }
 
-    /// Bytes containing generated code since the last reset.
-    pub fn used_bytes(&self) -> usize {
+    pub fn latest_used_bytes(&self) -> usize {
         self.used_bytes
     }
 
-    /// Maximum generated-code footprint since this buffer was created.
     pub fn peak_used_bytes(&self) -> usize {
         self.peak_used_bytes
     }
@@ -131,8 +134,8 @@ mod tests {
         let buffer = JitBuffer::new();
 
         assert_eq!(buffer.chunk_count(), 1);
-        assert_eq!(buffer.allocated_bytes(), JIT_BUFFER_SIZE);
-        assert_eq!(buffer.used_bytes(), 0);
+        assert_eq!(buffer.latest_allocated_bytes(), JIT_BUFFER_SIZE);
+        assert_eq!(buffer.latest_used_bytes(), 0);
     }
 
     #[test]
@@ -156,8 +159,8 @@ mod tests {
         let second_address = unsafe { buffer.emit_code(&second) }.address();
 
         assert_eq!(buffer.chunk_count(), 2);
-        assert_eq!(buffer.used_bytes(), JIT_BUFFER_SIZE + second.len());
-        assert_eq!(buffer.allocated_bytes(), JIT_BUFFER_SIZE * 2);
+        assert_eq!(buffer.latest_used_bytes(), JIT_BUFFER_SIZE + second.len());
+        assert_eq!(buffer.latest_allocated_bytes(), JIT_BUFFER_SIZE * 2);
         assert_ne!(second_address, first_address);
     }
 
@@ -170,7 +173,7 @@ mod tests {
         buffer.reset();
         unsafe { buffer.emit_code(&[0xcc]) };
 
-        assert_eq!(buffer.used_bytes(), 1);
+        assert_eq!(buffer.latest_used_bytes(), 1);
         assert_eq!(buffer.peak_used_bytes(), JIT_BUFFER_SIZE);
     }
 }

@@ -1,3 +1,5 @@
+// TODO: mirgrate from legacy code, can be modified.
+
 use std::arch::asm;
 
 use libc::{c_int, c_void};
@@ -13,63 +15,57 @@ unsafe extern "C" {
 
 #[repr(C, align(16))]
 #[derive(Default)]
-struct JmpBuf {
+pub(crate) struct JmpBuf {
     storage: [usize; 32],
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct JitInfo {
-    pub instr_pc: WordType,
-    pub instr_cnt: u64,
-    pub instr_len: WordType,
-    pub ialign: WordType,
-}
-
+/// State shared between runtime helpers and JIT-compiled code.
 #[repr(C)]
 #[derive(Default)]
-pub(super) struct JitContext {
+pub struct JitContext {
     jmp_buf: JmpBuf,
     pub guest_pc: WordType,
-    pub icount: u64,
-    pub remaining_cycles: u64,
+    pub budget: u64,
     pub exception: Option<(Exception, WordType)>,
 }
 
 impl JitContext {
-    pub(super) fn jmp_buf_ptr(&mut self) -> *mut c_void {
+    pub fn jmp_buf_ptr(&mut self) -> *mut c_void {
         self.jmp_buf.storage.as_mut_ptr().cast::<c_void>()
     }
 
-    pub(super) unsafe fn raise(
+    pub unsafe fn raise(
         context: *mut Self,
         guest_pc: WordType,
-        icount: u64,
+        consumed_cycles: u64,
         exception: Exception,
         tval: WordType,
     ) -> ! {
         let context = unsafe { &mut *context };
         context.guest_pc = guest_pc;
-        context.icount = icount;
+        context.budget -= consumed_cycles;
         context.exception = Some((exception, tval));
         let env = context.jmp_buf_ptr();
         unsafe { longjmp(env, 1) }
     }
 }
 
+/// Compiled native basic block.
+///
+/// Execution convention:
+/// - Returns `next_pc` on exit.
+/// - Maintains execution budget in [`JitContext::budget`].
 #[derive(Clone, Copy)]
-pub(super) struct JitFunction {
+pub struct JitFunction {
     entry: *const u8,
 }
 
 impl JitFunction {
-    pub(super) fn from_ptr(entry: *const u8) -> Self {
+    pub fn from_ptr(entry: *const u8) -> Self {
         Self { entry }
     }
 
-    /// Calls generated code while preserving the host's callee-saved registers.
-    /// The translator's `CPU_REG` convention is RBP, so this wrapper loads the
-    /// CPU pointer into RBP before entering generated code.
-    pub(super) unsafe fn call(self, cpu: *mut RVCPU) -> WordType {
+    pub unsafe fn call(self, cpu: *mut RVCPU) -> WordType {
         let next_pc: WordType;
         #[cfg(not(target_family = "windows"))]
         unsafe {
@@ -128,7 +124,7 @@ impl JitFunction {
     }
 
     #[cfg(test)]
-    pub(super) fn address(self) -> usize {
+    pub fn address(self) -> usize {
         self.entry as usize
     }
 }

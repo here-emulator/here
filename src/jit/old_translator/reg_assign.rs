@@ -3,7 +3,7 @@ use smallvec::SmallVec;
 use std::{cell::Cell, ops::Deref};
 
 use super::*;
-use crate::jit::backend::x86::{X86Assembler, X86Reg};
+use crate::jit::old_backend::x86::{X86Assembler, X86Reg};
 
 #[derive(Clone, Copy)]
 struct HostRegState {

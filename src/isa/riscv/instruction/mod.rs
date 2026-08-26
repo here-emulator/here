@@ -166,16 +166,21 @@ where
     Ok(())
 }
 
-/// XXX: The `imm` value has been processed (shifted and sign_extended) for performance.
-/// DO NOT process it again.
+/// XXX: For performance (utilize the i-cache),
+/// most things you may think of has been processed in decode stage:
 ///
-/// `imm` value is shifted by:
+/// - The `imm` has been shifted and sign extended;
+/// - The 3-bit register in some C instructions has been expanded to normal index.
+///
+/// DO NOT process them again.
+///
+/// for example, in RVI, `imm` is shifted by:
 ///
 /// Type B: 1,
 /// Type J: 12,
 /// Type U: 12,
 ///
-/// `imm` value is sign_extended by:
+/// `imm` is sign extended by:
 ///
 /// Type B: 13,
 /// Type I: 12,
@@ -183,9 +188,7 @@ where
 /// Type U: 32,
 /// Type S: 12,
 ///
-/// The `imm` value has been masked in the right shift instructions like `SRLI`.
-///
-/// For detailed implementation, see [`super::decoder::decode_info`].
+/// For details, see [`decode_info`] and [`decode_compressed_info`].
 #[allow(non_camel_case_types)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RVInstrInfo {

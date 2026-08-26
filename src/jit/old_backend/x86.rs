@@ -11,6 +11,12 @@ pub enum X86Reg {
     R8 = 8,  R9 = 9,  R10 = 10, R11 = 11, R12 = 12, R13 = 13, R14 = 14, R15 = 15,
 }
 
+impl From<X86Reg> for u8 {
+    fn from(value: X86Reg) -> Self {
+        value as u8
+    }
+}
+
 impl X86Reg {
     #[inline]
     pub fn base(self) -> u8 {
@@ -105,7 +111,7 @@ impl OperandSize {
 }
 
 pub struct X86Assembler {
-    buf: Vec<u8>,
+    buf: CodeBuf,
 }
 
 impl X86Assembler {
@@ -115,7 +121,7 @@ impl X86Assembler {
         }
     }
 
-    pub fn build(self) -> Vec<u8> {
+    pub fn build(self) -> CodeBuf {
         self.buf
     }
 
@@ -287,7 +293,7 @@ impl RegMem {
         }
     }
 
-    fn emit_displacement(&self, buf: &mut Vec<u8>) {
+    fn emit_displacement(&self, buf: &mut CodeBuf) {
         use RegMem::*;
         match self {
             Reg(_) | Mem(_) => {}

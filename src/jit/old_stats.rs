@@ -1,9 +1,11 @@
+//! TODO: legacy code
+
 #[cfg(feature = "jit-stats")]
 use std::collections::BTreeMap;
 
 use crate::isa::riscv::trap::Exception;
 
-use super::engine::TranslationStop;
+use super::old_engine::TranslationStop;
 
 #[derive(Default)]
 pub(super) struct Stats {

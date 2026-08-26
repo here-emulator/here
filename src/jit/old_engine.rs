@@ -1,3 +1,5 @@
+//! TODO: legacy code, will be re-written
+
 use std::hint::cold_path;
 
 use libc::{c_int, c_void};
@@ -15,7 +17,7 @@ unsafe extern "C" {
     fn setjmp(env: *mut c_void) -> c_int;
 }
 
-use crate::isa::riscv::instruction::instr_table::RiscvInstr;
+use crate::{isa::riscv::instruction::instr_table::RiscvInstr, jit::old_backend::CodeBuf};
 
 #[cfg(test)]
 use crate::isa::riscv::instruction::RVInstrInfo;
@@ -30,9 +32,9 @@ use crate::{
 
 use super::{
     jit_buffer::*,
-    jit_function::{JitContext, JitFunction, JitInfo},
-    stats::Stats,
-    translator::{TranslateResult, X86CodeGen},
+    old_stats::Stats,
+    old_translator::{JitInfo, TranslateResult, X86CodeGen},
+    runtime::{JitContext, JitFunction},
 };
 
 const MAX_BASIC_BLOCK_INSTRS: u64 = 1024;
@@ -49,9 +51,9 @@ impl Cacheable for BBCacheEntry {
     const ADDR_SHIFT_BITS: usize = 1;
 }
 
-struct RawBasicBlock {
+pub struct RawBasicBlock {
     instr_cnt: u64,
-    buf: Vec<u8>,
+    buf: CodeBuf,
 }
 
 #[derive(Clone, Copy)]
@@ -201,6 +203,8 @@ pub(crate) struct RvJitEngine {
     icache_epoch: u64,
     stats: Stats,
     context: Box<JitContext>,
+    // TODO: remove with a local variable when setjmp is replaced
+    block_initial_budget: u64,
 }
 
 impl Drop for RvJitEngine {
@@ -219,6 +223,7 @@ impl RvJitEngine {
             icache_epoch: 0,
             stats: Stats::default(),
             context: Box::new(JitContext::default()),
+            block_initial_budget: 0,
         }
     }
 
@@ -234,7 +239,7 @@ impl RvJitEngine {
     }
 
     fn consume_cycles(&mut self, cycles: u64) {
-        self.context.remaining_cycles -= cycles;
+        self.context.budget -= cycles;
     }
 
     fn run_interpreter(&mut self, cpu: &mut RVCPU, cycles: u64) {
@@ -243,7 +248,7 @@ impl RvJitEngine {
     }
 
     fn run_jit_block(&mut self, cpu: &mut RVCPU, bb: BasicBlock) {
-        debug_assert!(bb.instr_cnt <= self.context.remaining_cycles);
+        debug_assert!(bb.instr_cnt <= self.context.budget);
 
         let next_pc = unsafe { bb.func.call(cpu as *mut RVCPU) };
         cpu.finish_jit_block(next_pc, bb.instr_cnt, None);
@@ -257,10 +262,9 @@ impl RvJitEngine {
             .exception
             .take()
             .expect("a JIT longjmp must record an exception");
-        let instr_count = self.context.icount;
-        let consumed_cycles = instr_count + 1;
+        let consumed = self.block_initial_budget - self.context.budget;
+        let instr_count = consumed - 1;
 
-        self.consume_cycles(consumed_cycles);
         self.stats.record_exception_exit(instr_count, exception);
         self.stats.record_execution(instr_count);
         cpu.finish_jit_block(self.context.guest_pc, instr_count, Some((exception, tval)));
@@ -303,7 +307,7 @@ impl ExecutorBackend for RvJitEngine {
         }
 
         debug_assert_eq!(self.context.exception, None);
-        self.context.remaining_cycles = cycles;
+        self.context.budget = cycles;
 
         // Don't use `cycles` directly after this because longjmp may break the value.
         #[allow(unused)]
@@ -318,7 +322,7 @@ impl ExecutorBackend for RvJitEngine {
             // fall through, run remaining cycles.
         }
 
-        while self.context.remaining_cycles > 0 {
+        while self.context.budget > 0 {
             self.sync_icache_epoch(cpu);
 
             let Some(bb) =
@@ -329,12 +333,13 @@ impl ExecutorBackend for RvJitEngine {
                 continue;
             };
 
-            let remaining_cycles = self.context.remaining_cycles;
+            let remaining_cycles = self.context.budget;
             if bb.instr_cnt > remaining_cycles {
                 self.run_interpreter(cpu, remaining_cycles);
                 break;
             }
 
+            self.block_initial_budget = self.context.budget;
             self.run_jit_block(cpu, bb);
         }
     }
@@ -685,7 +690,8 @@ pub(crate) fn try_execute_instruction_for_test(
         return false;
     };
 
-    engine.context.remaining_cycles = bb.instr_cnt;
+    engine.context.budget = bb.instr_cnt;
+    engine.block_initial_budget = bb.instr_cnt;
     if unsafe { setjmp(engine.context.jmp_buf_ptr()) } == 0 {
         engine.run_jit_block(cpu, bb);
     } else {

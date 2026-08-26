@@ -1,8 +1,18 @@
+// TODO: Deprecated.
+
 use super::{
-    backend::x86::*,
     helpers::{LoadKind, StoreKind, check_instruction_alignment_helper},
-    jit_function::{JitContext, JitInfo},
+    old_backend::x86::*,
+    runtime::JitContext,
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct JitInfo {
+    pub instr_pc: WordType,
+    pub instr_cnt: u64,
+    pub instr_len: WordType,
+    pub ialign: WordType,
+}
 use crate::{
     config::arch_config::WordType,
     isa::riscv::{
@@ -237,7 +247,7 @@ impl X86CodeGen {
                 CallArg::Reg(addr_reg),
                 CallArg::Imm(self.jit_context as u64),
                 CallArg::Imm(context.instr_pc as u64),
-                CallArg::Imm(context.instr_cnt),
+                CallArg::Imm(context.instr_cnt + 1),
             ],
         );
 
@@ -292,7 +302,7 @@ impl X86CodeGen {
                 CallArg::Reg(value_reg),
                 CallArg::Imm(self.jit_context as u64),
                 CallArg::Imm(context.instr_pc as u64),
-                CallArg::Imm(context.instr_cnt),
+                CallArg::Imm(context.instr_cnt + 1),
             ],
         );
     }
@@ -313,7 +323,7 @@ impl X86CodeGen {
                 CallArg::Reg(target_reg),
                 CallArg::Imm(self.jit_context as u64),
                 CallArg::Imm(context.instr_pc as u64),
-                CallArg::Imm(context.instr_cnt),
+                CallArg::Imm(context.instr_cnt + 1),
             ],
         );
     }
@@ -388,6 +398,9 @@ impl X86CodeGen {
         drop(target_reg);
 
         if context.ialign == 4 {
+            // Legacy translator behavior only. Register-indirect jumps clear the
+            // low bit and do not require an IALIGN check. Do not copy this into
+            // the new JIT: only static jump and branch targets need checking.
             self.emit_check_instruction_alignment(None, context);
         }
 

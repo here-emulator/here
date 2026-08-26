@@ -247,7 +247,7 @@ where
     F: Fn(TestCPUBuilder) -> TestCPUBuilder,
 {
     let mut jit_cpu = build(TestCPUBuilder::new()).build();
-    if !crate::jit::engine::try_execute_instruction_for_test(&mut jit_cpu, instr, info) {
+    if !crate::jit::old_engine::try_execute_instruction_for_test(&mut jit_cpu, instr, info) {
         return;
     }
 
@@ -310,7 +310,7 @@ where
         use crate::isa::riscv::executor::ExecutorBackend;
 
         let mut jit_cpu = make_cpu();
-        let mut jit = crate::jit::engine::RvJitEngine::new();
+        let mut jit = crate::jit::old_engine::RvJitEngine::new();
         jit.step_batch(&mut jit_cpu, raw_instrs.len() as u64);
         check(CPUChecker::new(&mut jit_cpu));
         assert_execution_state_eq("JIT executor/interpreter", &mut cpu, &mut jit_cpu);

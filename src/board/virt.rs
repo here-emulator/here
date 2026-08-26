@@ -89,7 +89,7 @@ fn create_executor_backend(kind: ExecutorBackendKind) -> Result<Box<dyn Executor
         ExecutorBackendKind::Jit => {
             #[cfg(all(target_arch = "x86_64", feature = "riscv64"))]
             {
-                Ok(Box::new(crate::jit::engine::RvJitEngine::new()))
+                Ok(Box::new(crate::jit::old_engine::RvJitEngine::new()))
             }
 
             #[cfg(not(all(target_arch = "x86_64", feature = "riscv64")))]

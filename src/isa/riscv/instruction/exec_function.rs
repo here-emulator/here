@@ -80,7 +80,7 @@ where
         if F::exec(val1, val2) {
             let target = cpu.pc.wrapping_add(imm); // imm has been sign_extended
 
-            // Like JAL(R), branch instructions will generate an exception.
+            // Like JAL, branch instructions will generate an exception.
             super::check_jump_alignment(cpu, target)?;
 
             cpu.pc = target;
