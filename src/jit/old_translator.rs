@@ -1,7 +1,9 @@
+// TODO: Deprecated.
+
 use super::{
-    backend::x86::*,
     helpers::{LoadKind, StoreKind, check_instruction_alignment_helper},
     jit_function::{JitContext, JitInfo},
+    old_backend::x86::*,
 };
 use crate::{
     config::arch_config::WordType,

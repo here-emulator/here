@@ -15,7 +15,7 @@ unsafe extern "C" {
     fn setjmp(env: *mut c_void) -> c_int;
 }
 
-use crate::isa::riscv::instruction::instr_table::RiscvInstr;
+use crate::{isa::riscv::instruction::instr_table::RiscvInstr, jit::old_backend::CodeBuf};
 
 #[cfg(test)]
 use crate::isa::riscv::instruction::RVInstrInfo;
@@ -31,8 +31,8 @@ use crate::{
 use super::{
     jit_buffer::*,
     jit_function::{JitContext, JitFunction, JitInfo},
+    old_translator::{TranslateResult, X86CodeGen},
     stats::Stats,
-    translator::{TranslateResult, X86CodeGen},
 };
 
 const MAX_BASIC_BLOCK_INSTRS: u64 = 1024;
@@ -49,9 +49,9 @@ impl Cacheable for BBCacheEntry {
     const ADDR_SHIFT_BITS: usize = 1;
 }
 
-struct RawBasicBlock {
+pub struct RawBasicBlock {
     instr_cnt: u64,
-    buf: Vec<u8>,
+    buf: CodeBuf,
 }
 
 #[derive(Clone, Copy)]

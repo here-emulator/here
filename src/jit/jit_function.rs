@@ -18,6 +18,7 @@ struct JmpBuf {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+// TODO: Split into JitInfo and InstrInfo
 pub(super) struct JitInfo {
     pub instr_pc: WordType,
     pub instr_cnt: u64,
