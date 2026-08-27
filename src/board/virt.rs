@@ -47,7 +47,7 @@ use crate::{
 };
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::task_spawner::TaskSpawner;
+use crate::task_spawner::{TaskHandle, TaskSpawner};
 
 #[cfg(feature = "test-device")]
 use crate::device::sample_timer::{SAMPLE_TIMER_INTERRUPT_ID, SampleTimerDevice};
@@ -172,11 +172,6 @@ impl RVBoardBuilder {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn get_spawner(&self) -> TaskSpawner {
-        self.spawner.clone()
-    }
-
     pub fn with_decoder(mut self, decoder: Decoder) -> Self {
         self.decoder = Some(decoder);
         self
@@ -239,7 +234,7 @@ impl RVBoardBuilder {
                 use crate::byte_io::StdinRouter;
 
                 let input = uart_port1.input_sender();
-                uart_port1.spawn_stdout(&self.spawner);
+                self.spawner.register(uart_port1);
 
                 let router = StdinRouter::global();
                 let handle = router.register(input);
@@ -349,7 +344,12 @@ impl RVBoardBuilder {
             VirtBoardPlicContextId::Cpu0SuperviserMode.into(),
         );
 
+        #[cfg(not(target_arch = "wasm32"))]
+        let task_handle = self.spawner.start();
+
         Ok(VirtBoard {
+            #[cfg(not(target_arch = "wasm32"))]
+            task_handle,
             loader: None,
             cpu,
             cycles,
@@ -370,6 +370,10 @@ impl RVBoardBuilder {
 }
 
 pub struct VirtBoard {
+    // Stop device tasks before dropping the state they may depend on.
+    #[cfg(not(target_arch = "wasm32"))]
+    task_handle: TaskHandle,
+
     loader: Option<ELFLoader>,
 
     pub cpu: Box<RVCPU>,
@@ -462,11 +466,9 @@ impl VirtBoard {
 
         #[cfg(all(feature = "test-device", not(target_arch = "wasm32")))]
         {
-            let spawner = builder.get_spawner();
-            builder = builder.add_plic_device(
-                Box::new(SampleTimerDevice::new(spawner)),
-                SAMPLE_TIMER_INTERRUPT_ID,
-            );
+            let (device, task) = SampleTimerDevice::new();
+            builder = builder.add_plic_device(Box::new(device), SAMPLE_TIMER_INTERRUPT_ID);
+            builder.spawner.register(task);
         }
 
         builder.build(ram)

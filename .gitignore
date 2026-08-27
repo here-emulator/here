@@ -16,6 +16,15 @@ test_resources/dump/
 test_resources/bin/
 test_resources/obj/
 
+riscof_work/
+__pycache__/
+
+# arch test is not included because it's too large
+/external/riscv-arch-test
+
 *.dtb
 *.elf
 *.[oa]
+
+perf.data
+flamegraph.svg

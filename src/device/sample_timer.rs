@@ -21,7 +21,7 @@ use crate::{
         config::{SAMPLE_TIMER_BASE, SAMPLE_TIMER_SIZE},
         plic::PeriphIrqId,
     },
-    task_spawner::TaskSpawner,
+    task_spawner::DeviceTask,
 };
 
 pub const SAMPLE_TIMER_INTERRUPT_ID: PeriphIrqId = 63;
@@ -51,24 +51,60 @@ enum TimerCommand {
     Cancel,
 }
 
-pub(crate) struct SampleTimerDevice {
+pub struct SampleTimerDevice {
     layout: SampleTimerLayout,
     irq_pending: Arc<AtomicBool>,
     sender: watch::Sender<TimerCommand>,
 }
 
+pub struct TimerTask {
+    rx: watch::Receiver<TimerCommand>,
+    irq_pending: Arc<AtomicBool>,
+}
+
+impl DeviceTask for TimerTask {
+    async fn run_simple(mut self) {
+        let mut command = TimerCommand::Cancel;
+
+        loop {
+            match command {
+                TimerCommand::Schedule(deadline) => tokio::select! {
+                    result = self.rx.changed() => {
+                        if result.is_err() {
+                            return;
+                        }
+                        command = *self.rx.borrow();
+                    }
+
+                    _ = tokio::time::sleep_until(deadline) => {
+                        self.irq_pending.store(true, Ordering::Release);
+                        command = TimerCommand::Cancel;
+                    }
+                },
+                TimerCommand::Cancel => {
+                    if self.rx.changed().await.is_err() {
+                        return;
+                    }
+                    command = *self.rx.borrow();
+                }
+            }
+        }
+    }
+}
+
 impl SampleTimerDevice {
-    pub fn new(spawner: TaskSpawner) -> Self {
+    pub fn new() -> (Self, TimerTask) {
         let (tx, rx) = watch::channel(TimerCommand::Cancel);
         let irq_pending = Arc::new(AtomicBool::new(false));
 
-        spawner.spawn_task(Box::pin(Self::timer_task(rx, irq_pending.clone())));
-
-        Self {
-            layout: SampleTimerLayout::new(),
-            irq_pending,
-            sender: tx,
-        }
+        (
+            Self {
+                layout: SampleTimerLayout::new(),
+                irq_pending: irq_pending.clone(),
+                sender: tx,
+            },
+            TimerTask { rx, irq_pending },
+        )
     }
 
     fn get_interval(&self) -> Duration {
@@ -80,34 +116,6 @@ impl SampleTimerDevice {
         self.sender
             .send(TimerCommand::Schedule(Instant::now() + self.get_interval()))
             .unwrap();
-    }
-
-    async fn timer_task(mut rx: watch::Receiver<TimerCommand>, irq_pending: Arc<AtomicBool>) {
-        let mut command = TimerCommand::Cancel;
-
-        loop {
-            match command {
-                TimerCommand::Schedule(deadline) => tokio::select! {
-                    result = rx.changed() => {
-                        if result.is_err() {
-                            return;
-                        }
-                        command = *rx.borrow();
-                    }
-
-                    _ = tokio::time::sleep_until(deadline) => {
-                        irq_pending.store(true, Ordering::Release);
-                        command = TimerCommand::Cancel;
-                    }
-                },
-                TimerCommand::Cancel => {
-                    if rx.changed().await.is_err() {
-                        return;
-                    }
-                    command = *rx.borrow();
-                }
-            }
-        }
     }
 }
 
@@ -198,9 +206,10 @@ mod tests {
 
     #[tokio::test]
     async fn timer_task_rearms_after_a_new_schedule() {
-        let (sender, receiver) = watch::channel(TimerCommand::Cancel);
-        let irq_pending = Arc::new(AtomicBool::new(false));
-        let task = tokio::spawn(SampleTimerDevice::timer_task(receiver, irq_pending.clone()));
+        let (device, timer_task) = SampleTimerDevice::new();
+        let sender = device.sender.clone();
+        let irq_pending = device.irq_pending.clone();
+        let task = tokio::spawn(timer_task.run_simple());
 
         sender
             .send(TimerCommand::Schedule(
@@ -220,14 +229,16 @@ mod tests {
         assert!(irq_pending.load(Ordering::Acquire));
 
         drop(sender);
+        drop(device);
         task.await.unwrap();
     }
 
     #[tokio::test]
     async fn timer_task_applies_schedule_that_interrupts_active_deadline() {
-        let (sender, receiver) = watch::channel(TimerCommand::Cancel);
-        let irq_pending = Arc::new(AtomicBool::new(false));
-        let task = tokio::spawn(SampleTimerDevice::timer_task(receiver, irq_pending.clone()));
+        let (device, timer_task) = SampleTimerDevice::new();
+        let sender = device.sender.clone();
+        let irq_pending = device.irq_pending.clone();
+        let task = tokio::spawn(timer_task.run_simple());
 
         sender
             .send(TimerCommand::Schedule(
@@ -244,14 +255,16 @@ mod tests {
         wait_for_pending(&irq_pending).await;
 
         drop(sender);
+        drop(device);
         task.await.unwrap();
     }
 
     #[tokio::test]
     async fn timer_task_cancel_keeps_the_task_available_for_rescheduling() {
-        let (sender, receiver) = watch::channel(TimerCommand::Cancel);
-        let irq_pending = Arc::new(AtomicBool::new(false));
-        let task = tokio::spawn(SampleTimerDevice::timer_task(receiver, irq_pending.clone()));
+        let (device, timer_task) = SampleTimerDevice::new();
+        let sender = device.sender.clone();
+        let irq_pending = device.irq_pending.clone();
+        let task = tokio::spawn(timer_task.run_simple());
 
         sender
             .send(TimerCommand::Schedule(
@@ -270,12 +283,13 @@ mod tests {
         wait_for_pending(&irq_pending).await;
 
         drop(sender);
+        drop(device);
         task.await.unwrap();
     }
 
     #[test]
     fn control_bit_zero_does_not_clear_pending_interrupt() {
-        let mut device = SampleTimerDevice::new(TaskSpawner::new());
+        let (mut device, _task) = SampleTimerDevice::new();
         device.irq_pending.store(true, Ordering::Release);
 
         device.write_u32(0, !CONTROL_RESET).unwrap();
@@ -285,7 +299,7 @@ mod tests {
 
     #[test]
     fn control_bit_one_clears_pending_interrupt_immediately() {
-        let mut device = SampleTimerDevice::new(TaskSpawner::new());
+        let (mut device, _task) = SampleTimerDevice::new();
         device.irq_pending.store(true, Ordering::Release);
 
         device.write_u32(0, CONTROL_RESET).unwrap();

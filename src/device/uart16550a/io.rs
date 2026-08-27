@@ -3,6 +3,9 @@ use tokio::sync::mpsc::{
     error::{TryRecvError, TrySendError},
 };
 
+#[cfg(feature = "native-cli")]
+use crate::task_spawner::DeviceTask;
+
 pub const UART_INPUT_CAPACITY: usize = 1024;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -58,38 +61,37 @@ impl UartBytePort {
             }
         }
     }
+}
 
-    #[cfg(feature = "native-cli")]
-    pub(crate) fn spawn_stdout(self, spawner: &crate::task_spawner::TaskSpawner) {
-        let Self { mut output_rx, .. } = self;
-        spawner.spawn_task(Box::pin(async move {
-            use std::io::Write;
+#[cfg(feature = "native-cli")]
+impl DeviceTask for UartBytePort {
+    async fn run_simple(mut self) {
+        use std::io::Write;
 
-            let mut buffer = [0u8; 4096];
-            while let Some(byte) = output_rx.recv().await {
-                buffer[0] = byte;
-                let mut len = 1;
-                while len < buffer.len() {
-                    match output_rx.try_recv() {
-                        Ok(byte) => {
-                            buffer[len] = byte;
-                            len += 1;
-                        }
-                        Err(_) => break,
+        let mut buffer = [0u8; 4096];
+        while let Some(byte) = self.output_rx.recv().await {
+            buffer[0] = byte;
+            let mut len = 1;
+            while len < buffer.len() {
+                match self.output_rx.try_recv() {
+                    Ok(byte) => {
+                        buffer[len] = byte;
+                        len += 1;
                     }
-                }
-
-                let result = (|| -> std::io::Result<()> {
-                    let mut stdout = std::io::stdout().lock();
-                    stdout.write_all(&buffer[..len])?;
-                    stdout.flush()
-                })();
-
-                if let Err(error) = result {
-                    log::error!("failed to write UART output to stdout: {error}");
-                    return;
+                    Err(_) => break,
                 }
             }
-        }));
+
+            let result = (|| -> std::io::Result<()> {
+                let mut stdout = std::io::stdout().lock();
+                stdout.write_all(&buffer[..len])?;
+                stdout.flush()
+            })();
+
+            if let Err(error) = result {
+                log::error!("failed to write UART output to stdout: {error}");
+                return;
+            }
+        }
     }
 }
