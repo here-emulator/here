@@ -60,7 +60,7 @@ pub(crate) trait VirtIODeviceTrait {
     fn get_device_id(&self) -> u16;
     fn status(&mut self) -> &mut u8;
     fn get_generation(&self) -> u32;
-    fn reset(&mut self);
+    fn reset(&mut self); // If async execution is supported, ensure all queued tasks are drained on reset.
 
     fn isr(&self) -> &AtomicU8;
     fn irq_level(&mut self) -> bool;

@@ -248,6 +248,8 @@ enum VirtIOBlockAsyncTask {
     Flush(VirtIOBlockCompletion),
     EarlyErr(VirtIOBlockCompletion), // Early Error(like offset out of bound)
     Unsupported(VirtIOBlockCompletion),
+    /// Acknowledge after all tasks submitted before this marker are complete.
+    DrainBarrier(std::sync::mpsc::SyncSender<()>),
 }
 
 /// Owns the backing file and executes queued block requests on the task runtime.
@@ -306,6 +308,11 @@ impl VirtIOBlockAsyncWorker {
                     VirtIOBlkReqStatus::Unsupported,
                     size_of::<VirtioBlkStatus>() as u32,
                 );
+            }
+            VirtIOBlockAsyncTask::DrainBarrier(ack) => {
+                // The worker is single-threaded, so reaching this marker means
+                // every earlier request has finished publishing its completion.
+                let _ = ack.send(());
             }
         }
     }
@@ -504,6 +511,22 @@ impl VirtIODeviceTrait for VirtIOBlkDevice {
 
     fn reset(&mut self) {
         info!("reset virtio block device.");
+
+        // VirtIO requires all outstanding requests to be finished or discarded
+        // before the device reports status 0. The worker consumes requests in
+        // FIFO order, so a barrier drains all requests submitted before reset.
+        // If the worker stops before consuming the marker, its acknowledgement
+        // sender is dropped with the marker and recv() returns an error; no task
+        // remains that can access guest RAM.
+        let (drain_tx, drain_rx) = std::sync::mpsc::sync_channel(0);
+        if self
+            .sender
+            .blocking_send(VirtIOBlockAsyncTask::DrainBarrier(drain_tx))
+            .is_ok()
+        {
+            let _ = drain_rx.recv();
+        }
+
         self.status = 0;
         self.guest_feature = 0;
         self.queue.reset();
@@ -521,6 +544,7 @@ impl VirtIODeviceTrait for VirtIOBlkDevice {
     fn get_host_feature(&self) -> VirtIOFeatureSet {
         self.host_feature
     }
+
     fn set_feature(&mut self, feature: VirtIOFeatureSet) {
         info!("set virtio block feature.");
         if feature & virtio_reserved_feature::VERSION_1 == 0
@@ -535,6 +559,7 @@ impl VirtIODeviceTrait for VirtIOBlkDevice {
     fn set_queue_num(&mut self, num: u32) {
         self.queue.set_queue_num(num);
     }
+
     fn queue_select(&self, _idx: u32) {
         // ONLY ONE QUEUE.
     }
@@ -542,9 +567,11 @@ impl VirtIODeviceTrait for VirtIOBlkDevice {
     fn set_desc(&mut self, addr: u64) {
         self.queue.set_desc(addr);
     }
+
     fn set_avail(&mut self, addr: u64) {
         self.queue.set_avail(addr);
     }
+
     fn set_used(&mut self, addr: u64) {
         self.queue.set_used(addr);
     }

@@ -69,18 +69,19 @@ impl TaskSpawner {
 
 impl Drop for TaskHandle {
     fn drop(&mut self) {
-        dbg!("dropping task handle");
+        log::debug!("dropping task handle");
 
         if self.cancel_tx.send(true).is_err() {
-            dbg!("all device tasks already stopped");
+            log::debug!("all device tasks already stopped");
         }
+
         if let Some(thread) = self.thread.take() {
             if thread.join().is_err() {
-                dbg!("device task thread panicked");
+                log::error!("device task thread panicked");
             }
         }
 
-        dbg!("dropped task handle");
+        log::debug!("dropped task handle");
     }
 }
 

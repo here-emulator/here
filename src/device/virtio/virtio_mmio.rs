@@ -838,6 +838,10 @@ mod test {
             .unwrap();
         assert_eq!(writeback, 0);
 
+        // This test drives the worker manually. Disconnect it before reset so
+        // reset observes the same stopped-worker case as a dropped task.
+        drop(worker);
+
         virtio_mmio_device.write_u32_impl(VirtIO_MMIO_Offset::Status as u64, 0);
         assert_eq!(
             virtio_mmio_device.read_u32_impl(VirtIO_MMIO_Offset::Status as u64),
