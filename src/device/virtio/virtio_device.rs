@@ -62,7 +62,7 @@ pub(crate) trait VirtIODeviceTrait {
     fn get_generation(&self) -> u32;
     fn reset(&mut self);
 
-    fn isr(&mut self) -> &mut AtomicU8;
+    fn isr(&self) -> &AtomicU8;
     fn irq_level(&mut self) -> bool;
 
     fn get_host_feature(&self) -> VirtIOFeatureSet;

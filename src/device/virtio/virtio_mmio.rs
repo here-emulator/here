@@ -600,7 +600,7 @@ mod test {
         device::{
             DeviceTrait, PlicDevice,
             virtio::{
-                virtio_blk::{
+                virtio_block::{
                     VirtIOBlkDeviceBuilder, VirtIOBlkReqStatus, VirtIOBlockFeature, VirtioBlkReq,
                     VirtioBlkReqType, VirtioBlkStatus, init_block_file,
                 },
@@ -643,12 +643,12 @@ mod test {
         let mut file = init_block_file(&file_name, 1, |_| &buf);
         let mut ram = Ram::new();
         let ram_base = &mut ram[0] as *mut u8;
-        let virt_device = VirtIOBlkDeviceBuilder::new(ram_base, file_name)
+        let (virt_device, mut worker) = VirtIOBlkDeviceBuilder::new(ram_base, file_name)
             .name("VirtIO Block 0")
             .generation(0)
             .host_feature(VirtIOBlockFeature::BlockSize)
             .host_feature(VirtIOBlockFeature::Flush)
-            .get();
+            .get_with_worker();
 
         let mut virtio_mmio_device = VirtIOMMIO::new(Box::new(UnsafeCell::new(virt_device)));
         assert_eq!(
@@ -761,6 +761,14 @@ mod test {
         // manage request.
         virtio_mmio_device.write_u32_impl(VirtIO_MMIO_Offset::QueueNotify as u64, 0x00);
 
+        // Host I/O has been submitted, but has not completed yet.
+        assert_eq!(virtq_used.get_index(), 0);
+        assert_eq!(
+            virtio_mmio_device.read_u32_impl(VirtIO_MMIO_Offset::InterruptStatus as u64),
+            0
+        );
+        assert!(worker.process_one());
+
         let interrupt_status =
             virtio_mmio_device.read_u32_impl(VirtIO_MMIO_Offset::InterruptStatus as u64);
         assert_eq!(interrupt_status, 1);
@@ -779,11 +787,20 @@ mod test {
             VirtQueueDescFlag::VIRTQ_DESC_F_NEXT,
             2,
         );
-        desc_status.status = 0xff;
+        desc_status
+            .status
+            .store(0xff, std::sync::atomic::Ordering::Relaxed);
         avail_ring[1] = 0;
         virtq_avail.idx_atomic_add(1);
         virtio_mmio_device.write_u32_impl(VirtIO_MMIO_Offset::QueueNotify as u64, 0);
-        assert_eq!(desc_status.status, VirtIOBlkReqStatus::Ok as u8);
+        assert_eq!(virtq_used.get_index(), 1);
+        assert!(worker.process_one());
+        assert_eq!(
+            desc_status
+                .status
+                .load(std::sync::atomic::Ordering::Acquire),
+            VirtIOBlkReqStatus::Ok as u8
+        );
         assert_eq!(virtq_used.get_index(), 2);
         assert_eq!(virtq_used.ring(QUEUE_NUM as u32)[1].get_len(), 1);
         virtq_avail.set_flag(VirtQueueAvailFlag::NoInterrupt);
@@ -792,7 +809,12 @@ mod test {
         assert!(virtio_mmio_device.irq_level());
         virtio_mmio_device.write_u32_impl(VirtIO_MMIO_Offset::InterruptAck as u64, 1);
 
-        assert_eq!(desc_status.status, VirtIOBlkReqStatus::Ok as u8);
+        assert_eq!(
+            desc_status
+                .status
+                .load(std::sync::atomic::Ordering::Acquire),
+            VirtIOBlkReqStatus::Ok as u8
+        );
         assert_eq!(desc_buf[0], 0);
 
         // Check the data written.

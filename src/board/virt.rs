@@ -28,7 +28,7 @@ use crate::{
         power_manager::{POWER_OFF_CODE, POWER_STATUS, PowerManager},
         uart16550a::{Uart16550A, UartBytePort},
         virtio::{
-            virtio_blk::VirtIOBlkDeviceBuilder, virtio_device::VirtIODeviceEnum,
+            virtio_block::VirtIOBlkDeviceBuilder, virtio_device::VirtIODeviceEnum,
             virtio_mmio::VirtIOMMIO,
         },
     },
@@ -273,9 +273,11 @@ impl RVBoardBuilder {
                         ram_base,
                         String::from(virtio_device_cfg.path.to_str().unwrap()),
                     )
-                    .host_feature(crate::device::virtio::virtio_blk::VirtIOBlockFeature::BlockSize)
-                    .host_feature(crate::device::virtio::virtio_blk::VirtIOBlockFeature::Flush)
-                    .get()
+                    .host_feature(
+                        crate::device::virtio::virtio_block::VirtIOBlockFeature::BlockSize,
+                    )
+                    .host_feature(crate::device::virtio::virtio_block::VirtIOBlockFeature::Flush)
+                    .get_and_spawner_task(&mut self.spawner)
                 }
                 dev_type => {
                     panic!("unsupport device: {:#?}", dev_type);

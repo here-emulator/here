@@ -233,13 +233,13 @@ impl DeviceTrait for Uart16550A {
                     self.ip.insert(InterruptReasonBitflags::THRE);
                 }
             }
-            data >>= 8;
 
             // if unmask ier.thre bit, and transmit FIFO is empty now, raise a thre interrupt.
             if i == IER::offset() && !self.reg.divisor_latch_enable() {
                 self.try_raise_thre_interrupt(old_ier, new_ier);
             }
 
+            data >>= 8;
             self.update_iir();
         }
 

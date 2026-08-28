@@ -1,21 +1,39 @@
 use core::slice;
 use std::{
-    fs::{File, OpenOptions},
-    io::{Read, Seek, SeekFrom, Write},
-    sync::atomic::AtomicU8,
+    fs::OpenOptions,
+    io::SeekFrom,
+    sync::{
+        Arc,
+        atomic::{AtomicU8, Ordering},
+    },
+};
+
+#[cfg(test)]
+use std::{
+    fs::File as StdFile,
+    io::{Read, Seek, Write},
 };
 
 use log::{error, info};
 use num_enum::TryFromPrimitive;
+use tokio::{
+    fs::File,
+    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
+    sync::{mpsc, watch},
+};
 
-use crate::device::virtio::{
-    config::{VirtIOFeatureSet, virtio_reserved_feature},
-    virtio_device::VirtIODeviceTrait,
-    virtio_mmio::{VIRTIO_DEVICE_ID_BLOCK, VirtIODeviceStatus},
-    virtio_queue::{VirtQueue, VirtQueueAvailFlag, VirtQueueDesc},
+use crate::{
+    device::virtio::{
+        config::{VIRTQUEUE_MAX_SIZE, VirtIOFeatureSet, virtio_reserved_feature},
+        virtio_device::VirtIODeviceTrait,
+        virtio_mmio::{VIRTIO_DEVICE_ID_BLOCK, VirtIODeviceStatus},
+        virtio_queue::{VirtQueue, VirtQueueCompletion, VirtQueueDesc},
+    },
+    task_spawner::{DeviceTask, TaskSpawner},
 };
 
 pub(super) const SECTOR_SIZE: usize = 512;
+const VIRTIO_BLOCK_TASK_CAPACITY: usize = VIRTQUEUE_MAX_SIZE as usize;
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,12 +199,182 @@ pub(crate) enum VirtIOBlkReqStatus {
     NotReady = 3,
 }
 
+#[repr(transparent)]
+/// Guest-provided status byte at the tail of a block request.
 pub(super) struct VirtioBlkStatus {
-    pub(super) status: u8,
+    pub(super) status: AtomicU8,
 }
 impl VirtioBlkStatus {
-    fn write_status(&mut self, status: VirtIOBlkReqStatus) {
-        self.status = status as u8;
+    fn write_status(&self, status: VirtIOBlkReqStatus) {
+        self.status.swap(status as u8, Ordering::AcqRel);
+    }
+}
+
+#[derive(Clone, Copy)]
+/// One guest-RAM data segment retained for an asynchronous block request.
+struct IOTaskRamBuffer {
+    addr: usize,
+    len: usize,
+}
+
+/// Guest-visible state required to publish a completed block request.
+struct VirtIOBlockCompletion {
+    status_addr: usize,
+    queue_completion: VirtQueueCompletion,
+    isr: Arc<AtomicU8>,
+}
+
+impl VirtIOBlockCompletion {
+    fn complete(self, status: VirtIOBlkReqStatus, used_len: u32) {
+        // The status byte and used-ring entry are guest-owned memory. The
+        // guest must not reuse these buffers until the used index is published.
+        unsafe { &*(self.status_addr as *const VirtioBlkStatus) }.write_status(status);
+        self.queue_completion.complete(used_len);
+        self.isr.fetch_or(1, Ordering::AcqRel);
+    }
+}
+
+/// Host I/O parameters for one read or write block request.
+struct VirtIOBlockIoTask {
+    offset: u64,
+    buffers: Vec<IOTaskRamBuffer>,
+    completion: VirtIOBlockCompletion,
+}
+
+/// Work item processed by the asynchronous VirtIO block worker.
+enum VirtIOBlockAsyncTask {
+    Read(VirtIOBlockIoTask),
+    Write(VirtIOBlockIoTask),
+    Flush(VirtIOBlockCompletion),
+    EarlyErr(VirtIOBlockCompletion), // Early Error(like offset out of bound)
+    Unsupported(VirtIOBlockCompletion),
+}
+
+/// Owns the backing file and executes queued block requests on the task runtime.
+pub(super) struct VirtIOBlockAsyncWorker {
+    file: File,
+    receiver: mpsc::Receiver<VirtIOBlockAsyncTask>,
+}
+
+impl DeviceTask for VirtIOBlockAsyncWorker {
+    async fn run(mut self, mut cancel: watch::Receiver<bool>) {
+        loop {
+            let task = tokio::select! {
+                _ = cancel.changed() => return,
+                task = self.receiver.recv() => match task {
+                    Some(task) => task,
+                    None => return,
+                },
+            };
+
+            self.run_task(task).await;
+            if *cancel.borrow() {
+                return;
+            }
+        }
+    }
+}
+
+impl VirtIOBlockAsyncWorker {
+    fn new(file: File, receiver: mpsc::Receiver<VirtIOBlockAsyncTask>) -> Self {
+        Self { file, receiver }
+    }
+
+    async fn run_task(&mut self, task: VirtIOBlockAsyncTask) {
+        // Synchronize guest writes published before QueueNotify with this worker.
+        std::sync::atomic::fence(Ordering::Acquire);
+
+        match task {
+            VirtIOBlockAsyncTask::Read(task) => self.read(task).await,
+            VirtIOBlockAsyncTask::Write(task) => self.write(task).await,
+            VirtIOBlockAsyncTask::Flush(completion) => {
+                let status = if self.file.sync_data().await.is_ok() {
+                    VirtIOBlkReqStatus::Ok
+                } else {
+                    VirtIOBlkReqStatus::IoErr
+                };
+                completion.complete(status, size_of::<VirtioBlkStatus>() as u32);
+            }
+            VirtIOBlockAsyncTask::EarlyErr(completion) => {
+                completion.complete(
+                    VirtIOBlkReqStatus::IoErr,
+                    size_of::<VirtioBlkStatus>() as u32,
+                );
+            }
+            VirtIOBlockAsyncTask::Unsupported(completion) => {
+                completion.complete(
+                    VirtIOBlkReqStatus::Unsupported,
+                    size_of::<VirtioBlkStatus>() as u32,
+                );
+            }
+        }
+    }
+
+    async fn read(&mut self, task: VirtIOBlockIoTask) {
+        let mut offset = task.offset;
+        let mut total_transferred = 0;
+        let mut status = VirtIOBlkReqStatus::Ok;
+
+        for buffer in &task.buffers {
+            let data = unsafe { slice::from_raw_parts_mut(buffer.addr as *mut u8, buffer.len) };
+            if self.file.seek(SeekFrom::Start(offset)).await.is_err() {
+                status = VirtIOBlkReqStatus::IoErr;
+                break;
+            }
+            let Ok(len) = self.file.read(data).await else {
+                status = VirtIOBlkReqStatus::IoErr;
+                break;
+            };
+
+            total_transferred += len as u32;
+            offset += len as u64;
+            if len != data.len() {
+                status = VirtIOBlkReqStatus::IoErr;
+                break;
+            }
+        }
+
+        task.completion.complete(
+            status,
+            total_transferred + size_of::<VirtioBlkStatus>() as u32,
+        );
+    }
+
+    async fn write(&mut self, task: VirtIOBlockIoTask) {
+        let mut offset = task.offset;
+        let mut status = VirtIOBlkReqStatus::Ok;
+
+        for buffer_info in &task.buffers {
+            let buffer =
+                unsafe { slice::from_raw_parts(buffer_info.addr as *const u8, buffer_info.len) };
+            if self.file.seek(SeekFrom::Start(offset)).await.is_err()
+                || self.file.write_all(buffer).await.is_err()
+            {
+                status = VirtIOBlkReqStatus::IoErr;
+                break;
+            }
+            offset += buffer.len() as u64;
+        }
+
+        task.completion
+            .complete(status, size_of::<VirtioBlkStatus>() as u32);
+    }
+
+    #[cfg(test)]
+    pub(super) fn process_one(&mut self) -> bool {
+        match self.receiver.try_recv() {
+            Ok(task) => {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(self.run_task(task));
+                true
+            }
+            Err(mpsc::error::TryRecvError::Empty | mpsc::error::TryRecvError::Disconnected) => {
+                false
+            }
+        }
     }
 }
 
@@ -196,7 +384,7 @@ impl VirtioBlkStatus {
 pub(crate) struct VirtIOBlkDevice {
     pub(crate) name: &'static str,
     pub(crate) status: u8,
-    pub(crate) isr: AtomicU8,
+    pub(crate) isr: Arc<AtomicU8>,
 
     host_feature: VirtIOFeatureSet,
     guest_feature: VirtIOFeatureSet,
@@ -204,40 +392,26 @@ pub(crate) struct VirtIOBlkDevice {
     pub(crate) generation: u32,
     ram_base_raw: usize,
 
-    file: File, // the file that is bound to this device
+    sender: mpsc::Sender<VirtIOBlockAsyncTask>,
 
     queue: VirtQueue,
     pub(super) config_region: VirtioBlkConfig,
 }
 
 impl VirtIOBlkDevice {
-    pub(crate) fn new(name: &'static str, ram_base_raw: *mut u8, file_path: String) -> Self {
-        let mut file;
-        if let Ok(file_result) = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .append(false)
-            .create(false)
-            .open(file_path.as_str())
-        {
-            file = file_result;
-        } else {
-            panic!("Can not find file: {}.", file_path);
-        }
-        let size = file.seek(SeekFrom::End(0)).unwrap();
-        if !size.is_multiple_of(SECTOR_SIZE as u64) {
-            panic!(
-                "VirtIO block backing file \"{file_path}\" has size {size} bytes; size must be a multiple of {SECTOR_SIZE} bytes"
-            );
-        }
-
+    fn new(
+        name: &'static str,
+        ram_base_raw: *mut u8,
+        capacity: u64,
+        sender: mpsc::Sender<VirtIOBlockAsyncTask>,
+    ) -> Self {
         info!("build virtio block device.");
 
         Self {
             name,
             status: 0,
 
-            isr: AtomicU8::new(0),
+            isr: Arc::new(AtomicU8::new(0)),
 
             host_feature: virtio_reserved_feature::VERSION_1,
             guest_feature: 0,
@@ -245,15 +419,11 @@ impl VirtIOBlkDevice {
             generation: 0,
             ram_base_raw: ram_base_raw as usize,
 
-            file,
+            sender,
 
             queue: VirtQueue::new(ram_base_raw, 0), // will be set later
-            config_region: VirtioBlkConfig::new(size / SECTOR_SIZE as u64),
+            config_region: VirtioBlkConfig::new(capacity),
         }
-    }
-
-    pub(crate) fn bound_file(&mut self, file: File) {
-        self.file = file;
     }
 
     pub fn add_host_feature(mut self, new_feature: VirtIOBlockFeature) -> Self {
@@ -265,7 +435,8 @@ impl VirtIOBlkDevice {
         self
     }
 
-    fn write_blk(file: &mut File, buf: &[u8], offset: u64) -> u32 {
+    #[cfg(test)]
+    fn write_blk(file: &mut StdFile, buf: &[u8], offset: u64) -> u32 {
         file.seek(std::io::SeekFrom::Start(offset)).unwrap();
         match file.write_all(buf) {
             Ok(_) => buf.len() as u32,
@@ -273,13 +444,11 @@ impl VirtIOBlkDevice {
         }
     }
 
-    fn read_blk(file: &mut File, buf: &mut [u8], offset: u64) -> u32 {
+    #[cfg(test)]
+    fn read_blk(file: &mut StdFile, buf: &mut [u8], offset: u64) -> u32 {
         file.seek(std::io::SeekFrom::Start(offset)).unwrap();
         match file.read(buf) {
             Ok(len) => len as u32,
-            #[cfg(not(test))]
-            Err(_) => 0,
-            #[cfg(test)]
             Err(mes) => panic!("{}", mes),
         }
     }
@@ -297,6 +466,25 @@ impl VirtIOBlkDevice {
 
         VirtioBlkReqType::try_from(req.request_type)
             .map_or(BAD_REQ, |req_type| (req_type, req.sector))
+    }
+
+    fn request_offset_in_bounds(&self, sector: u64, buffers: &[IOTaskRamBuffer]) -> Option<u64> {
+        let offset = sector.checked_mul(SECTOR_SIZE as u64)?;
+        let data_len = buffers.iter().try_fold(0u64, |total, buffer| {
+            total.checked_add(u64::try_from(buffer.len).ok()?)
+        })?;
+        let capacity = self
+            .config_region
+            .capacity
+            .checked_mul(SECTOR_SIZE as u64)?;
+
+        if data_len > u32::MAX as u64 - size_of::<VirtioBlkStatus>() as u64
+            || offset.checked_add(data_len)? > capacity
+        {
+            return None;
+        }
+
+        Some(offset)
     }
 }
 
@@ -319,15 +507,15 @@ impl VirtIODeviceTrait for VirtIOBlkDevice {
         self.status = 0;
         self.guest_feature = 0;
         self.queue.reset();
-        self.isr.store(0, std::sync::atomic::Ordering::Release);
+        self.isr.store(0, Ordering::Release);
     }
 
-    fn isr(&mut self) -> &mut AtomicU8 {
-        &mut self.isr
+    fn isr(&self) -> &AtomicU8 {
+        &self.isr
     }
 
     fn irq_level(&mut self) -> bool {
-        self.isr.load(std::sync::atomic::Ordering::Acquire) != 0 && self.queue.interrupts_enabled()
+        self.isr.load(Ordering::Acquire) != 0 && self.queue.interrupts_enabled()
     }
 
     fn get_host_feature(&self) -> VirtIOFeatureSet {
@@ -361,108 +549,97 @@ impl VirtIODeviceTrait for VirtIOBlkDevice {
         self.queue.set_used(addr);
     }
 
-    /// Process one complete VirtIO block I/O request.
+    /// Submit one complete VirtIO block I/O request to the host worker.
     ///
     /// A request descriptor chain contains at least three parts:
     /// the request header (`desc.addr` points to [`VirtioBlkReq`]), which
     /// describes the operation; one or more request-body descriptors whose
     /// `desc.addr` values point into guest RAM shared with the host, where the
     /// data is read from or written to according to the header; and a request
-    /// tail whose descriptor returns the final [`VirtIOBlkReqStatus`].
+    /// tail whose descriptor returns the final [`VirtIOBlkReqStatus`]. The
+    /// used-ring entry, tail status, and interrupt status are published by the
+    /// worker only after the host I/O completes.
     fn manage_one_request(&mut self) -> bool {
-        info!("[virtio-block]: manage a request.");
+        let Ok(permit) = self.sender.try_reserve() else {
+            return false;
+        };
+
+        info!("[virtio-block]: submit a request.");
         let mut req_type = VirtioBlkReqType::Unsupported;
-        let mut data_offset = 0;
-        let mut req_status = VirtIOBlkReqStatus::Ok;
-        let res = self
-            .queue
-            .manage_one_request(|desc: &VirtQueueDesc, idx: usize| match idx {
-                // Request header: decode the operation and starting sector.
-                0 => {
-                    let sector_id;
-                    (req_type, sector_id) = Self::manage_request_header(self.ram_base_raw, desc);
-                    data_offset = sector_id * SECTOR_SIZE as u64;
-                    info!("[virtio-block]: req_type = {:?}.", req_type);
+        let mut sector = 0;
+        let mut buffers = Vec::new();
+        let mut status_addr = None;
+        let ram_base_raw = self.ram_base_raw;
+        let Some(used) =
+            self.queue
+                .take_one_request(|desc: &VirtQueueDesc, idx: usize| match idx {
+                    // Request header: decode the operation and starting sector.
+                    0 => {
+                        (req_type, sector) = Self::manage_request_header(ram_base_raw, desc);
+                        info!("[virtio-block]: req_type = {:?}.", req_type);
+                    }
 
-                    if req_type == VirtioBlkReqType::Unsupported {
-                        req_status = VirtIOBlkReqStatus::Unsupported;
+                    // Request body: retain the shared RAM buffer for the worker.
+                    _ if desc.has_next() => {
+                        buffers.push(IOTaskRamBuffer {
+                            addr: desc.get_request_package::<u8>(ram_base_raw) as usize,
+                            len: desc.len as usize,
+                        });
                     }
-                    0
-                }
 
-                // Request body: transfer the shared RAM buffer for this descriptor.
-                _ if desc.has_next() => {
-                    match req_type {
-                        // IN reads host storage into the guest-provided buffer.
-                        VirtioBlkReqType::In => {
-                            let buf = unsafe {
-                                slice::from_raw_parts_mut(
-                                    desc.get_request_package::<u8>(self.ram_base_raw),
-                                    desc.len as usize,
-                                )
-                            };
-                            let len = Self::read_blk(&mut self.file, buf, data_offset);
-                            if len != desc.len {
-                                req_status = VirtIOBlkReqStatus::IoErr;
-                            }
-                            data_offset += len as u64;
-                            len
+                    // Request tail: retain the final status byte for the worker.
+                    _ => {
+                        if desc.len < size_of::<VirtioBlkStatus>() as u32 {
+                            return;
                         }
-                        // OUT writes the guest-provided buffer to host storage.
-                        VirtioBlkReqType::Out => {
-                            let buf = unsafe {
-                                slice::from_raw_parts(
-                                    desc.get_request_package::<u8>(self.ram_base_raw),
-                                    desc.len as usize,
-                                )
-                            };
-                            let len = Self::write_blk(&mut self.file, buf, data_offset);
-                            if len != desc.len {
-                                req_status = VirtIOBlkReqStatus::IoErr;
-                            }
-                            data_offset += len as u64;
-                            // OUT buffers are read by the device, not written.
-                            0
-                        }
-                        // Unsupported body operations cannot be serviced.
-                        _ => {
-                            req_status = VirtIOBlkReqStatus::Unsupported;
-                            0
-                        }
+                        status_addr = Some(
+                            desc.get_request_package::<VirtioBlkStatus>(ram_base_raw) as usize,
+                        );
                     }
-                }
+                })
+        else {
+            return false;
+        };
 
-                // Request tail: write the final status back to the guest.
-                _ => {
-                    if desc.len < size_of::<VirtioBlkStatus>() as u32 {
-                        return 0;
-                    }
-                    if req_type == VirtioBlkReqType::Flush && self.file.sync_data().is_err() {
-                        req_status = VirtIOBlkReqStatus::IoErr;
-                    }
-                    let status = unsafe {
-                        desc.get_request_package::<VirtioBlkStatus>(self.ram_base_raw)
-                            .as_mut()
-                            .unwrap()
-                    };
-                    status.write_status(req_status);
-                    size_of::<VirtioBlkStatus>() as u32
-                }
-            });
-        res
+        let Some(status_addr) = status_addr else {
+            used.complete(0);
+            return true;
+        };
+        let completion = VirtIOBlockCompletion {
+            status_addr,
+            queue_completion: used,
+            isr: self.isr.clone(),
+        };
+        let data_offset = self.request_offset_in_bounds(sector, &buffers);
+        let task = match req_type {
+            VirtioBlkReqType::In => match data_offset {
+                Some(offset) => VirtIOBlockAsyncTask::Read(VirtIOBlockIoTask {
+                    offset,
+                    buffers,
+                    completion,
+                }),
+                None => VirtIOBlockAsyncTask::EarlyErr(completion),
+            },
+            VirtioBlkReqType::Out => match data_offset {
+                Some(offset) => VirtIOBlockAsyncTask::Write(VirtIOBlockIoTask {
+                    offset,
+                    buffers,
+                    completion,
+                }),
+                None => VirtIOBlockAsyncTask::EarlyErr(completion),
+            },
+            VirtioBlkReqType::Flush => VirtIOBlockAsyncTask::Flush(completion),
+            _ => VirtIOBlockAsyncTask::Unsupported(completion),
+        };
+        permit.send(task);
+        true
     }
 
     fn notify(&mut self, _idx: u32) {
-        let mut used = false;
         loop {
             if !self.manage_one_request() {
                 break;
             }
-            used = true;
-        }
-
-        if used && self.queue.get_avail_flag() == VirtQueueAvailFlag::Default {
-            self.isr.fetch_or(1, std::sync::atomic::Ordering::AcqRel);
         }
     }
 
@@ -507,10 +684,6 @@ impl VirtIODeviceTrait for VirtIOBlkDevice {
 
 #[cfg(test)]
 impl VirtIOBlkDevice {
-    pub(crate) fn flush(&mut self) {
-        self.file.sync_data().unwrap();
-    }
-
     pub(crate) fn queue(&mut self) -> &mut VirtQueue {
         &mut self.queue
     }
@@ -518,13 +691,42 @@ impl VirtIOBlkDevice {
 
 pub struct VirtIOBlkDeviceBuilder {
     device: VirtIOBlkDevice,
+    receiver: mpsc::Receiver<VirtIOBlockAsyncTask>,
+    file: File,
 }
 
 impl VirtIOBlkDeviceBuilder {
     pub fn new(ram_base_raw: *mut u8, file: String) -> Self {
-        Self {
-            device: VirtIOBlkDevice::new("Unnamed VirtIO Block Device", ram_base_raw, file),
+        let (sender, receiver) = mpsc::channel(VIRTIO_BLOCK_TASK_CAPACITY);
+        let (backing_file, size) = Self::open_backing_file(&file);
+        if !size.is_multiple_of(SECTOR_SIZE as u64) {
+            panic!(
+                "VirtIO block backing file \"{file}\" has size {size} bytes; size must be a multiple of {SECTOR_SIZE} bytes"
+            );
         }
+
+        Self {
+            device: VirtIOBlkDevice::new(
+                "Unnamed VirtIO Block Device",
+                ram_base_raw,
+                size / SECTOR_SIZE as u64,
+                sender,
+            ),
+            receiver,
+            file: backing_file,
+        }
+    }
+
+    fn open_backing_file(path: &str) -> (File, u64) {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .append(false)
+            .create(false)
+            .open(path)
+            .unwrap_or_else(|_| panic!("Can not find file: {path}."));
+        let size = file.metadata().unwrap().len();
+        (File::from_std(file), size)
     }
 
     pub fn name(mut self, name: &'static str) -> Self {
@@ -546,13 +748,34 @@ impl VirtIOBlkDeviceBuilder {
         self
     }
 
-    pub fn get(self) -> VirtIOBlkDevice {
-        self.device
+    pub fn get_and_spawner_task(self, task_spawner: &mut TaskSpawner) -> VirtIOBlkDevice {
+        let Self {
+            device,
+            receiver,
+            file,
+        } = self;
+        task_spawner.register(VirtIOBlockAsyncWorker::new(file, receiver));
+        device
+    }
+
+    #[cfg(test)]
+    pub(crate) fn get(self) -> VirtIOBlkDevice {
+        self.get_with_worker().0
+    }
+
+    #[cfg(test)]
+    pub(super) fn get_with_worker(self) -> (VirtIOBlkDevice, VirtIOBlockAsyncWorker) {
+        let Self {
+            device,
+            receiver,
+            file,
+        } = self;
+        (device, VirtIOBlockAsyncWorker::new(file, receiver))
     }
 }
 
 #[cfg(test)]
-pub fn init_block_file<'a, F>(path: &str, blk_num: u64, mut f: F) -> File
+pub fn init_block_file<'a, F>(path: &str, blk_num: u64, mut f: F) -> StdFile
 where
     F: FnMut(usize) -> &'a [u8],
 {
@@ -579,6 +802,11 @@ where
 
 #[cfg(test)]
 mod test {
+    use std::{
+        thread,
+        time::{Duration, Instant},
+    };
+
     use crate::{
         device::virtio::virtio_queue::{
             VirtQueueAvail, VirtQueueAvailFlag, VirtQueueDescFlag, VirtQueueUsed, VirtQueueUsedFlag,
@@ -590,6 +818,14 @@ mod test {
     use super::*;
     const QUEUE_NUM: usize = 8;
     const DESC_NUM: usize = QUEUE_NUM * 3; // each request need
+
+    fn wait_for_used_index(used_ring: &VirtQueueUsed, expected: u16) {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while used_ring.get_index() != expected {
+            assert!(Instant::now() < deadline, "virtio block worker timed out");
+            thread::yield_now();
+        }
+    }
 
     #[test]
     #[should_panic(expected = "size must be a multiple of 512 bytes")]
@@ -654,7 +890,10 @@ mod test {
 
         let mut ram = Ram::new();
         let ram_base = &mut ram[0] as *mut u8;
-        let mut virt_device = VirtIOBlkDevice::new("VirtIO Block 0", ram_base, file_name);
+        let mut spawner = TaskSpawner::new();
+        let mut virt_device =
+            VirtIOBlkDeviceBuilder::new(ram_base, file_name).get_and_spawner_task(&mut spawner);
+        let _task_handle = spawner.start();
         virt_device.set_queue_num(QUEUE_NUM as u32);
 
         let virtq_desc_base = 0x8000_2000 as u64;
@@ -735,8 +974,12 @@ mod test {
         // manage request.
         let t = virt_device.manage_one_request();
         assert_eq!(t, true);
+        wait_for_used_index(virtq_used, 1);
 
-        assert_eq!(desc_status.status, VirtIOBlkReqStatus::Ok as u8);
+        assert_eq!(
+            desc_status.status.load(Ordering::Acquire),
+            VirtIOBlkReqStatus::Ok as u8
+        );
         assert_eq!(desc_buf[0], 0);
 
         let used_ring = virt_device.queue.get_used_ring();
@@ -759,7 +1002,8 @@ mod test {
 
         let mut ram = Ram::new();
         let ram_base = &mut ram[0] as *mut u8;
-        let mut virt_device = VirtIOBlkDevice::new("VirtIO Block 0", ram_base, file_name);
+        let (mut virt_device, mut worker) =
+            VirtIOBlkDeviceBuilder::new(ram_base, file_name).get_with_worker();
         virt_device.set_queue_num(QUEUE_NUM as u32);
 
         let virtq_desc_base = 0x8000_2000 as u64;
@@ -814,27 +1058,45 @@ mod test {
 
         let desc1 = &mut virt_queue_desc[1];
         let desc1_buf_addr = 0x8000_2400;
-        desc1.init(0x8000_2400, 0x200, VirtQueueDescFlag::VIRTQ_DESC_F_NEXT, 2);
+        desc1.init(0x8000_2400, 0x100, VirtQueueDescFlag::VIRTQ_DESC_F_NEXT, 2);
         let desc_buf = unsafe {
             slice::from_raw_parts_mut(
                 &mut ram[(desc1_buf_addr - ram_config::BASE_ADDR) as usize] as *mut u8,
-                0x200,
+                0x100,
             )
         };
-        for i in 0..0x200 {
+        for i in 0..0x100 {
             desc_buf[i] = (i * i) as u8;
         }
 
         let desc2 = &mut virt_queue_desc[2];
-        let desc2_buf_addr = 0x8000_2310;
+        let desc2_buf_addr = 0x8000_2500;
         desc2.init(
-            0x8000_2310,
+            desc2_buf_addr,
+            0x100,
+            VirtQueueDescFlag::VIRTQ_DESC_F_NEXT,
+            3,
+        );
+        let desc_buf2 = unsafe {
+            slice::from_raw_parts_mut(
+                &mut ram[(desc2_buf_addr - ram_config::BASE_ADDR) as usize] as *mut u8,
+                0x100,
+            )
+        };
+        for (idx, byte) in desc_buf2.iter_mut().enumerate() {
+            *byte = (idx * 3) as u8;
+        }
+
+        let desc3 = &mut virt_queue_desc[3];
+        let desc3_buf_addr = 0x8000_2310;
+        desc3.init(
+            desc3_buf_addr,
             size_of::<VirtioBlkStatus>() as u32, // 1 byte
             VirtQueueDescFlag::empty(),
             0,
         );
         let desc_status = unsafe {
-            (&mut ram[(desc2_buf_addr - ram_config::BASE_ADDR) as usize] as *mut u8
+            (&mut ram[(desc3_buf_addr - ram_config::BASE_ADDR) as usize] as *mut u8
                 as *mut VirtioBlkStatus)
                 .as_mut()
                 .unwrap()
@@ -843,8 +1105,12 @@ mod test {
         // manage request.
         let t = virt_device.manage_one_request();
         assert_eq!(t, true);
+        assert!(worker.process_one());
 
-        assert_eq!(desc_status.status, VirtIOBlkReqStatus::Ok as u8);
+        assert_eq!(
+            desc_status.status.load(Ordering::Acquire),
+            VirtIOBlkReqStatus::Ok as u8
+        );
         assert_eq!(desc_buf[0], 0);
 
         let used_ring = virt_device.queue.get_used_ring();
@@ -860,5 +1126,34 @@ mod test {
         file.seek(std::io::SeekFrom::Start(0)).unwrap();
         file.read(&mut buf).unwrap();
         assert_eq!(buf[93], (93 * 93) as u8);
+        assert_eq!(buf[SECTOR_SIZE / 2 + 93], (93 * 3) as u8);
+
+        // An OUT request beyond the advertised capacity must not extend the backing file.
+        req.sector = 1;
+        desc_status.status.store(0xff, Ordering::Relaxed);
+        avail_ring[1] = 0;
+        virtq_avail.idx_atomic_add(1);
+        assert!(virt_device.manage_one_request());
+        assert!(worker.process_one());
+        assert_eq!(
+            desc_status.status.load(Ordering::Acquire),
+            VirtIOBlkReqStatus::IoErr as u8
+        );
+        assert_eq!(virt_device.queue.get_used_ring().get_index(), 2);
+        assert_eq!(file.metadata().unwrap().len(), SECTOR_SIZE as u64);
+
+        // The checked sector-to-byte conversion rejects integer overflow too.
+        req.sector = u64::MAX;
+        desc_status.status.store(0xff, Ordering::Relaxed);
+        avail_ring[2] = 0;
+        virtq_avail.idx_atomic_add(1);
+        assert!(virt_device.manage_one_request());
+        assert!(worker.process_one());
+        assert_eq!(
+            desc_status.status.load(Ordering::Acquire),
+            VirtIOBlkReqStatus::IoErr as u8
+        );
+        assert_eq!(virt_device.queue.get_used_ring().get_index(), 3);
+        assert_eq!(file.metadata().unwrap().len(), SECTOR_SIZE as u64);
     }
 }

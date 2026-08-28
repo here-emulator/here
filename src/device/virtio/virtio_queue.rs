@@ -258,6 +258,29 @@ pub(crate) struct VirtQueueUsed {
     /* Only if VIRTIO_F_EVENT_IDX: used_event: u16; */
 }
 
+/// A detached used-ring update that can be completed after host I/O finishes.
+pub(crate) struct VirtQueueCompletion {
+    used_ring: usize,
+    queue_num: u32,
+    entry_idx: u32,
+}
+
+// The PLIC device worker runs on the TaskSpawner thread. The guest owns the
+// queue memory until this completion is published to the used ring.
+unsafe impl Send for VirtQueueCompletion {}
+
+impl VirtQueueCompletion {
+    pub(crate) fn complete(self, len: u32) {
+        unsafe { &mut *(self.used_ring as *mut VirtQueueUsed) }.insert_used(
+            self.queue_num,
+            VirtQueueUsedElem {
+                id: self.entry_idx,
+                len,
+            },
+        );
+    }
+}
+
 impl VirtQueueUsed {
     pub(super) fn ring(&mut self, queue_num: u32) -> &mut [VirtQueueUsedElem] {
         unsafe {
@@ -417,14 +440,13 @@ impl VirtQueue {
         virt_queue_used.insert_used(self.queue_num, elem);
     }
 
-    /// # [`VirtQueue::manage_one_request<F>(&mut self, func: F)`]
-    /// Manage a single request in the virtqueue.
-    /// Fn (desc: &VirtQueueDesc) -> u32
-    /// Input: The descriptor to manage.
-    /// Output: The length of data processed in this descriptor.
-    pub(crate) fn manage_one_request<F>(&mut self, mut func: F) -> bool
+    /// Remove one available descriptor chain and return its deferred completion.
+    ///
+    /// The caller must publish the returned completion exactly once after it
+    /// has finished processing the descriptor chain.
+    pub(crate) fn take_one_request<F>(&mut self, mut func: F) -> Option<VirtQueueCompletion>
     where
-        F: FnMut(&VirtQueueDesc, usize) -> u32,
+        F: FnMut(&VirtQueueDesc, usize),
     {
         if (self.queue_num == 0)
             || (self.desc.is_null())
@@ -432,29 +454,45 @@ impl VirtQueue {
             || (self.used.is_null())
         {
             error!("VirtQueue not ready to manage requests.");
-            return false;
+            return None;
         }
         if let Some(mut handle) = self.try_get_desc() {
             let entry_idx = handle.get_entry_idx();
-            let mut len = 0;
             let mut idx = 0;
 
             loop {
                 if let Some(desc) = handle.try_get() {
-                    len += func(desc, idx);
+                    func(desc, idx);
                     idx += 1;
                 } else {
                     break;
                 }
             }
 
-            self.get_used_ring()
-                .insert_used(self.queue_num, VirtQueueUsedElem { id: entry_idx, len });
-
-            true
+            Some(VirtQueueCompletion {
+                used_ring: self.used as usize,
+                queue_num: self.queue_num,
+                entry_idx,
+            })
         } else {
-            false
+            None
         }
+    }
+
+    /// # [`VirtQueue::manage_one_request<F>(&mut self, func: F)`]
+    /// Manage a single request in the virtqueue synchronously.
+    pub(crate) fn manage_one_request<F>(&mut self, mut func: F) -> bool
+    where
+        F: FnMut(&VirtQueueDesc, usize) -> u32,
+    {
+        let mut len = 0;
+        let Some(completion) = self.take_one_request(|desc, idx| {
+            len += func(desc, idx);
+        }) else {
+            return false;
+        };
+        completion.complete(len);
+        true
     }
 
     pub(crate) fn set_used_ring_flag(&mut self, flag: VirtQueueUsedFlag) {
