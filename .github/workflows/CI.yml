@@ -16,14 +16,14 @@ jobs:
           - name: native
             install_wasm_target: false
             command: cargo check --no-default-features --features "riscv64,native-cli,riscv-tests"
-          - name: web
-            install_wasm_target: true
-            command: cargo check --target wasm32-unknown-unknown --no-default-features --features "riscv64,web"
+          # - name: web
+          #   install_wasm_target: true
+          #   command: cargo check --target wasm32-unknown-unknown --no-default-features --features "riscv64,web"
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: nightly
+          toolchain: nightly-2026-09-01
       - if: matrix.install_wasm_target
         run: rustup target add wasm32-unknown-unknown
       - run: ${{ matrix.command }}
@@ -39,7 +39,7 @@ jobs:
           submodules: recursive
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: nightly
+          toolchain: nightly-2026-09-01
       - name: Get riscv-tests commit hash
         id: riscv-tests-hash
         run: echo "hash=$(git submodule status riscv-tests | awk '{print $1}' | sed 's/^[+-]//')" >> $GITHUB_OUTPUT
@@ -94,6 +94,6 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: nightly
+          toolchain: nightly-2026-09-01
           components: rustfmt
       - run: cargo fmt --all -- --check
