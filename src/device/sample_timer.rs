@@ -1,6 +1,3 @@
-#![allow(unused)]
-#![cfg(feature = "test-device")]
-
 //! A simple millisecond timer used to exercise external interrupts.
 
 use std::{
@@ -16,15 +13,14 @@ use tokio::{sync::watch, time::Instant};
 
 use crate::{
     config::arch_config::WordType,
-    device::{
-        DeviceTrait, MemError, MemMappedDeviceTrait, PlicDevice,
-        config::{SAMPLE_TIMER_BASE, SAMPLE_TIMER_SIZE},
-        plic::PeriphIrqId,
-    },
+    device::{DeviceTrait, MemError, PlicDevice, plic::PeriphIrqId},
     task_spawner::DeviceTask,
 };
 
 pub const SAMPLE_TIMER_INTERRUPT_ID: PeriphIrqId = 63;
+
+/// MMIO region size for the sample timer device.
+pub const SAMPLE_TIMER_SIZE: WordType = 0x10;
 const CONTROL_RESET: u32 = 1 << 0;
 
 struct SampleTimerLayout {
@@ -172,15 +168,6 @@ impl DeviceTrait for SampleTimerDevice {
 
     fn sync(&mut self) {
         // nothing to do.
-    }
-}
-
-impl MemMappedDeviceTrait for SampleTimerDevice {
-    fn base() -> WordType {
-        SAMPLE_TIMER_BASE
-    }
-    fn size() -> WordType {
-        SAMPLE_TIMER_SIZE
     }
 }
 

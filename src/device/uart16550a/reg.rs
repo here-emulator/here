@@ -1,7 +1,10 @@
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
 
-use crate::device::config::UART_DEFAULT_DIV;
+// The emulator does not model a physical input clock.  Keep the reset
+// divisor at the value used by the previous UART implementation; guests that
+// need a particular baud rate can program DLL/DLM through DLAB.
+const UART_DEFAULT_DIV: usize = 1;
 
 pub type RBR = ReceiverBufferRegister; // byte 0 (R)
 pub type THR = TransmitterHoldingRegister; // byte 0 (W)
@@ -485,6 +488,7 @@ impl Uart16550RegLayout {
         }
     }
 
+    #[allow(unused)]
     pub fn get_divisor(&self) -> u16 {
         (self.divisor_latch_register_l.data() as u16)
             + ((self.divisor_latch_register_h.data() as u16) << 8)

@@ -1,9 +1,6 @@
 use std::{
-    any::TypeId,
     cell::{Cell, UnsafeCell},
-    collections::HashMap,
     hint::cold_path,
-    ptr::NonNull,
     rc::Rc,
     sync::atomic::Ordering,
 };
@@ -12,34 +9,21 @@ pub use crate::device::uart16550a::{UartIoError, UartIoMode};
 
 use crate::{
     DeviceConfig,
-    board::{Board, BoardStatus, VirtBoardPlicContextId},
+    board::{Board, BoardStatus, VirtBoardPlicContextId, builder::RVBoardBuilder},
     clock::{Timer, VirtualClock},
     config::arch_config::WordType,
     device::{
-        self, IdAllocator, PlicDevice,
-        aclint::Clint,
-        config::{
-            CLINT_BASE, CLINT_SIZE, PLIC_BASE, PLIC_SIZE, POWER_MANAGER_BASE, POWER_MANAGER_SIZE,
-            UART_IRQ, VIRTIO_IRQ_BASE,
-        },
-        device_manager::{DeviceArena, DeviceArenaBuilder, DeviceHandle},
-        mmio::{MemoryMapIO, MemoryMapItem},
-        plic::{PLIC, PeriphIrqId},
-        power_manager::{POWER_OFF_CODE, POWER_STATUS, PowerManager},
-        uart16550a::{Uart16550A, UartBytePort},
-        virtio::{
-            virtio_block::VirtIOBlkDeviceBuilder, virtio_device::VirtIODeviceEnum,
-            virtio_mmio::VirtIOMMIO,
-        },
+        self,
+        aclint::{CLINT_SIZE, Clint},
+        device_manager::{DeviceArena, DeviceHandle},
+        plic::{PLIC, PLIC_SIZE},
+        power_manager::{POWER_MANAGER_SIZE, POWER_OFF_CODE, POWER_STATUS},
+        uart16550a::UartBytePort,
     },
-    isa::{
-        DebugTarget,
-        riscv::{
-            decoder::Decoder,
-            executor::{BatchResult, ExecutionHook, RVCPU},
-            mmu::VirtAddrManager,
-            trap::Interrupt,
-        },
+    isa::riscv::{
+        decoder::Decoder,
+        executor::{BatchResult, ExecutionHook, RVCPU},
+        trap::Interrupt,
     },
     load::{ELFLoader, load_bin},
     ram::Ram,
@@ -47,10 +31,32 @@ use crate::{
 };
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::task_spawner::{TaskHandle, TaskSpawner};
+use crate::task_spawner::TaskHandle;
 
-#[cfg(feature = "test-device")]
-use crate::device::sample_timer::{SAMPLE_TIMER_INTERRUPT_ID, SampleTimerDevice};
+#[cfg(all(feature = "test-device", not(target_arch = "wasm32")))]
+use crate::device::sample_timer::{SAMPLE_TIMER_INTERRUPT_ID, SAMPLE_TIMER_SIZE};
+
+#[allow(unused)]
+pub mod config {
+    use crate::config::arch_config::WordType;
+
+    pub const UART_BASE: WordType = 0x1000_0000;
+    pub const UART_SIZE: WordType = 8;
+    /// UART PLIC interrupt source ID, must match DTS `interrupts = <0xa>`
+    pub const UART_IRQ: u32 = 10;
+
+    pub const VIRTIO_MMIO_BASE: WordType = 0x1000_1000;
+    pub const VIRTIO_MMIO_SIZE: WordType = 0x1000;
+    /// First VirtIO PLIC source ID. Subsequent MMIO transports use consecutive IDs.
+    pub const VIRTIO_IRQ_BASE: u32 = 1;
+
+    pub const POWER_MANAGER_BASE: WordType = 0x10_0000;
+    pub const CLINT_BASE: WordType = 0x200_0000;
+    pub const PLIC_BASE: WordType = 0xc00_0000;
+    pub const SAMPLE_TIMER_BASE: WordType = 0x10_1000;
+}
+
+pub use config::*;
 
 pub trait RiscvIRQHandler {
     fn handle_irq(&mut self, interrupt: Interrupt, level: bool);
@@ -143,257 +149,29 @@ impl IRQLine {
     }
 }
 
-pub struct RVBoardBuilder {
-    plic: Box<PLIC>,
-    arena_builder: DeviceArenaBuilder,
-    mmio_items: Vec<MemoryMapItem>,
-    virtio_devices: Vec<DeviceConfig>,
-    id_allocators: HashMap<TypeId, IdAllocator>,
-    decoder: Option<Decoder>,
-    initial_registers: Vec<(u8, WordType)>,
-    uart_io: UartIoMode,
-    #[cfg(not(target_arch = "wasm32"))]
-    spawner: TaskSpawner,
-}
-
-impl RVBoardBuilder {
-    pub fn new() -> Self {
-        Self {
-            plic: Box::new(PLIC::new()),
-            arena_builder: DeviceArenaBuilder::new(),
-            mmio_items: Vec::new(),
-            virtio_devices: Vec::new(),
-            id_allocators: HashMap::new(),
-            decoder: None,
-            initial_registers: Vec::new(),
-            uart_io: UartIoMode::External,
-            #[cfg(not(target_arch = "wasm32"))]
-            spawner: TaskSpawner::new(),
-        }
-    }
-
-    pub fn with_decoder(mut self, decoder: Decoder) -> Self {
-        self.decoder = Some(decoder);
-        self
-    }
-
-    pub fn add_plic_device<D: device::MemMappedDeviceTrait + PlicDevice + 'static>(
-        mut self,
-        mut device: Box<D>,
-        interrupt_id: PeriphIrqId,
-    ) -> Self {
-        let type_id = TypeId::of::<D>();
-        let allocator = self
-            .id_allocators
-            .entry(type_id)
-            .or_insert_with(|| device::IdAllocator::new::<D>(0, stringify!(D).to_string()));
-
-        let info = allocator.get();
-        let device_ptr = NonNull::from(&mut *device as &mut dyn PlicDevice);
-        self.plic.register_device(device_ptr, interrupt_id);
-        let handle = self.arena_builder.register(device);
-        self.mmio_items
-            .push(MemoryMapItem::new(info.base, info.size, handle));
-
-        self
-    }
-
-    pub fn add_virtio_devices(mut self, devices: Vec<DeviceConfig>) -> Self {
-        self.virtio_devices.extend(devices);
-        self
-    }
-
-    pub fn with_initial_registers(mut self, registers: Vec<(u8, WordType)>) -> Self {
-        self.initial_registers = registers;
-        self
-    }
-
-    pub fn with_uart_io(mut self, mode: UartIoMode) -> Self {
-        self.uart_io = mode;
-        self
-    }
-
-    pub fn build(mut self, ram: Ram) -> Result<VirtBoard, String> {
-        let cycles = Rc::new(Cell::new(0));
-        let clock = VirtualClock::new(cycles.clone());
-        let timer = Rc::new(UnsafeCell::new(Timer::new(clock.clone())));
-        let ram_ref = Rc::new(UnsafeCell::new(ram));
-
-        // Construct devices
-        let (uart1, uart_port1) = Uart16550A::new();
-        self = self.add_plic_device(Box::new(uart1), UART_IRQ);
-
-        let mut uart_port = None;
-        #[cfg(feature = "native-cli")]
-        let mut uart_stdin_handle = None;
-        match self.uart_io {
-            UartIoMode::None => drop(uart_port1),
-            UartIoMode::External => uart_port = Some(uart_port1),
-            #[cfg(feature = "native-cli")]
-            UartIoMode::Stdio => {
-                use crate::byte_io::StdinRouter;
-
-                let input = uart_port1.input_sender();
-                self.spawner.register(uart_port1);
-
-                let router = StdinRouter::global();
-                let handle = router.register(input);
-                router.switch_to(handle);
-                uart_stdin_handle = Some(handle);
-            }
-        }
-
-        const MTIME_OFFSET: u64 = 0xbff8;
-        const MTIMECMP_OFFSET: u64 = 0x4000;
-
-        let power_manager = Box::new(PowerManager::new());
-        let clint = Box::new(Clint::new(
-            1,
-            0,
-            MTIME_OFFSET,
-            MTIMECMP_OFFSET,
-            clock.clone(),
-            timer.clone(),
-        ));
-
-        let power_manager = self.arena_builder.register(power_manager);
-        let clint = self.arena_builder.register(clint);
-        self.mmio_items.extend([
-            MemoryMapItem::new(POWER_MANAGER_BASE, POWER_MANAGER_SIZE, power_manager),
-            MemoryMapItem::new(CLINT_BASE, CLINT_SIZE, clint),
-        ]);
-
-        // Add VirtIO device.
-        let virtio_devices = std::mem::take(&mut self.virtio_devices);
-        for (virtio_index, virtio_device_cfg) in virtio_devices.into_iter().enumerate() {
-            let virtio_device = match virtio_device_cfg.dev_type {
-                VirtIODeviceEnum::VirtIOBlock => {
-                    let ram_base = unsafe { &mut ram_ref.as_mut_unchecked()[0] as *mut u8 };
-                    VirtIOBlkDeviceBuilder::new(
-                        ram_base,
-                        String::from(virtio_device_cfg.path.to_str().unwrap()),
-                    )
-                    .host_feature(
-                        crate::device::virtio::virtio_block::VirtIOBlockFeature::BlockSize,
-                    )
-                    .host_feature(crate::device::virtio::virtio_block::VirtIOBlockFeature::Flush)
-                    .get_and_spawner_task(&mut self.spawner)
-                }
-                dev_type => {
-                    panic!("unsupport device: {:#?}", dev_type);
-                }
-            };
-            let virtio_mmio_device = VirtIOMMIO::new(Box::new(UnsafeCell::new(virtio_device)));
-            self = self.add_plic_device(
-                Box::new(virtio_mmio_device),
-                VIRTIO_IRQ_BASE + virtio_index as u32,
-            );
-        }
-
-        let plic = self.arena_builder.register(self.plic);
-        self.mmio_items
-            .push(MemoryMapItem::new(PLIC_BASE, PLIC_SIZE, plic));
-
-        let mut device_arena = Box::new(self.arena_builder.build());
-        let device_arena_ptr = NonNull::from(device_arena.as_mut());
-        let mmio = unsafe {
-            MemoryMapIO::from_mmio_items(ram_ref.clone(), device_arena_ptr, self.mmio_items)
-        };
-        let vaddr_manager = VirtAddrManager::from_ram_and_mmio(ram_ref.clone(), mmio);
-
-        let decoder = self.decoder.take().unwrap_or_else(Decoder::new);
-        let mut cpu = Box::new(RVCPU::from_decoder(decoder, vaddr_manager));
-
-        for (register, value) in self.initial_registers {
-            cpu.write_reg(register, value);
-        }
-
-        // register irq line for timer.
-        let arena = device_arena.as_mut();
-        arena.device_mut(clint).set_irq_line(
-            IRQLine::new(
-                &mut *cpu as *mut dyn RiscvIRQHandler,
-                Interrupt::MachineTimer,
-            ),
-            0,
-        );
-        arena.device_mut(clint).set_irq_line(
-            IRQLine::new(
-                &mut *cpu as *mut dyn RiscvIRQHandler,
-                Interrupt::MachineSoft,
-            ),
-            1,
-        );
-
-        cpu.time_addr = Some(CLINT_BASE + MTIME_OFFSET);
-
-        // register irq line for plic.
-        let plic_machine_irq_line = IRQLine::new(
-            &mut *cpu as *mut dyn RiscvIRQHandler,
-            Interrupt::MachineExternal,
-        );
-        let plic_supervisor_irq_line = IRQLine::new(
-            &mut *cpu as *mut dyn RiscvIRQHandler,
-            Interrupt::SupervisorExternal,
-        );
-
-        arena.device_mut(plic).set_irq_line(
-            plic_machine_irq_line,
-            VirtBoardPlicContextId::Cpu0MachineMode.into(),
-        );
-        arena.device_mut(plic).set_irq_line(
-            plic_supervisor_irq_line,
-            VirtBoardPlicContextId::Cpu0SuperviserMode.into(),
-        );
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let task_handle = self.spawner.start();
-
-        Ok(VirtBoard {
-            #[cfg(not(target_arch = "wasm32"))]
-            task_handle,
-            loader: None,
-            cpu,
-            cycles,
-            clock,
-            timer,
-
-            clint,
-            plic,
-            uart_io: self.uart_io,
-            uart_port,
-            #[cfg(feature = "native-cli")]
-            uart_stdin_handle,
-
-            status: BoardStatus::Running,
-            device_arena,
-        })
-    }
-}
-
 pub struct VirtBoard {
     // Stop device tasks before dropping the state they may depend on.
     #[cfg(not(target_arch = "wasm32"))]
-    task_handle: TaskHandle,
+    pub task_handle: TaskHandle,
 
-    loader: Option<ELFLoader>,
+    pub loader: Option<ELFLoader>,
 
     pub cpu: Box<RVCPU>,
-    cycles: Rc<Cell<u64>>,
+    pub cycles: Rc<Cell<u64>>,
     pub clock: VirtualClock,
     pub timer: Rc<UnsafeCell<Timer<VirtualClock>>>,
 
     pub clint: DeviceHandle<Clint>,
     pub plic: DeviceHandle<PLIC>,
-    uart_io: UartIoMode,
-    uart_port: Option<UartBytePort>,
+    pub uart_io: UartIoMode,
+    pub uart_port: Option<UartBytePort>,
     #[cfg(feature = "native-cli")]
-    uart_stdin_handle: Option<crate::byte_io::StdinHandle>,
+    pub uart_stdin_handle: Option<crate::byte_io::StdinHandle>,
 
-    status: BoardStatus,
+    pub status: BoardStatus,
 
     // Must remain after `cpu`: MemoryMapIO stores a non-owning pointer into this arena.
-    device_arena: Box<DeviceArena>,
+    pub device_arena: Box<DeviceArena>,
 }
 
 const STEP_BATCH_CYCLES: u64 = 1024;
@@ -455,25 +233,50 @@ impl VirtBoard {
                 })?;
         }
 
-        let mut builder = RVBoardBuilder::new();
+        let mut builder = RVBoardBuilder::new(ram);
 
         if let Some(decoder) = decoder {
             builder = builder.with_decoder(decoder);
         }
 
         builder = builder
-            .add_virtio_devices(virtio_devices)
             .with_initial_registers(initial_registers)
-            .with_uart_io(uart_io);
+            .add_power_manager(config::POWER_MANAGER_BASE, POWER_MANAGER_SIZE)
+            .add_clint(config::CLINT_BASE, CLINT_SIZE)
+            .add_plic(config::PLIC_BASE, PLIC_SIZE)
+            .add_uart(
+                config::UART_BASE,
+                config::UART_SIZE,
+                config::UART_IRQ,
+                uart_io,
+            );
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            for virtio_device in virtio_devices {
+                builder = builder.add_virtio_device(
+                    config::VIRTIO_MMIO_BASE,
+                    config::VIRTIO_MMIO_SIZE,
+                    config::VIRTIO_IRQ_BASE,
+                    virtio_device,
+                );
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = virtio_devices;
+        }
 
         #[cfg(all(feature = "test-device", not(target_arch = "wasm32")))]
         {
-            let (device, task) = SampleTimerDevice::new();
-            builder = builder.add_plic_device(Box::new(device), SAMPLE_TIMER_INTERRUPT_ID);
-            builder.spawner.register(task);
+            builder = builder.add_sample_timer(
+                config::SAMPLE_TIMER_BASE,
+                SAMPLE_TIMER_SIZE,
+                SAMPLE_TIMER_INTERRUPT_ID,
+            );
         }
 
-        builder.build(ram)
+        builder.build()
     }
 
     #[cfg(test)]
@@ -663,25 +466,25 @@ mod tests {
 
     #[test]
     fn virtboard_mmio_uses_uart16550a() {
-        use crate::{device::config::UART_BASE, isa::riscv::debugger::Address};
+        use crate::isa::riscv::debugger::Address;
 
         let mut board = VirtBoard::from_binary_with(&[], VirtBoardConfig::new()).unwrap();
 
         board
             .cpu
-            .write_memory(Address::Phys(UART_BASE), b'a')
+            .write_memory(Address::Phys(config::UART_BASE), b'a')
             .unwrap();
         assert_eq!(board.take_uart_output().unwrap(), vec![b'a']);
 
         board.push_uart_input(b"b").unwrap();
         board
             .cpu
-            .write_memory(Address::Phys(UART_BASE + 1), 0x01u8)
+            .write_memory(Address::Phys(config::UART_BASE + 1), 0x01u8)
             .unwrap();
         assert_eq!(
             board
                 .cpu
-                .read_memory::<u8>(Address::Phys(UART_BASE))
+                .read_memory::<u8>(Address::Phys(config::UART_BASE))
                 .unwrap(),
             b'b'
         );
@@ -840,7 +643,7 @@ mod tests {
             time::{Duration, Instant},
         };
 
-        use crate::device::config::SAMPLE_TIMER_BASE;
+        use crate::board::virt::config::SAMPLE_TIMER_BASE;
         use crate::device::sample_timer::SAMPLE_TIMER_INTERRUPT_ID;
         use crate::{config::arch_config::WordType, isa::riscv::debugger::Address};
         const CONTEXT_ENABLE_BIT_OFFSET: WordType = 0x002000;

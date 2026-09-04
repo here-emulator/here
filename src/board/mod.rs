@@ -3,6 +3,7 @@ use crate::{
     isa::riscv::executor::{BatchResult, ExecutionHook, RVCPU},
 };
 
+pub mod builder;
 pub mod virt;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

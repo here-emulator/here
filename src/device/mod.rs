@@ -40,7 +40,6 @@ macro_rules! dispatch_read_write {
 }
 
 pub(crate) mod aclint;
-pub(crate) mod config;
 pub mod device_manager;
 mod id_allocator;
 pub mod uart16550a;
@@ -48,6 +47,7 @@ pub(crate) use id_allocator::*;
 pub(crate) mod mmio;
 pub(crate) mod plic;
 pub(crate) mod power_manager;
+#[cfg(all(feature = "test-device", not(target_arch = "wasm32")))]
 pub(crate) mod sample_timer;
 pub(crate) mod spi;
 pub(crate) mod virtio;
@@ -122,10 +122,4 @@ pub trait PlicDevice: DeviceTrait {
     /// This sampled interface is intended for level-triggered sources that
     /// remain asserted until serviced.
     fn irq_level(&mut self) -> bool;
-}
-
-// TODO: Remove this
-pub trait MemMappedDeviceTrait: DeviceTrait {
-    fn base() -> WordType;
-    fn size() -> WordType;
 }

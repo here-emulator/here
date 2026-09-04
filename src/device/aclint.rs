@@ -4,12 +4,12 @@ use crate::{
     board::virt::{IRQLine, RiscvIRQSource},
     clock::{Clock, Timer, VirtualClock},
     config::arch_config::WordType,
-    device::{
-        DeviceTrait, MemError, MemMappedDeviceTrait,
-        config::{CLINT_BASE, CLINT_SIZE},
-    },
+    device::{DeviceTrait, MemError},
     utils::{concat_to_u64, negative_of},
 };
+
+/// MMIO region size for the CLINT device.
+pub const CLINT_SIZE: WordType = 0x10000;
 
 pub struct Clint {
     hart_num: u32,
@@ -198,15 +198,6 @@ impl DeviceTrait for Clint {
 
     fn sync(&mut self) {
         // Nothing to do
-    }
-}
-
-impl MemMappedDeviceTrait for Clint {
-    fn base() -> WordType {
-        CLINT_BASE
-    }
-    fn size() -> WordType {
-        CLINT_SIZE
     }
 }
 

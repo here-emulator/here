@@ -32,6 +32,7 @@ pub mod device;
 pub mod isa;
 pub mod load;
 pub mod ram;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod task_spawner;
 
 #[cfg(feature = "web")]

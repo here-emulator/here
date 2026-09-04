@@ -1,11 +1,15 @@
-use crate::device::{
-    DeviceTrait, MemError, MemMappedDeviceTrait,
-    config::{POWER_MANAGER_BASE, POWER_MANAGER_SIZE},
+use crate::{
+    config::arch_config::WordType,
+    device::{DeviceTrait, MemError},
 };
 use std::sync::atomic::AtomicU16;
 
 pub(crate) const POWER_OFF_CODE: u16 = 0x5555;
 pub static POWER_STATUS: AtomicU16 = AtomicU16::new(0);
+
+/// MMIO region size for the power manager device.
+// Cannot be too small — OpenSBI disallows small mappings.
+pub const POWER_MANAGER_SIZE: WordType = 0x1000;
 
 pub struct PowerManager {
     reg: u16,
@@ -47,16 +51,6 @@ impl DeviceTrait for PowerManager {
     dispatch_read_write! { read_impl, write_impl }
 
     fn sync(&mut self) {}
-}
-
-impl MemMappedDeviceTrait for PowerManager {
-    fn base() -> crate::config::arch_config::WordType {
-        POWER_MANAGER_BASE
-    }
-
-    fn size() -> crate::config::arch_config::WordType {
-        POWER_MANAGER_SIZE
-    }
 }
 
 impl PowerManager {

@@ -5,7 +5,7 @@ use std::{hint::unlikely, ptr::NonNull};
 use crate::{
     board::virt::RiscvIRQSource,
     config::arch_config::WordType,
-    device::{DeviceTrait, MemError, PlicDevice, config::PLIC_SIZE},
+    device::{DeviceTrait, MemError, PlicDevice},
 };
 use bit_set::BitSet;
 
@@ -25,6 +25,9 @@ const CONTEXT_ENABLE_BIT_OFFSET: WordType = 0x002000;
 const CONTEXT_ENABLE_BIT_SIZE: WordType = 0x80;
 const CONTEXT_CONFIG_OFFSET: WordType = 0x200000;
 const CONTEXT_CONFIG_SIZE: WordType = 0x1000;
+
+/// MMIO region size for the PLIC device.
+pub const PLIC_SIZE: WordType = 0x400_0000;
 
 /*
     - priority (0x000000 - 0x000ffc)

@@ -9,11 +9,7 @@ use tokio::sync::mpsc::{self, Receiver, UnboundedSender};
 
 use crate::{
     config::arch_config::WordType,
-    device::{
-        DeviceTrait, MemMappedDeviceTrait, PlicDevice,
-        config::{UART_BASE, UART_SIZE},
-        uart16550a::reg::*,
-    },
+    device::{DeviceTrait, PlicDevice, uart16550a::reg::*},
 };
 
 pub struct Uart16550A {
@@ -258,18 +254,12 @@ impl PlicDevice for Uart16550A {
     }
 }
 
-impl MemMappedDeviceTrait for Uart16550A {
-    fn base() -> WordType {
-        UART_BASE
-    }
-    fn size() -> WordType {
-        UART_SIZE
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::device::{DeviceTrait, PlicDevice, config::UART_IRQ};
+    use crate::{
+        board::virt::config::UART_IRQ,
+        device::{DeviceTrait, PlicDevice},
+    };
 
     use super::*;
 

@@ -278,10 +278,12 @@ impl DeviceTrait for MemoryMapIO {
 
 #[cfg(test)]
 mod test {
-    use crate::device::{
-        config::{POWER_MANAGER_BASE, POWER_MANAGER_SIZE, UART_BASE, UART_SIZE},
-        power_manager::PowerManager,
-        uart16550a::Uart16550A,
+    use crate::{
+        board::virt::config,
+        device::{
+            power_manager::{POWER_MANAGER_SIZE, PowerManager},
+            uart16550a::Uart16550A,
+        },
     };
 
     use super::*;
@@ -296,8 +298,12 @@ mod test {
         let power_manager = arena_builder.register(Box::new(power_manager));
         let uart1 = arena_builder.register(Box::new(uart1));
         let table = vec![
-            MemoryMapItem::new(POWER_MANAGER_BASE, POWER_MANAGER_SIZE, power_manager),
-            MemoryMapItem::new(UART_BASE, UART_SIZE, uart1),
+            MemoryMapItem::new(
+                config::POWER_MANAGER_BASE,
+                POWER_MANAGER_SIZE,
+                power_manager,
+            ),
+            MemoryMapItem::new(config::UART_BASE, config::UART_SIZE, uart1),
         ];
         let mut devices = Box::new(arena_builder.build());
         let devices_ptr = NonNull::from(devices.as_mut());
@@ -326,16 +332,24 @@ mod test {
         let power_manager = arena_builder.register(Box::new(power_manager));
         let uart1 = arena_builder.register(Box::new(uart1));
         let table = vec![
-            MemoryMapItem::new(POWER_MANAGER_BASE, POWER_MANAGER_SIZE, power_manager),
-            MemoryMapItem::new(UART_BASE, UART_SIZE, uart1),
+            MemoryMapItem::new(
+                config::POWER_MANAGER_BASE,
+                POWER_MANAGER_SIZE,
+                power_manager,
+            ),
+            MemoryMapItem::new(config::UART_BASE, config::UART_SIZE, uart1),
         ];
         let mut devices = Box::new(arena_builder.build());
         let devices_ptr = NonNull::from(devices.as_mut());
 
         let mut mmio = unsafe { MemoryMapIO::from_mmio_items(ram, devices_ptr, table) };
 
-        mmio.write_by_type(UART_BASE + 0x00, 'a' as u8).unwrap();
-        assert_ne!((mmio.read_by_type::<u8>(UART_BASE + 5).unwrap() & 0x20), 0);
+        mmio.write_by_type(config::UART_BASE + 0x00, 'a' as u8)
+            .unwrap();
+        assert_ne!(
+            (mmio.read_by_type::<u8>(config::UART_BASE + 5).unwrap() & 0x20),
+            0
+        );
         let data = port1.take_output();
         assert_eq!(data.len(), 1);
         assert_eq!(data[0], 'a' as u8);
