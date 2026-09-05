@@ -214,7 +214,25 @@ fn parse_instr<'a>(
     }
 }
 
-fn main() {
+fn get_commit_hash() -> String {
+    if let Ok(hash) = env::var("GIT_HASH")
+        && !hash.is_empty()
+    {
+        return hash;
+    }
+
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--short=8", "HEAD"])
+        .output();
+
+    match output {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_owned(),
+        _ => String::from("unknown"),
+    }
+}
+
+/// Generate the `define_riscv_isa!` macro
+fn generate_isa_code(json_paths: &[PathBuf]) {
     let ext_to_name: HashMap<&'static str, &'static str> = {
         let mut m = HashMap::new();
         m.insert("rv_i", "RV32I");
@@ -249,23 +267,15 @@ fn main() {
         m.insert("rv_custom1", "RVCustom1");
         m
     };
+
     let mut isa_dict: HashMap<&str, Vec<String>> = HashMap::new();
+    for path in json_paths {
+        parse_instr(&mut isa_dict, &ext_to_name, path);
+    }
 
     let mut output = String::new();
     output.push_str("define_riscv_isa!(\n");
     output.push_str("RiscvInstr,\n");
-
-    let json_path = PathBuf::from("./data/instr_dict.json");
-    parse_instr(&mut isa_dict, &ext_to_name, &json_path);
-
-    let illegal_path = PathBuf::from("./data/instr_dict_illegal.json");
-    parse_instr(&mut isa_dict, &ext_to_name, &illegal_path);
-
-    #[cfg(feature = "custom-instr")]
-    {
-        let json_path = PathBuf::from("./data/instr_dict_custom.json");
-        parse_instr(&mut isa_dict, &ext_to_name, &json_path);
-    }
 
     for (name, arr) in isa_dict.into_iter() {
         output.push_str(&format!(
@@ -284,6 +294,22 @@ fn main() {
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap()).join("rvinstr_gen.rs");
     fs::write(&out_path, output).expect("Failed to write rvinstr_gen.rs");
 
-    println!("cargo:rerun-if-changed={}", json_path.display());
-    println!("cargo:rerun-if-changed={}", illegal_path.display());
+    for path in json_paths {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
+}
+
+fn main() {
+    let json_paths = vec![
+        PathBuf::from("./data/instr_dict.json"),
+        PathBuf::from("./data/instr_dict_illegal.json"),
+        #[cfg(feature = "custom-instr")]
+        PathBuf::from("./data/instr_dict_custom.json"),
+    ];
+
+    generate_isa_code(&json_paths);
+
+    // Expose commit hash to the crate via env! macro.
+    println!("cargo:rerun-if-env-changed=GIT_HASH");
+    println!("cargo:rustc-env=HERE_COMMIT_HASH={}", get_commit_hash());
 }

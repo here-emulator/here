@@ -3,6 +3,7 @@
 #![feature(generic_const_exprs)]
 
 mod logging;
+mod version;
 mod welcome;
 
 use std::fs;
@@ -87,7 +88,7 @@ fn display_device_list(devices: &[DeviceConfig]) {
 
 #[derive(Parser, Debug)]
 #[command(
-    version,
+    version = version::VERSION,
     next_line_help = true,
     about = "An educational full-system RISC-V emulator written in Rust.",
     after_help = "Terminal controls:\n  Ctrl+A, then x  Exit the emulator."
@@ -324,6 +325,7 @@ fn main() {
     let _logger_handle = logging::init(cli_args.log_level);
 
     display_welcome_message();
+    println!("here {}", version::VERSION);
 
     let stdin_terminal = std::io::stdin().is_terminal();
     let stdout_terminal = std::io::stdout().is_terminal();

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to release, for example v0.1.0"
+        description: "Tag to release, e.g. v0.1.0 or v0.2.0-alpha"
         required: true
         type: string
   push:
@@ -12,11 +12,38 @@ on:
       - "v[0-9]*.[0-9]*.[0-9]*"
 
 jobs:
+  check-version:
+    name: Check Version Matches Tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly-2026-09-01
+
+      - name: Verify Cargo.toml version matches git tag
+        run: |
+          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          TAG="${{ inputs.tag || github.ref_name }}"
+          TAG_VERSION="${TAG#v}"
+          echo "Cargo.toml version: $CARGO_VERSION"
+          echo "Git tag version:     $TAG_VERSION"
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Version mismatch: Cargo.toml version ($CARGO_VERSION) does not match git tag ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "::notice::Version check passed: $CARGO_VERSION == $TAG_VERSION"
+
   build:
     name: Build (${{ matrix.target }})
+    needs: check-version
     runs-on: ${{ matrix.os }}
+    env:
+      HERE_RELEASE: "1"
     strategy:
-      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
@@ -42,7 +69,7 @@ jobs:
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: nightly
+          toolchain: nightly-2026-09-01
           target: ${{ matrix.target }}
 
       - name: Install cross-compilation tools (aarch64-linux)

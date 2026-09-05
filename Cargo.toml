@@ -3,7 +3,7 @@ cargo-features = ["profile-rustflags"]
 
 [package]
 name = "here"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [features]
@@ -50,7 +50,7 @@ noline = { version = "0.5.1", default-features = false, features = ["alloc"] }
 embedded-io = { version = "0.6.1" }
 embedded-io-async = { version = "0.6.1" }
 bitfield-struct = { version = "0.13.0" }
-cfg_aliases = {version = "*"}
+cfg_aliases = { version = "*" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 flexi_logger = { version = "0.31.2", optional = true }
