@@ -45,8 +45,6 @@ pub struct RVBoardBuilder {
     // UART
     uart_io: UartIoMode,
     uart_port: Option<UartBytePort>,
-    #[cfg(feature = "native-cli")]
-    uart_stdin_handle: Option<crate::byte_io::StdinHandle>,
 
     // mmio info
     clint_mmio: Option<(WordType, WordType)>,
@@ -76,8 +74,6 @@ impl RVBoardBuilder {
             // UART
             uart_io: UartIoMode::External,
             uart_port: None,
-            #[cfg(feature = "native-cli")]
-            uart_stdin_handle: None,
 
             #[cfg(not(target_arch = "wasm32"))]
             spawner: TaskSpawner::new(),

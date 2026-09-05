@@ -221,10 +221,6 @@ pub fn init_target_desc_xml_raw(xml: String) {
     let _ = TARGET_DESCRIPTION_XML.get_or_init(|| xml);
 }
 
-pub fn target_description_xml() -> Option<&'static str> {
-    TARGET_DESCRIPTION_XML.get().map(String::as_str)
-}
-
 pub enum Riscv64 {}
 
 impl gdbstub::arch::Arch for Riscv64 {
@@ -234,7 +230,7 @@ impl gdbstub::arch::Arch for Riscv64 {
     type RegId = reg::id::RiscvRegId<u64>;
 
     fn target_description_xml() -> Option<&'static str> {
-        target_description_xml()
+        TARGET_DESCRIPTION_XML.get().map(String::as_str)
     }
 }
 

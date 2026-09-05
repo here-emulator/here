@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use std::cell::Cell;
 
 use crate::config::arch_config::WordType;
@@ -23,14 +25,17 @@ pub(super) struct Cache<P: CachePolicy> {
 }
 
 impl<P: CachePolicy> Cache<P> {
+    #[inline]
     pub fn hit_rate(&self) -> f64 {
-        self.hit_count.get() as f64 / self.access_count.get() as f64
+        self.hit_count() as f64 / self.access_count() as f64
     }
 
+    #[inline]
     pub fn hit_count(&self) -> u64 {
         self.hit_count.get()
     }
 
+    #[inline]
     pub fn access_count(&self) -> u64 {
         self.access_count.get()
     }

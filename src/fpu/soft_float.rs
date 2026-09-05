@@ -32,15 +32,6 @@ pub enum APFloat {
     Double(Double),
 }
 
-impl APFloat {
-    fn to_bits(&self) -> u128 {
-        match self {
-            APFloat::Single(s) => s.to_bits(),
-            APFloat::Double(d) => d.to_bits(),
-        }
-    }
-}
-
 impl Into<APFloat> for f32 {
     fn into(self) -> APFloat {
         APFloat::Single(Single::from_bits(self.to_bits() as u128))
@@ -320,10 +311,6 @@ pub struct SoftFPU {
 }
 
 impl SoftFPU {
-    pub fn new() -> Self {
-        Self::from(false)
-    }
-
     pub fn from(unify_cnan: bool) -> Self {
         Self {
             last_status: std::cell::Cell::new(Status::OK),
@@ -334,10 +321,6 @@ impl SoftFPU {
 
     pub fn last_status(&self) -> Status {
         self.last_status.get()
-    }
-
-    pub fn set_status(&self, status: Status) {
-        self.last_status.set(status);
     }
 
     fn save_and_unwrap<T>(&mut self, status_and: StatusAnd<T>) -> T {

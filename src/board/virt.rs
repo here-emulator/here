@@ -174,8 +174,6 @@ pub struct VirtBoard {
     pub device_arena: Box<DeviceArena>,
 }
 
-const STEP_BATCH_CYCLES: u64 = 1024;
-
 impl VirtBoard {
     pub fn device<D: device::DeviceTrait>(&self, handle: DeviceHandle<D>) -> &D {
         self.device_arena.device(handle)

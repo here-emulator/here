@@ -49,8 +49,10 @@ pub(crate) mod plic;
 pub(crate) mod power_manager;
 #[cfg(all(feature = "test-device", not(target_arch = "wasm32")))]
 pub(crate) mod sample_timer;
-pub(crate) mod spi;
 pub(crate) mod virtio;
+
+#[allow(unused)]
+pub(crate) mod spi;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum MemError {

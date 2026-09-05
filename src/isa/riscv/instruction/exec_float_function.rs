@@ -20,6 +20,7 @@ fn rm_to_round(cpu: &mut RVCPU, rm: u8) -> Round {
         0b001 => Round::TowardZero,
         0b010 => Round::TowardNegative,
         0b011 => Round::TowardPositive,
+        0b100 => Round::NearestTiesToAway,
         0b111 => {
             let rm = cpu.csr.get_by_type_existing::<Fcsr>().get_rm();
             rm_to_round(cpu, rm as u8)

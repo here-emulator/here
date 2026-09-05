@@ -65,11 +65,29 @@ pub struct MemoryMapIO {
 }
 
 impl MemoryMapIO {
+    #[cfg(test)]
     pub fn from_ram(ram: Rc<UnsafeCell<Ram>>) -> Self {
         Self {
             map: Vec::new(),
             ram,
             devices: None,
+        }
+    }
+
+    /// # Safety
+    ///
+    /// `devices` must remain valid for the lifetime of this `MemoryMapIO` and
+    /// access to the arena must be serialized with MMIO operations.
+    pub(crate) unsafe fn from_mmio_items(
+        ram: Rc<UnsafeCell<Ram>>,
+        devices: NonNull<DeviceArena>,
+        mut map: Vec<MemoryMapItem>,
+    ) -> Self {
+        map.sort();
+        Self {
+            map,
+            ram,
+            devices: Some(devices),
         }
     }
 
@@ -182,23 +200,6 @@ impl MemoryMapIO {
     #[inline]
     pub fn clear_reservation(&self) {
         unsafe { self.ram.as_mut_unchecked() }.clear_reservation();
-    }
-
-    /// # Safety
-    ///
-    /// `devices` must remain valid for the lifetime of this `MemoryMapIO` and
-    /// access to the arena must be serialized with MMIO operations.
-    pub(crate) unsafe fn from_mmio_items(
-        ram: Rc<UnsafeCell<Ram>>,
-        devices: NonNull<DeviceArena>,
-        mut map: Vec<MemoryMapItem>,
-    ) -> Self {
-        map.sort();
-        Self {
-            map,
-            ram,
-            devices: Some(devices),
-        }
     }
 
     fn devices_mut(&mut self) -> &mut DeviceArena {
