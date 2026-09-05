@@ -1,7 +1,3 @@
-#![cfg_attr(debug_assertions, allow(dead_code))]
-#![allow(incomplete_features)]
-#![feature(generic_const_exprs)]
-
 mod logging;
 mod version;
 mod welcome;
@@ -12,7 +8,6 @@ use std::time::Instant;
 
 use clap::Parser;
 use here::board::Board;
-use here::byte_io::StdinRouter;
 use here::gdb;
 use here::isa::DebugTarget;
 use here::isa::riscv::debugger::Address;
@@ -37,27 +32,24 @@ enum TargetFormat {
 const DEFAULT_DTB_ADDRESS: WordType = 0x9f00_0000;
 const DEFAULT_GDB_PORT: u16 = 1234;
 
-struct RawModeGuard {
-    enabled: bool,
-}
+struct RawModeGuard;
 
 impl RawModeGuard {
-    fn new(enabled: bool) -> Result<Self, String> {
-        if enabled {
-            log::debug!("enabling raw mode");
-            crossterm::terminal::enable_raw_mode().map_err(|error| error.to_string())?;
-        }
-        Ok(Self { enabled })
+    fn new() -> Self {
+        log::debug!("enabling raw mode");
+        crossterm::terminal::enable_raw_mode().unwrap_or_else(|error| {
+            eprintln!("failed to enable terminal raw mode: {error}");
+            std::process::exit(2);
+        });
+        Self
     }
 }
 
 impl Drop for RawModeGuard {
     fn drop(&mut self) {
-        if self.enabled {
-            log::debug!("disabling raw mode");
-            if let Err(error) = crossterm::terminal::disable_raw_mode() {
-                eprintln!("failed to restore terminal mode: {error}");
-            }
+        log::debug!("disabling raw mode");
+        if let Err(error) = crossterm::terminal::disable_raw_mode() {
+            eprintln!("failed to restore terminal mode: {error}");
         }
     }
 }
@@ -195,36 +187,23 @@ struct Args {
     dtb_address: Option<WordType>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RvdbMode {
-    Disabled,
-    Interactive,
-    ScriptOnly,
-    MissingScript,
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Mode {
+    Rvdb { interactive: bool },
+    Gdb(gdb::Config),
+    Normal,
 }
 
-fn rvdb_mode(args: &Args, stdin_terminal: bool, stdout_terminal: bool) -> RvdbMode {
-    if !args.debug {
-        RvdbMode::Disabled
-    } else if stdin_terminal && stdout_terminal {
-        RvdbMode::Interactive
-    } else if args.script.is_some() {
-        RvdbMode::ScriptOnly
+fn resolve_mode(args: &Args, stdin_terminal: bool, stdout_terminal: bool) -> Mode {
+    if args.debug {
+        Mode::Rvdb {
+            interactive: stdin_terminal && stdout_terminal,
+        }
+    } else if let Some(config) = gdb_config(args) {
+        Mode::Gdb(config)
     } else {
-        RvdbMode::MissingScript
+        Mode::Normal
     }
-}
-
-fn uart_io_mode(args: &Args) -> UartIoMode {
-    if args.gdb {
-        UartIoMode::None
-    } else {
-        UartIoMode::Stdio
-    }
-}
-
-fn should_enable_raw_mode(args: &Args, _mode: RvdbMode, _stdin_term: bool) -> bool {
-    args.gdb == false
 }
 
 fn gdb_config(args: &Args) -> Option<gdb::Config> {
@@ -320,47 +299,18 @@ fn dump_signature(
     Ok(())
 }
 
-fn main() {
-    let cli_args = Args::parse();
-    let _logger_handle = logging::init(cli_args.log_level);
-
-    display_welcome_message();
-    println!("here {}", version::VERSION);
-
-    let stdin_terminal = std::io::stdin().is_terminal();
-    let stdout_terminal = std::io::stdout().is_terminal();
-    let rvdb_mode = rvdb_mode(&cli_args, stdin_terminal, stdout_terminal);
-    if rvdb_mode == RvdbMode::MissingScript {
-        eprintln!("rvdb requires --script when stdin or stdout is not a terminal");
-        std::process::exit(2);
-    }
-
-    let uart_io = uart_io_mode(&cli_args);
-    let raw_mode = should_enable_raw_mode(&cli_args, rvdb_mode, stdin_terminal);
-    let raw_mode_guard = RawModeGuard::new(raw_mode).unwrap_or_else(|error| {
-        eprintln!("failed to enable terminal raw mode: {error}");
-        std::process::exit(2);
-    });
-
-    if cli_args.verbose {
-        println!(
-            "path = {:?}, debug = {}, verbose = {}, log_level = {:?}.\r",
-            cli_args.path, cli_args.debug, cli_args.verbose, cli_args.log_level
-        );
-        display_device_list(&cli_args.devices);
-    }
-
-    let decoder = Decoder::from_isa_str(&cli_args.isa).unwrap_or_else(|e| {
-        eprintln!("Invalid ISA string {:?}: {}", cli_args.isa, e);
+fn build_board(args: &Args) -> VirtBoard {
+    let decoder = Decoder::from_isa_str(&args.isa).unwrap_or_else(|e| {
+        eprintln!("Invalid ISA string {:?}: {}", args.isa, e);
         std::process::exit(2);
     });
     let mut board_config = VirtBoardConfig::new()
         .with_decoder(decoder)
-        .with_virtio_devices(cli_args.devices.clone())
-        .with_uart_io(uart_io);
+        .with_virtio_devices(args.devices.clone())
+        .with_uart_io(UartIoMode::Stdio);
 
-    if let Some(dtb_path) = &cli_args.dtb {
-        let dtb_address = cli_args.dtb_address.unwrap_or(DEFAULT_DTB_ADDRESS);
+    if let Some(dtb_path) = &args.dtb {
+        let dtb_address = args.dtb_address.unwrap_or(DEFAULT_DTB_ADDRESS);
         assert!(
             dtb_address.is_multiple_of(8),
             "DTB address 0x{dtb_address:x} must be 8-byte aligned"
@@ -371,7 +321,7 @@ fn main() {
             .with_memory_image(MemoryImage::new(dtb_address, dtb))
             .with_reg(11, dtb_address);
 
-        if cli_args.verbose {
+        if args.verbose {
             println!(
                 "DTB {} will be loaded at 0x{dtb_address:x} and passed in a1\r",
                 dtb_path.display()
@@ -379,26 +329,26 @@ fn main() {
         }
     }
 
-    let ext = cli_args
+    let ext = args
         .path
         .extension()
         .and_then(|ext| ext.to_str())
         .unwrap_or("<unknown>");
 
-    let mut board = match (cli_args.format, ext) {
+    match (args.format, ext) {
         (TargetFormat::Elf, _) | (TargetFormat::Auto, "elf") => {
-            if cli_args.verbose {
+            if args.verbose {
                 println!("ELF file detected\r");
             }
-            let bytes = std::fs::read(cli_args.path.clone()).expect("Failed to read target file");
+            let bytes = std::fs::read(args.path.clone()).expect("Failed to read target file");
             VirtBoard::from_elf_with(bytes, board_config).expect("ELF load failed")
         }
 
         (TargetFormat::Bin, _) | (TargetFormat::Auto, "bin") => {
-            if cli_args.verbose {
+            if args.verbose {
                 println!("Binary file detected\r");
             }
-            let bytes = std::fs::read(cli_args.path.clone()).expect("Failed to read target file");
+            let bytes = std::fs::read(args.path.clone()).expect("Failed to read target file");
             VirtBoard::from_binary_with(&bytes, board_config).expect("Binary load failed")
         }
 
@@ -406,86 +356,112 @@ fn main() {
             log::error!("Format is not supported at present.");
             panic!();
         }
-    };
-
-    // Stdio boards initialize the router while wiring UART. GDB has no UART
-    // target, but still needs the router's host control sequence handling.
-    StdinRouter::global();
-
-    if cli_args.debug {
-        let script_lines = cli_args.script.as_ref().map(|script| {
-            std::fs::read_to_string(script)
-                .unwrap_or_else(|error| {
-                    panic!("failed to read script {}: {error}", script.display())
-                })
-                .lines()
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
-        });
-
-        if rvdb_mode == RvdbMode::Interactive {
-            let uart_handle = board
-                .uart_stdin_handle()
-                .expect("Stdio board must expose its UART stdin handle");
-            let session = RvdbSession::with_printer(board, Printer::ansi_color());
-            let mut repl = SyncREPL::new(session, uart_handle);
-            if let Some(lines) = &script_lines
-                && repl.run_script(lines)
-            {
-                return;
-            }
-            repl.run();
-        } else {
-            let mut session = RvdbSession::with_printer(board, Printer::plain());
-            let lines = script_lines.as_deref().expect("script checked above");
-            let mut stdout = std::io::stdout().lock();
-            let _ = session
-                .run_script(lines, |output| {
-                    stdout.write_all(output.as_bytes())?;
-                    stdout.flush()
-                })
-                .unwrap();
-        }
-        return;
-    } else if let Some(config) = gdb_config(&cli_args) {
-        if let Err(e) = gdb::event_loop(board, config) {
-            log::error!("{:?}", e);
-            panic!();
-        }
-    } else {
-        if let Some(sig_path) = &cli_args.signature {
-            // Create the signature file before running the emulator to ensure the file exists even if the emulator crashes.
-            fs::File::create(sig_path).expect("Failed to create signature file");
-        }
-
-        let now = Instant::now();
-        if cli_args.max_cycles == 0 {
-            board.run();
-        } else {
-            board.run_cycles(cli_args.max_cycles);
-            if board.status() != here::board::BoardStatus::Halt {
-                log::error!(
-                    "Max cycles reached: {} at pc {}",
-                    cli_args.max_cycles,
-                    board.cpu().read_pc()
-                );
-            }
-        }
-        if let Some(sig_path) = &cli_args.signature {
-            if let Err(e) = dump_signature(
-                &mut board,
-                sig_path.as_path(),
-                cli_args.signature_granularity,
-            ) {
-                log::error!("Failed to dump signature: {}", e);
-            }
-        }
-
-        drop(board);
-        drop(raw_mode_guard);
-
-        println!("Used time: {}s", now.elapsed().as_secs_f32());
     }
+}
+
+fn run_rvdb(board: VirtBoard, args: &Args, interactive: bool) {
+    let script_lines = args.script.as_ref().map(|script| {
+        std::fs::read_to_string(script)
+            .unwrap_or_else(|error| panic!("failed to read script {}: {error}", script.display()))
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    });
+
+    if interactive {
+        let uart_handle = board
+            .uart_stdin_handle()
+            .expect("Stdio board must expose its UART stdin handle");
+        let session = RvdbSession::with_printer(board, Printer::ansi_color());
+        let mut repl = SyncREPL::new(session, uart_handle);
+        if let Some(lines) = &script_lines
+            && repl.run_script(lines)
+        {
+            return;
+        }
+        repl.run();
+    } else {
+        let mut session = RvdbSession::with_printer(board, Printer::plain());
+        let Some(lines) = script_lines.as_deref() else {
+            eprintln!("rvdb requires --script when stdin or stdout is not a terminal");
+            std::process::exit(2);
+        };
+        let mut stdout = std::io::stdout().lock();
+        let _ = session
+            .run_script(lines, |output| {
+                stdout.write_all(output.as_bytes())?;
+                stdout.flush()
+            })
+            .unwrap();
+    }
+}
+
+fn run_normal(mut board: VirtBoard, args: &Args) {
+    if let Some(sig_path) = &args.signature {
+        // Create the signature file first to ensure file exists even if the emulator crashes.
+        fs::File::create(sig_path).expect("Failed to create signature file");
+    }
+
+    if args.max_cycles == 0 {
+        board.run();
+    } else {
+        board.run_cycles(args.max_cycles);
+        if board.status() != here::board::BoardStatus::Halt {
+            log::error!(
+                "Max cycles reached: {} at pc 0x{:x}\r",
+                args.max_cycles,
+                board.cpu().read_pc()
+            );
+        }
+    }
+    if let Some(sig_path) = &args.signature {
+        if let Err(e) = dump_signature(&mut board, sig_path.as_path(), args.signature_granularity) {
+            log::error!("Failed to dump signature: {}", e);
+        }
+    }
+}
+
+fn main() {
+    let cli_args = Args::parse();
+    let _logger_handle = logging::init(cli_args.log_level);
+
+    display_welcome_message();
+    println!("here {}", version::VERSION);
+
+    if cli_args.verbose {
+        println!(
+            "path = {:?}, debug = {}, verbose = {}, log_level = {:?}.",
+            cli_args.path, cli_args.debug, cli_args.verbose, cli_args.log_level
+        );
+        display_device_list(&cli_args.devices);
+    }
+
+    let stdin_terminal = std::io::stdin().is_terminal();
+    let stdout_terminal = std::io::stdout().is_terminal();
+    let mode = resolve_mode(&cli_args, stdin_terminal, stdout_terminal);
+
+    let board = build_board(&cli_args);
+
+    let raw_mode_guard = RawModeGuard::new();
+    let now = Instant::now();
+
+    match mode {
+        Mode::Normal => {
+            run_normal(board, &cli_args);
+        }
+        Mode::Rvdb { interactive } => {
+            run_rvdb(board, &cli_args, interactive);
+        }
+        Mode::Gdb(config) => {
+            if let Err(e) = gdb::event_loop(board, config) {
+                log::error!("{:?}", e);
+                panic!();
+            }
+        }
+    }
+
+    drop(raw_mode_guard);
+    println!("Used time: {:.6}s", now.elapsed().as_secs_f32());
 }
 
 #[cfg(test)]
@@ -510,15 +486,10 @@ mod arg_tests {
         ])
         .unwrap();
 
-        assert_eq!(uart_io_mode(&args), UartIoMode::Stdio);
-        assert_eq!(rvdb_mode(&args, false, false), RvdbMode::ScriptOnly);
-    }
-
-    #[test]
-    fn non_terminal_rvdb_without_script_is_rejected() {
-        let args = Args::try_parse_from(["here", "program.bin", "--debug"]).unwrap();
-
-        assert_eq!(rvdb_mode(&args, false, false), RvdbMode::MissingScript);
+        assert_eq!(
+            resolve_mode(&args, false, false),
+            Mode::Rvdb { interactive: false }
+        );
     }
 
     #[test]
@@ -532,7 +503,10 @@ mod arg_tests {
         ])
         .unwrap();
 
-        assert_eq!(rvdb_mode(&args, true, true), RvdbMode::Interactive);
+        assert_eq!(
+            resolve_mode(&args, true, true),
+            Mode::Rvdb { interactive: true }
+        );
     }
 
     #[test]
