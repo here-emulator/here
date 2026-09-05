@@ -16,9 +16,9 @@ jobs:
           - name: native
             install_wasm_target: false
             command: cargo check --no-default-features --features "riscv64,native-cli,riscv-tests"
-          # - name: web
-          #   install_wasm_target: true
-          #   command: cargo check --target wasm32-unknown-unknown --no-default-features --features "riscv64,web"
+          - name: web
+            install_wasm_target: true
+            command: cargo check --target wasm32-unknown-unknown --no-default-features --features "riscv64"
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rust-lang/setup-rust-toolchain@v1

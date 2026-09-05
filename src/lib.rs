@@ -11,9 +11,6 @@
 #[cfg(all(feature = "native-cli", target_arch = "wasm32"))]
 compile_error!("feature 'native-cli' is not supported on wasm32 targets");
 
-#[cfg(all(feature = "web", not(target_arch = "wasm32")))]
-compile_error!("feature 'web' requires wasm32 target");
-
 mod clock;
 mod cpu;
 mod fpu;
@@ -22,7 +19,7 @@ mod utils;
 #[cfg(feature = "native-cli")]
 pub mod gdb;
 
-#[cfg(any(feature = "native-cli", feature = "web"))]
+#[cfg(any(feature = "native-cli", target_arch = "wasm32"))]
 pub mod rvdb;
 
 pub mod board;
@@ -35,7 +32,7 @@ pub mod ram;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod task_spawner;
 
-#[cfg(feature = "web")]
+#[cfg(target_arch = "wasm32")]
 pub mod wasm_api;
 
 pub use config::ram_config;

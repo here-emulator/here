@@ -16,7 +16,7 @@ use crate::rvdb::{Printer, RvdbCommand, RvdbSession, format_clap_error, is_clap_
 
 const CONTINUE_CHUNK: u64 = 100_000;
 
-#[cfg_attr(feature = "web", wasm_bindgen::prelude::wasm_bindgen)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct REPLResponse {
     pub exit: bool,
