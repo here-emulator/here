@@ -319,53 +319,96 @@ struct DebuggerExecutionHook<'a> {
     symtab: Option<&'a SymTab>,
 }
 
+/// return-address stack action
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RasAction {
+    None,
+    Push,
+    Pop,
+    PopThenPush,
+}
+
+#[inline]
+fn is_link(reg: u8) -> bool {
+    reg == 1 || reg == 5
+}
+
+/// Classify a decoded instruction into a RAS action.
+fn ras_action(instr: RiscvInstr, info: RVInstrInfo) -> RasAction {
+    // TODO: we haven't provide a function to convert all C instruction to non-C instruction.
+    let (rd, rs1) = match (instr, info) {
+        (RiscvInstr::JALR, RVInstrInfo::I { rs1, rd, .. }) => (rd, rs1),
+        (RiscvInstr::JAL, RVInstrInfo::J { rd, .. }) => (rd, 0),
+
+        // c.jr rs1   => jalr x0, 0(rs1)
+        (RiscvInstr::C_JR, RVInstrInfo::CR { rd_rs1: rs1, .. }) => (0, rs1),
+
+        // c.jalr rs1  => jalr x1, 0(rs1)
+        (RiscvInstr::C_JALR, RVInstrInfo::CR { rd_rs1: rs1, .. }) => (1, rs1),
+
+        // c.jal offset => jal x1, offset
+        (RiscvInstr::C_JAL, _) => (1, 0),
+
+        // c.j offset  => jal x0, offset
+        (RiscvInstr::C_J, _) => (0, 0),
+
+        _ => return RasAction::None,
+    };
+
+    match (is_link(rd), is_link(rs1)) {
+        (false, false) => RasAction::None,
+        (false, true) => RasAction::Pop,
+        (true, false) => RasAction::Push,
+        (true, true) => {
+            if rd != rs1 {
+                RasAction::PopThenPush
+            } else {
+                RasAction::Push
+            }
+        }
+    }
+}
+
 fn ftrace_for_step(
     symtab: Option<&SymTab>,
     decoded_instr: Option<DecodeInstr>,
-    pc: WordType,
-) -> Option<FuncTrace> {
-    let Some(DecodeInstr {
-        instr: instr_kind,
-        info,
-        ..
-    }) = decoded_instr
-    else {
-        return None;
+    pre_pc: WordType,
+    nxt_pc: WordType,
+) -> [Option<FuncTrace>; 2] {
+    let Some(DecodeInstr { instr, info, .. }) = decoded_instr else {
+        return [None, None];
     };
 
-    let in_symbol = symtab.and_then(|table| table.func_name_in_addr_range(pc as u64).cloned());
-    let exact_symbol = symtab.and_then(|table| table.func_name_by_addr(pc as u64).cloned());
+    let leave_sym = symtab.and_then(|table| table.func_name_in_addr_range(pre_pc as u64).cloned());
+    let enter_sym = symtab.and_then(|table| table.func_name_by_addr(nxt_pc as u64).cloned());
 
-    if instr_kind == RiscvInstr::JALR
-        && let RVInstrInfo::I { rs1, rd, imm } = info
-    {
-        if rd == 0 && rs1 == 1 && imm == 0 {
-            return Some(FuncTrace::Return {
-                name: in_symbol,
-                addr: pc,
-            });
-        } else if rd == 1 && rs1 == 1 {
-            return Some(FuncTrace::Call {
-                name: exact_symbol,
-                addr: pc,
-            });
-        } else if rd == 0 && rs1 == 6 {
-            return Some(FuncTrace::Call {
-                name: in_symbol,
-                addr: pc,
-            });
-        }
-    } else if instr_kind == RiscvInstr::JAL
-        && let RVInstrInfo::J { imm: _, rd } = info
-        && rd == 1
-    {
-        return Some(FuncTrace::Call {
-            name: exact_symbol,
-            addr: pc,
-        });
+    match ras_action(instr, info) {
+        RasAction::None => [None, None],
+        RasAction::Push => [
+            Some(FuncTrace::Call {
+                name: enter_sym,
+                addr: nxt_pc,
+            }),
+            None,
+        ],
+        RasAction::Pop => [
+            Some(FuncTrace::Return {
+                name: leave_sym,
+                addr: pre_pc,
+            }),
+            None,
+        ],
+        RasAction::PopThenPush => [
+            Some(FuncTrace::Return {
+                name: leave_sym,
+                addr: pre_pc,
+            }),
+            Some(FuncTrace::Call {
+                name: enter_sym,
+                addr: nxt_pc,
+            }),
+        ],
     }
-
-    None
 }
 
 fn cpu_on_breakpoint(breakpoints: &[Breakpoint], cpu: &mut RVCPU) -> bool {
@@ -412,11 +455,13 @@ impl ExecutionHook for DebuggerExecutionHook<'_> {
             self.history.pop_front();
         }
         self.history.push_back((cycle.pc, cycle.raw_instr));
-
-        if self.ftrace.enabled()
-            && let Some(trace) = ftrace_for_step(self.symtab, cycle.decoded_instr, cpu.read_pc())
-        {
-            self.ftrace.record(trace);
+        if self.ftrace.enabled() {
+            for trace in ftrace_for_step(self.symtab, cycle.decoded_instr, cycle.pc, cpu.read_pc())
+                .into_iter()
+                .flatten()
+            {
+                self.ftrace.record(trace);
+            }
         }
 
         cpu_on_breakpoint(self.breakpoints, cpu)
@@ -828,11 +873,11 @@ mod test {
     }
 
     #[test]
-    fn test_ftrace_jal_call_and_ret_with_symbols() {
+    fn test_ftrace_records_direct_call_and_return() {
         let cpu = TestCPUBuilder::new()
             .program(&[
                 0x008000ef, // jal ra, 8
-                0x00000013, // nop
+                0x00000013, // nop (the return address)
                 0x00008067, // ret
             ])
             .build();
@@ -844,7 +889,7 @@ mod test {
         ]));
         debugger.ftrace_start();
 
-        debugger.step().unwrap();
+        assert_eq!(debugger.step().unwrap(), DebugEvent::StepCompleted);
         assert_eq!(debugger.read_pc(), BASE_ADDR + 8);
         assert_eq!(
             debugger.ftrace_show().collect::<Vec<_>>(),
@@ -854,7 +899,7 @@ mod test {
             }]
         );
 
-        debugger.step().unwrap();
+        assert_eq!(debugger.step().unwrap(), DebugEvent::StepCompleted);
         assert_eq!(debugger.read_pc(), BASE_ADDR + 4);
         assert_eq!(
             debugger.ftrace_show().collect::<Vec<_>>(),
@@ -864,18 +909,161 @@ mod test {
                     addr: BASE_ADDR + 8,
                 },
                 FuncTrace::Return {
-                    name: Some("caller".to_string()),
-                    addr: BASE_ADDR + 4,
+                    name: Some("callee".to_string()),
+                    addr: BASE_ADDR + 8,
+                },
+            ]
+        );
+
+        assert_eq!(
+            debugger.ftrace_stat(),
+            FtraceStatsSnapshot {
+                enabled: true,
+                queue_len: 2,
+                call_count: 1,
+                return_count: 1,
+                unknown_calls: 0,
+                unknown_returns: 0,
+                per_func: vec![(
+                    "callee".to_string(),
+                    FuncTraceStatEntry {
+                        calls: 1,
+                        returns: 1,
+                    },
+                )],
+            }
+        );
+    }
+
+    #[test]
+    fn test_ftrace_records_indirect_call_using_link_register() {
+        let mut cpu = TestCPUBuilder::new()
+            .program(&[
+                0x000300e7, // jalr ra, 0(t1)
+                0x00000013, // nop (the return address)
+                0x00008067, // ret
+            ])
+            .build();
+        cpu.write_reg(6, BASE_ADDR + 8);
+
+        let mut debugger = create_debugger(cpu);
+        debugger.set_symbol_table(SymTab::from(&[
+            ("caller".to_string(), BASE_ADDR),
+            ("callee".to_string(), BASE_ADDR + 8),
+        ]));
+        debugger.ftrace_start();
+        debugger.continue_until_step(2).unwrap();
+
+        assert_eq!(
+            debugger.ftrace_show().collect::<Vec<_>>(),
+            vec![
+                FuncTrace::Call {
+                    name: Some("callee".to_string()),
+                    addr: BASE_ADDR + 8,
+                },
+                FuncTrace::Return {
+                    name: Some("callee".to_string()),
+                    addr: BASE_ADDR + 8,
                 },
             ]
         );
     }
 
     #[test]
-    fn test_ftrace_tail_call_uses_symbol_range() {
+    fn test_ftrace_records_compressed_call_and_return() {
         let mut cpu = TestCPUBuilder::new()
             .program(&[
-                0x00030067, // jalr zero, 0(x6)
+                0x00009402, // c.jalr s0
+                0x00000000, // unused instruction at the return address
+                0x00008082, // c.jr ra
+            ])
+            .build();
+        cpu.write_reg(8, BASE_ADDR + 8);
+
+        let mut debugger = create_debugger(cpu);
+        debugger.set_symbol_table(SymTab::from(&[(
+            "compressed_callee".to_string(),
+            BASE_ADDR + 8,
+        )]));
+        debugger.ftrace_start();
+
+        assert_eq!(debugger.step().unwrap(), DebugEvent::StepCompleted);
+        assert_eq!(debugger.read_pc(), BASE_ADDR + 8);
+        assert_eq!(
+            debugger.ftrace_show().collect::<Vec<_>>(),
+            vec![FuncTrace::Call {
+                name: Some("compressed_callee".to_string()),
+                addr: BASE_ADDR + 8,
+            }]
+        );
+
+        assert_eq!(debugger.step().unwrap(), DebugEvent::StepCompleted);
+        assert_eq!(debugger.read_pc(), BASE_ADDR + 2);
+        assert_eq!(
+            debugger.ftrace_show().collect::<Vec<_>>(),
+            vec![
+                FuncTrace::Call {
+                    name: Some("compressed_callee".to_string()),
+                    addr: BASE_ADDR + 8,
+                },
+                FuncTrace::Return {
+                    name: Some("compressed_callee".to_string()),
+                    addr: BASE_ADDR + 8,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_ftrace_records_pop_then_push_as_return_then_call() {
+        let mut cpu = TestCPUBuilder::new()
+            .program(&[
+                0x008000ef, // jal ra, first
+                0x00000013, // nop (the return address)
+                0x000280e7, // jalr ra, 0(t0), second
+                0x00000013, // nop (the return address)
+                0x00008067, // ret
+            ])
+            .build();
+        cpu.write_reg(5, BASE_ADDR + 16);
+
+        let mut debugger = create_debugger(cpu);
+        debugger.set_symbol_table(SymTab::from(&[
+            ("caller".to_string(), BASE_ADDR),
+            ("first".to_string(), BASE_ADDR + 8),
+            ("second".to_string(), BASE_ADDR + 16),
+        ]));
+        debugger.ftrace_start();
+        debugger.continue_until_step(3).unwrap();
+
+        assert_eq!(
+            debugger.ftrace_show().collect::<Vec<_>>(),
+            vec![
+                FuncTrace::Call {
+                    name: Some("first".to_string()),
+                    addr: BASE_ADDR + 8,
+                },
+                FuncTrace::Return {
+                    name: Some("first".to_string()),
+                    addr: BASE_ADDR + 8,
+                },
+                FuncTrace::Call {
+                    name: Some("second".to_string()),
+                    addr: BASE_ADDR + 16,
+                },
+                FuncTrace::Return {
+                    name: Some("second".to_string()),
+                    addr: BASE_ADDR + 16,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_ftrace_ignores_unlinked_jumps() {
+        let mut cpu = TestCPUBuilder::new()
+            .program(&[
+                0x00030067, // jalr zero, 0(t1)
                 0x00000013, // nop
                 0x00000013, // nop
             ])
@@ -883,27 +1071,74 @@ mod test {
         cpu.write_reg(6, BASE_ADDR + 8);
 
         let mut debugger = create_debugger(cpu);
-        debugger.set_symbol_table(SymTab::from(&[("tail_target".to_string(), BASE_ADDR + 8)]));
+        debugger.set_symbol_table(SymTab::from(&[("jump_target".to_string(), BASE_ADDR + 8)]));
         debugger.ftrace_start();
-
         debugger.step().unwrap();
 
-        assert_eq!(debugger.read_pc(), BASE_ADDR + 8);
+        assert!(debugger.ftrace_show().collect::<Vec<_>>().is_empty());
+        assert_eq!(debugger.ftrace_stat().call_count, 0);
+        assert_eq!(debugger.ftrace_stat().return_count, 0);
+    }
+
+    #[test]
+    fn test_ftrace_classifies_riscv_return_address_stack_actions() {
         assert_eq!(
-            debugger.ftrace_show().collect::<Vec<_>>(),
-            vec![FuncTrace::Call {
-                name: Some("tail_target".to_string()),
-                addr: BASE_ADDR + 8,
-            }]
+            ras_action(RiscvInstr::JAL, RVInstrInfo::J { rd: 1, imm: 8 }),
+            RasAction::Push
+        );
+        assert_eq!(
+            ras_action(RiscvInstr::JAL, RVInstrInfo::J { rd: 0, imm: 8 }),
+            RasAction::None
+        );
+        assert_eq!(
+            ras_action(
+                RiscvInstr::JALR,
+                RVInstrInfo::I {
+                    rs1: 6,
+                    rd: 1,
+                    imm: 0,
+                },
+            ),
+            RasAction::Push
+        );
+        assert_eq!(
+            ras_action(
+                RiscvInstr::JALR,
+                RVInstrInfo::I {
+                    rs1: 1,
+                    rd: 0,
+                    imm: 0,
+                },
+            ),
+            RasAction::Pop
+        );
+        assert_eq!(
+            ras_action(
+                RiscvInstr::JALR,
+                RVInstrInfo::I {
+                    rs1: 5,
+                    rd: 1,
+                    imm: 0,
+                },
+            ),
+            RasAction::PopThenPush
+        );
+        assert_eq!(
+            ras_action(RiscvInstr::C_JR, RVInstrInfo::CR { rd_rs1: 1, rs2: 0 },),
+            RasAction::Pop
+        );
+        assert_eq!(
+            ras_action(RiscvInstr::C_JALR, RVInstrInfo::CR { rd_rs1: 5, rs2: 0 },),
+            RasAction::PopThenPush
         );
     }
 
     #[test]
-    fn test_ftrace_keeps_latest_entries() {
+    fn test_ftrace_disabled_until_started_and_restart_clears_state() {
         let cpu = TestCPUBuilder::new()
             .program(&[
                 0x008000ef, // jal ra, 8
-                0xffdff06f, // jal zero, -4
+                0x00000013, // nop
                 0x00008067, // ret
             ])
             .build();
@@ -913,11 +1148,86 @@ mod test {
             ("caller".to_string(), BASE_ADDR),
             ("callee".to_string(), BASE_ADDR + 8),
         ]));
+
+        debugger.step().unwrap();
+        assert!(!debugger.ftrace_enabled());
+        assert!(debugger.ftrace_show().collect::<Vec<_>>().is_empty());
+
+        debugger.ftrace_start();
+        debugger.step().unwrap();
+        assert_eq!(debugger.ftrace_stat().return_count, 1);
+
+        debugger.ftrace_stop();
+        let stopped = debugger.ftrace_stat();
+        debugger.step().unwrap();
+        assert!(!debugger.ftrace_enabled());
+        assert_eq!(debugger.ftrace_stat(), stopped);
+
+        debugger.ftrace_start();
+        assert!(debugger.ftrace_enabled());
+        assert!(debugger.ftrace_show().collect::<Vec<_>>().is_empty());
+        assert_eq!(debugger.ftrace_stat().queue_len, 0);
+        assert_eq!(debugger.ftrace_stat().call_count, 0);
+        assert_eq!(debugger.ftrace_stat().return_count, 0);
+    }
+
+    #[test]
+    fn test_ftrace_unknown_symbols_are_counted_separately() {
+        let cpu = TestCPUBuilder::new()
+            .program(&[
+                0x008000ef, // jal ra, 8
+                0x00000013, // nop
+                0x00008067, // ret
+            ])
+            .build();
+
+        let mut debugger = create_debugger(cpu);
+        debugger.ftrace_start();
+        debugger.continue_until_step(2).unwrap();
+
+        assert_eq!(
+            debugger.ftrace_show().collect::<Vec<_>>(),
+            vec![
+                FuncTrace::Call {
+                    name: None,
+                    addr: BASE_ADDR + 8,
+                },
+                FuncTrace::Return {
+                    name: None,
+                    addr: BASE_ADDR + 8,
+                },
+            ]
+        );
+        assert_eq!(
+            debugger.ftrace_stat(),
+            FtraceStatsSnapshot {
+                enabled: true,
+                queue_len: 2,
+                call_count: 1,
+                return_count: 1,
+                unknown_calls: 1,
+                unknown_returns: 1,
+                per_func: Vec::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_ftrace_queue_is_bounded_but_stats_are_not() {
+        let cpu = TestCPUBuilder::new()
+            .program(&[
+                0x008000ef, // jal ra, 8
+                0xffdff06f, // jal zero, -4
+                0x00008067, // ret
+            ])
+            .build();
+
+        let mut debugger = create_debugger(cpu);
+        debugger.set_symbol_table(SymTab::from(&[("callee".to_string(), BASE_ADDR + 8)]));
         debugger.ftrace_start();
 
-        debugger
-            .continue_until_step((MAX_FTRACE as u64 + 1) * 3)
-            .unwrap();
+        let loops = MAX_FTRACE as u64 / 2 + 1;
+        debugger.continue_until_step(loops * 3).unwrap();
 
         let traces = debugger.ftrace_show().collect::<Vec<_>>();
         assert_eq!(traces.len(), MAX_FTRACE);
@@ -931,186 +1241,26 @@ mod test {
         assert_eq!(
             traces.last(),
             Some(&FuncTrace::Return {
-                name: Some("caller".to_string()),
-                addr: BASE_ADDR + 4,
-            })
-        );
-    }
-
-    #[test]
-    fn test_ftrace_disabled_until_started() {
-        let cpu = TestCPUBuilder::new()
-            .program(&[
-                0x008000ef, // jal ra, 8
-                0x00000013, // nop
-                0x00008067, // ret
-            ])
-            .build();
-
-        let mut debugger = create_debugger(cpu);
-        debugger.set_symbol_table(SymTab::from(&[("callee".to_string(), BASE_ADDR + 8)]));
-
-        debugger.continue_until_step(2).unwrap();
-
-        assert!(!debugger.ftrace_enabled());
-        assert!(debugger.ftrace_show().collect::<Vec<_>>().is_empty());
-        assert_eq!(
-            debugger.ftrace_stat(),
-            FtraceStatsSnapshot {
-                enabled: false,
-                queue_len: 0,
-                call_count: 0,
-                return_count: 0,
-                unknown_calls: 0,
-                unknown_returns: 0,
-                per_func: Vec::new(),
-            }
-        );
-    }
-
-    #[test]
-    fn test_ftrace_start_clears_queue_and_stats() {
-        let cpu = TestCPUBuilder::new()
-            .program(&[
-                0x008000ef, // jal ra, 8
-                0x00000013, // nop
-                0x00008067, // ret
-            ])
-            .build();
-
-        let mut debugger = create_debugger(cpu);
-        debugger.set_symbol_table(SymTab::from(&[
-            ("caller".to_string(), BASE_ADDR),
-            ("callee".to_string(), BASE_ADDR + 8),
-        ]));
-
-        debugger.ftrace_start();
-        debugger.continue_until_step(2).unwrap();
-        assert_eq!(debugger.ftrace_stat().call_count, 1);
-        assert_eq!(debugger.ftrace_stat().return_count, 1);
-
-        debugger.ftrace_start();
-
-        assert!(debugger.ftrace_enabled());
-        assert!(debugger.ftrace_show().collect::<Vec<_>>().is_empty());
-        assert_eq!(
-            debugger.ftrace_stat(),
-            FtraceStatsSnapshot {
-                enabled: true,
-                queue_len: 0,
-                call_count: 0,
-                return_count: 0,
-                unknown_calls: 0,
-                unknown_returns: 0,
-                per_func: Vec::new(),
-            }
-        );
-    }
-
-    #[test]
-    fn test_ftrace_stop_preserves_data_and_halts_recording() {
-        let cpu = TestCPUBuilder::new()
-            .program(&[
-                0x008000ef, // jal ra, 8
-                0x00000013, // nop
-                0x00008067, // ret
-            ])
-            .build();
-
-        let mut debugger = create_debugger(cpu);
-        debugger.set_symbol_table(SymTab::from(&[
-            ("caller".to_string(), BASE_ADDR),
-            ("callee".to_string(), BASE_ADDR + 8),
-        ]));
-
-        debugger.ftrace_start();
-        debugger.step().unwrap();
-        debugger.ftrace_stop();
-
-        let before = debugger.ftrace_stat();
-        debugger.step().unwrap();
-
-        assert!(!debugger.ftrace_enabled());
-        assert_eq!(debugger.ftrace_stat(), before);
-        assert_eq!(
-            debugger.ftrace_show().collect::<Vec<_>>(),
-            vec![FuncTrace::Call {
                 name: Some("callee".to_string()),
                 addr: BASE_ADDR + 8,
-            }]
+            })
         );
-    }
-
-    #[test]
-    fn test_ftrace_stats_keep_full_window_after_queue_truncation() {
-        let cpu = TestCPUBuilder::new()
-            .program(&[
-                0x008000ef, // jal ra, 8
-                0xffdff06f, // jal zero, -4
-                0x00008067, // ret
-            ])
-            .build();
-
-        let mut debugger = create_debugger(cpu);
-        debugger.set_symbol_table(SymTab::from(&[
-            ("caller".to_string(), BASE_ADDR),
-            ("callee".to_string(), BASE_ADDR + 8),
-        ]));
-        debugger.ftrace_start();
-
-        let loops = MAX_FTRACE as u64 + 1;
-        debugger.continue_until_step(loops * 3).unwrap();
 
         let stats = debugger.ftrace_stat();
         assert_eq!(stats.queue_len, MAX_FTRACE);
         assert_eq!(stats.call_count, loops);
         assert_eq!(stats.return_count, loops);
+        assert_eq!(stats.unknown_calls, 0);
+        assert_eq!(stats.unknown_returns, 0);
         assert_eq!(
             stats.per_func,
-            vec![
-                (
-                    "callee".to_string(),
-                    FuncTraceStatEntry {
-                        calls: loops,
-                        returns: 0,
-                    },
-                ),
-                (
-                    "caller".to_string(),
-                    FuncTraceStatEntry {
-                        calls: 0,
-                        returns: loops,
-                    },
-                ),
-            ]
-        );
-    }
-
-    #[test]
-    fn test_ftrace_unknown_stats_without_symbols() {
-        let cpu = TestCPUBuilder::new()
-            .program(&[
-                0x008000ef, // jal ra, 8
-                0x00000013, // nop
-                0x00008067, // ret
-            ])
-            .build();
-
-        let mut debugger = create_debugger(cpu);
-        debugger.ftrace_start();
-        debugger.continue_until_step(2).unwrap();
-
-        assert_eq!(
-            debugger.ftrace_stat(),
-            FtraceStatsSnapshot {
-                enabled: true,
-                queue_len: 2,
-                call_count: 1,
-                return_count: 1,
-                unknown_calls: 1,
-                unknown_returns: 1,
-                per_func: Vec::new(),
-            }
+            vec![(
+                "callee".to_string(),
+                FuncTraceStatEntry {
+                    calls: loops,
+                    returns: loops,
+                },
+            )]
         );
     }
 }
