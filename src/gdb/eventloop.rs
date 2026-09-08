@@ -119,11 +119,11 @@ type DynResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 fn wait_for_tcp(port: u16) -> DynResult<TcpStream> {
     let sockaddr = format!("127.0.0.1:{}", port);
-    eprintln!("Waiting for a GDB connection on {:?}...", sockaddr);
+    eprintln!("Waiting for a GDB connection on {:?}...\r", sockaddr);
 
     let sock = TcpListener::bind(sockaddr)?;
     let (stream, addr) = sock.accept()?;
-    eprintln!("Debugger connected from {}", addr);
+    eprintln!("Debugger connected from {}\r", addr);
 
     Ok(stream)
 }

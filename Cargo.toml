@@ -3,7 +3,7 @@ cargo-features = ["profile-rustflags"]
 
 [package]
 name = "here"
-version = "0.2.0"
+version = "0.2.0-beta.1"
 edition = "2024"
 
 [features]
