@@ -9,8 +9,7 @@ on:
         type: string
   push:
     tags:
-      - "v[0-9]*.[0-9]*.[0-9]*"
-
+      - "v*"
 jobs:
   check-version:
     name: Check Version Matches Tag
@@ -112,9 +111,22 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Determine release type
+        id: release-type
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Formal release detected: $TAG (prerelease=false)"
+          else
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Pre-release detected: $TAG (prerelease=true)"
+          fi
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           files: artifacts/*
           generate_release_notes: true
+          prerelease: ${{ steps.release-type.outputs.is_prerelease == 'true' }}
