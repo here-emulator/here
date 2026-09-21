@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+pub use super::reg_alloc::CallArg;
 use super::reg_alloc::*;
 use super::*;
 
@@ -12,26 +13,61 @@ pub trait CodeGenTrait: Sized {
 /// A struct that provides data needed by each implementation of [`TargetBackend`],
 /// like data for register allocation.
 pub struct CodeGenContext<'a, I: ISA> {
-    pub(super) buf: &'a mut CodeBuf,
-    pub(super) asm_buf: Option<&'a mut String>,
+    buf: Option<&'a mut CodeBuf>,
+    asm_buf: Option<&'a mut String>,
     pub(super) state: &'a mut RegAllocState,
     pub(super) liveness: &'a [liveness::Liveness],
-    pub(super) _phantom: PhantomData<I>,
+    _phantom: PhantomData<I>,
 }
 
 impl<'a, I: ISA> CodeGenContext<'a, I> {
-    pub fn emit(&mut self, inst: &I::Inst) {
-        inst.emit_to(self.buf);
-        if let Some(asm) = &mut self.asm_buf {
-            let _ = inst.put_asm_text(*asm);
-            asm.push('\n');
+    pub fn new(
+        buf: &'a mut CodeBuf,
+        asm_buf: Option<&'a mut String>,
+        state: &'a mut RegAllocState,
+        liveness: &'a [liveness::Liveness],
+    ) -> Self {
+        Self {
+            buf: Some(buf),
+            asm_buf,
+            state,
+            liveness,
+            _phantom: PhantomData,
         }
     }
 
-    pub fn buf(&mut self) -> &mut CodeBuf {
-        self.buf
+    pub fn new_dry_run(state: &'a mut RegAllocState, liveness: &'a [liveness::Liveness]) -> Self {
+        Self {
+            buf: None,
+            asm_buf: None,
+            state,
+            liveness,
+            _phantom: PhantomData,
+        }
     }
 
+    #[inline]
+    pub fn is_dry_run(&self) -> bool {
+        self.buf.is_none()
+    }
+
+    #[inline]
+    pub fn emit(&mut self, inst: &I::Inst) {
+        if let Some(buf) = &mut self.buf {
+            inst.emit_to(buf);
+            if let Some(asm) = &mut self.asm_buf {
+                let _ = inst.put_asm_text(*asm);
+                asm.push('\n');
+            }
+        }
+    }
+
+    #[inline]
+    pub fn buf(&mut self) -> Option<&mut CodeBuf> {
+        self.buf.as_deref_mut()
+    }
+
+    #[inline]
     pub fn asm_buf(&mut self) -> Option<&mut String> {
         self.asm_buf.as_deref_mut()
     }
@@ -39,7 +75,7 @@ impl<'a, I: ISA> CodeGenContext<'a, I> {
 
 pub struct CodeGenConfig {
     /// Allocatable register mask.
-    pub alloc_reg_mask: u32,
+    alloc_reg_mask: u32,
 }
 
 impl CodeGenConfig {
@@ -77,6 +113,46 @@ impl<I: ISA> CodeGen<I> {
         self.set_dump_asm(enable);
         self
     }
+
+    fn run_pass(
+        backend: &mut I::Backend<'_>,
+        ctx: &mut CodeGenContext<I>,
+        block: &IRBlock,
+        liveness: &[liveness::Liveness],
+    ) {
+        let mut curr = 0;
+        while curr < block.insts.len() {
+            let window = &block.insts[curr..];
+            let cnt = backend.codegen(ctx, window);
+            assert!(
+                cnt > 0,
+                "backend.codegen must consume at least one instruction"
+            );
+
+            for ir in window[..cnt].iter() {
+                // If defined a vreg that has no subsequent uses, release it immediately
+                if let Some(def_vreg) = ir.def() {
+                    if liveness[def_vreg.index()].last_use().is_none() {
+                        ctx.unuse_vreg(def_vreg);
+                    }
+                }
+
+                // mark vreg unused if its last use is reached in or before this batch
+                ir.for_each_use(|vreg| {
+                    let last_use = liveness[vreg.index()].last_use();
+                    if last_use.is_none_or(|val| (val as usize) < curr + cnt) {
+                        ctx.unuse_vreg(vreg);
+                    }
+                });
+
+                if ir.is_terminator() {
+                    break;
+                }
+            }
+
+            curr += cnt;
+        }
+    }
 }
 
 impl<I: ISA> CodeGenTrait for CodeGen<I> {
@@ -107,53 +183,26 @@ impl<I: ISA> CodeGenTrait for CodeGen<I> {
 
         let mut backend = I::Backend::new();
         let config = backend.config();
-        self.state.init(block.vreg_count(), config.alloc_reg_mask);
 
+        // Pass 1: Dry-run to calculate exact spill slots
+        self.state.init(block.vreg_count(), config.alloc_reg_mask);
+        let mut dry_ctx = CodeGenContext::<I>::new_dry_run(&mut self.state, &self.liveness);
+        Self::run_pass(&mut backend, &mut dry_ctx, block, &self.liveness);
+        let total_slots = self.state.current_use_slot();
+
+        // Pass 2: Real emission with known total_slots
+        backend.reset();
+        self.state.init(block.vreg_count(), config.alloc_reg_mask);
         let mut ctx = CodeGenContext::<I>::new(
             &mut self.code_buf,
             self.asm_buf.as_mut(),
             &mut self.state,
             &self.liveness,
         );
+        backend.emit_prologue(&mut ctx, total_slots);
+        Self::run_pass(&mut backend, &mut ctx, block, &self.liveness);
 
-        let stack_frame_offset = backend.emit_stack_frame(&mut ctx);
-
-        let mut curr = 0;
-        while curr < block.insts.len() {
-            let window = &block.insts[curr..];
-
-            let cnt = backend.codegen(&mut ctx, window);
-            assert!(
-                cnt > 0,
-                "backend.codegen must consume at least one instruction"
-            );
-
-            for ir in window[..cnt].iter() {
-                if ir.is_terminator() {
-                    break;
-                }
-
-                // If defined a vreg that has no subsequent uses, release it immediately
-                if let Some(def_vreg) = ir.def() {
-                    if self.liveness[def_vreg.index()].last_use().is_none() {
-                        ctx.unuse_vreg(def_vreg);
-                    }
-                }
-
-                // mark vreg unused if its last use is reached in or before this batch
-                ir.for_each_use(|vreg| {
-                    let last_use = self.liveness[vreg.index()].last_use();
-                    if last_use.is_none_or(|val| (val as usize) < curr + cnt) {
-                        ctx.unuse_vreg(vreg);
-                    }
-                });
-            }
-
-            curr += cnt;
-        }
-
-        let slots = self.state.current_use_slot();
-        backend.patch_stack_frame(&mut self.code_buf, stack_frame_offset, slots);
+        debug_assert_eq!(self.state.current_use_slot(), total_slots);
 
         CodeBlockRef {
             buf: self.code_buf.as_slice(),
@@ -209,11 +258,11 @@ mod tests {
         let v0 = VReg::from(0);
         let v1 = VReg::from(1);
         let v2 = VReg::from(2);
-        let _g0 = ctx.def_vreg(v0);
-        let _g1 = ctx.def_vreg(v1);
-        drop(_g0);
-        drop(_g1);
-        let _g2 = ctx.def_vreg(v2);
+        let _r0 = ctx.def_vreg(v0);
+        let _r1 = ctx.def_vreg(v1);
+        ctx.end_instruction();
+        let _r2 = ctx.def_vreg(v2);
+        ctx.end_instruction();
 
         assert!(!code_buf.is_empty());
         assert!(asm_buf.contains("ret\n"));
@@ -225,5 +274,71 @@ mod tests {
         let mut codegen = CodeGen::<X86>::try_new().expect("try_new should succeed for X86");
         codegen.set_dump_asm(true);
         codegen.reset();
+    }
+
+    #[test]
+    #[should_panic(expected = "use of unallocated/dead virtual register")]
+    fn test_use_unallocated_vreg_panics() {
+        let mut code_buf = CodeBuf::new();
+        let mut state = RegAllocState::default();
+        state.init(4, 0b11);
+        let liveness = vec![liveness::Liveness::default(); 4];
+
+        let mut ctx = CodeGenContext::<X86>::new(&mut code_buf, None, &mut state, &liveness);
+        let v0 = VReg::from(0);
+        let _ = ctx.use_vreg(v0);
+    }
+
+    #[test]
+    fn test_prepare_call_args() {
+        let mut code_buf = CodeBuf::new();
+        let mut state = RegAllocState::default();
+        state.init(4, 0b1111);
+        let liveness = vec![liveness::Liveness::default(); 4];
+
+        let mut ctx = CodeGenContext::<X86>::new(&mut code_buf, None, &mut state, &liveness);
+        let v0 = VReg::from(0);
+        let _ = ctx.def_vreg(v0);
+        ctx.end_instruction();
+
+        ctx.prepare_call_args([(crate::jit::backend::x64::X86Reg::RCX, v0.into())]);
+        assert!(!code_buf.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "call argument register must be caller-saved")]
+    fn test_prepare_call_args_rejects_callee_saved() {
+        let mut code_buf = CodeBuf::new();
+        let mut state = RegAllocState::default();
+        state.init(4, 0b1111);
+        let liveness = vec![liveness::Liveness::default(); 4];
+
+        let mut ctx = CodeGenContext::<X86>::new(&mut code_buf, None, &mut state, &liveness);
+        let v0 = VReg::from(0);
+        let _ = ctx.def_vreg(v0);
+        ctx.end_instruction();
+
+        ctx.prepare_call_args([(crate::jit::backend::x64::X86Reg::RBX, v0.into())]);
+    }
+
+    #[test]
+    #[should_panic(expected = "is already pinned")]
+    fn test_prepare_call_args_rejects_duplicate_target() {
+        let mut code_buf = CodeBuf::new();
+        let mut state = RegAllocState::default();
+        state.init(4, 0b1111);
+        let liveness = vec![liveness::Liveness::default(); 4];
+
+        let mut ctx = CodeGenContext::<X86>::new(&mut code_buf, None, &mut state, &liveness);
+        let v0 = VReg::from(0);
+        let v1 = VReg::from(1);
+        let _ = ctx.def_vreg(v0);
+        let _ = ctx.def_vreg(v1);
+        ctx.end_instruction();
+
+        ctx.prepare_call_args([
+            (crate::jit::backend::x64::X86Reg::RCX, v0.into()),
+            (crate::jit::backend::x64::X86Reg::RCX, v1.into()),
+        ]);
     }
 }

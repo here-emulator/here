@@ -1,11 +1,8 @@
 //! At most 32 target register is supported right now.
 
-use std::cell::Cell;
-use std::marker::PhantomData;
-
 use super::*;
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 enum RegLocation {
     #[default]
     None,
@@ -14,43 +11,7 @@ enum RegLocation {
     // TODO: add Guest(u8),
 }
 
-// TODO: no need to use a cell.
-#[derive(Default)]
-struct PinnedMask {
-    cell: Cell<u32>,
-}
-
-impl PinnedMask {
-    #[inline]
-    fn new() -> Self {
-        Self { cell: Cell::new(0) }
-    }
-
-    #[inline]
-    fn reset(&self) {
-        self.cell.set(0);
-    }
-
-    #[inline]
-    fn get(&self) -> u32 {
-        self.cell.get()
-    }
-
-    #[inline]
-    fn pin(&self, reg: u8) {
-        self.cell.set(self.cell.get() | (1 << reg));
-    }
-
-    #[inline]
-    fn unpin(&self, reg: u8) {
-        self.cell.set(self.cell.get() & !(1 << reg));
-    }
-}
-
 /// At most 32 registier is supported, which should be enough.
-///
-/// # SAFETY
-/// Ensure `RegAllocState` lives shorter than `RegGuard`.
 #[derive(Default)]
 pub struct RegAllocState {
     hreg_to_vreg: [Option<VReg>; 32],
@@ -59,7 +20,8 @@ pub struct RegAllocState {
     allocatable_mask: u32,
     /// Whether the target register holds a `VReg`, it doesn't indicate whether it's pinned.
     occupied_mask: u32,
-    pinned_mask: PinnedMask,
+    /// Physical registers pinned for the duration of the current instruction.
+    inst_pinned_mask: u32,
 
     free_spill_slot: Vec<u32>,
     slot_count: u32,
@@ -73,14 +35,34 @@ impl RegAllocState {
             .resize(vreg_cnt as usize, RegLocation::default());
         self.allocatable_mask = allocatable_mask;
         self.occupied_mask = 0;
-        self.pinned_mask.reset();
+        self.inst_pinned_mask = 0;
         self.free_spill_slot.clear();
         self.slot_count = 0;
     }
 
     #[inline]
+    fn pin(&mut self, reg: u8) {
+        self.inst_pinned_mask |= 1 << reg;
+    }
+
+    #[inline]
+    fn unpin(&mut self, reg: u8) {
+        self.inst_pinned_mask &= !(1 << reg);
+    }
+
+    #[inline]
+    fn clear_inst_pins(&mut self) {
+        self.inst_pinned_mask = 0;
+    }
+
+    #[inline]
+    fn is_pinned(&self, reg: u8) -> bool {
+        (self.inst_pinned_mask & (1 << reg)) != 0
+    }
+
+    #[inline]
     fn pinned_mask(&self) -> u32 {
-        self.pinned_mask.get()
+        self.inst_pinned_mask
     }
 
     #[inline]
@@ -137,7 +119,7 @@ impl RegAllocState {
 
     #[must_use]
     fn evict(&mut self, reg: u8) -> Option<(VReg, u32)> {
-        if self.pinned_mask() & (1 << reg) != 0 {
+        if self.is_pinned(reg) {
             panic!("trying to evict pinned register {:?}", reg);
         }
 
@@ -168,33 +150,17 @@ impl RegAllocState {
 
     #[must_use]
     fn pick_free_prefer(&mut self, prefer: u32) -> Option<u8> {
-        None.or_else(|| self.pick_free_in(prefer))
-            .or_else(|| self.pick_free())
+        self.pick_free_in(prefer).or_else(|| self.pick_free())
     }
 
     fn pick_victim(&mut self) -> u8 {
         let mask = self.spillable_mask();
-        assert_ne!(mask, 0);
+        assert_ne!(mask, 0, "no spillable register available");
         mask.trailing_zeros() as u8
     }
 }
 
 impl<'b, I: ISA> CodeGenContext<'b, I> {
-    pub fn new(
-        buf: &'b mut CodeBuf,
-        asm_buf: Option<&'b mut String>,
-        state: &'b mut RegAllocState,
-        liveness: &'b [liveness::Liveness],
-    ) -> Self {
-        Self {
-            buf,
-            asm_buf,
-            state,
-            liveness,
-            _phantom: PhantomData,
-        }
-    }
-
     #[inline]
     pub fn emit_mov(&mut self, dst: I::Reg, src: I::Reg) {
         self.emit(&I::Inst::mov(dst, src));
@@ -238,47 +204,113 @@ impl<'b, I: ISA> CodeGenContext<'b, I> {
             .unwrap_or_else(|| self.evict_one_victim())
     }
 
-    pub fn def_vreg<'a>(&'a mut self, vreg: VReg) -> RegGuard<I::Reg> {
+    pub fn def_vreg(&mut self, vreg: VReg) -> I::Reg {
+        if let RegLocation::Reg(reg) = self.state.vreg_to_loc[vreg.index()] {
+            self.state.pin(reg);
+            return reg.into();
+        }
+
         let hreg = self.pick_reg(vreg);
         self.def_vreg_fixed(vreg, hreg)
     }
 
-    pub fn def_vreg_fixed<'a>(&'a mut self, vreg: VReg, hreg: I::Reg) -> RegGuard<I::Reg> {
+    pub fn def_vreg_fixed(&mut self, vreg: VReg, hreg: I::Reg) -> I::Reg {
+        let hreg_u8: u8 = hreg.into();
+        if self.state.vreg_to_loc[vreg.index()] == RegLocation::Reg(hreg_u8) {
+            self.state.pin(hreg_u8);
+            return hreg;
+        }
+
         self.evict(hreg);
-        self.state.bind(vreg, hreg.into());
-        RegGuard::new(hreg, &self.state.pinned_mask)
+        self.state.bind(vreg, hreg_u8);
+        self.state.pin(hreg_u8);
+        hreg
     }
 
-    pub fn use_vreg<'a>(&'a mut self, vreg: VReg) -> RegGuard<I::Reg> {
+    pub fn use_vreg(&mut self, vreg: VReg) -> I::Reg {
+        if let RegLocation::Reg(reg) = self.state.vreg_to_loc[vreg.index()] {
+            self.state.pin(reg);
+            return reg.into();
+        }
+
         let hreg = self.pick_reg(vreg);
         self.use_vreg_fixed(vreg, hreg)
     }
 
-    pub fn use_vreg_fixed<'a>(&'a mut self, vreg: VReg, hreg: I::Reg) -> RegGuard<I::Reg> {
+    #[inline]
+    fn load_vreg_value_to_reg(&mut self, dst: I::Reg, vreg: VReg) {
+        match self.state.vreg_to_loc[vreg.index()] {
+            RegLocation::Reg(old_reg) => {
+                if old_reg != dst.into() {
+                    self.emit_mov(dst, old_reg.into());
+                }
+            }
+            RegLocation::Spill(slot) => self.emit_reload(dst, slot),
+            RegLocation::None => panic!("use of unallocated/dead virtual register {:?}", vreg),
+        }
+    }
+
+    pub fn use_vreg_fixed(&mut self, vreg: VReg, hreg: I::Reg) -> I::Reg {
+        let hreg_u8: u8 = hreg.into();
         let current_loc = self.state.vreg_to_loc[vreg.index()];
 
-        if let RegLocation::Reg(old_reg) = current_loc {
-            if old_reg == hreg.into() {
-                return RegGuard::new(hreg, &self.state.pinned_mask);
-            }
+        if current_loc == RegLocation::Reg(hreg_u8) {
+            self.state.pin(hreg_u8);
+            return hreg;
         }
 
         self.evict(hreg);
+        self.load_vreg_value_to_reg(hreg, vreg);
+        self.state.bind(vreg, hreg_u8);
+        self.state.pin(hreg_u8);
+        hreg
+    }
 
-        match current_loc {
-            RegLocation::Reg(old_reg) => {
-                if old_reg != hreg.into() {
-                    self.emit_mov(hreg, old_reg.into());
+    pub fn alloc_scratch(&mut self) -> I::Reg {
+        let hreg: I::Reg = self
+            .state
+            .pick_free()
+            .map(|r| r.into())
+            .unwrap_or_else(|| self.evict_one_victim());
+        self.state.pin(hreg.into());
+        hreg
+    }
+
+    pub fn alloc_scratch_fixed(&mut self, hreg: I::Reg) -> I::Reg {
+        self.evict(hreg);
+        self.state.pin(hreg.into());
+        hreg
+    }
+
+    #[inline]
+    pub fn end_instruction(&mut self) {
+        self.state.clear_inst_pins();
+    }
+
+    pub fn prepare_call_args(&mut self, args: impl IntoIterator<Item = (I::Reg, CallArg<I::Reg>)>) {
+        self.spill_caller_saved();
+
+        for (dst, arg) in args {
+            let dst_u8: u8 = dst.into();
+            debug_assert!(
+                (I::Reg::CALLER_SAVE_MASK & (1 << dst_u8)) != 0,
+                "call argument register must be caller-saved"
+            );
+            debug_assert!(
+                !self.state.is_pinned(dst_u8),
+                "call argument register {:?} is already pinned",
+                dst_u8
+            );
+            match arg {
+                CallArg::VReg(vreg) => self.load_vreg_value_to_reg(dst, vreg),
+                CallArg::Reg(src) => {
+                    if dst_u8 != src.into() {
+                        self.emit_mov(dst, src);
+                    }
                 }
             }
-            RegLocation::Spill(slot) => {
-                self.emit_reload(hreg, slot);
-            }
-            RegLocation::None => {}
+            self.state.pin(dst_u8);
         }
-
-        self.state.bind(vreg, hreg.into());
-        RegGuard::new(hreg, &self.state.pinned_mask)
     }
 
     /// Guarentee that it's safe to do redundant calls.
@@ -287,6 +319,7 @@ impl<'b, I: ISA> CodeGenContext<'b, I> {
     }
 
     pub fn spill_given(&mut self, mut mask: u32) {
+        mask &= self.state.occupied_mask;
         while mask != 0 {
             // TODO: use `isolate_lowest_one` once stable.
             let curr = mask & mask.wrapping_neg();
@@ -295,7 +328,7 @@ impl<'b, I: ISA> CodeGenContext<'b, I> {
         }
     }
 
-    pub fn spill_caller_saved(&mut self) {
+    fn spill_caller_saved(&mut self) {
         self.spill_given(I::Reg::CALLER_SAVE_MASK);
     }
 
@@ -304,26 +337,14 @@ impl<'b, I: ISA> CodeGenContext<'b, I> {
     }
 }
 
-pub struct RegGuard<R: TargetReg> {
-    reg: R,
-    mask: *const PinnedMask,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallArg<R> {
+    VReg(VReg),
+    Reg(R),
 }
 
-impl<R: TargetReg> Drop for RegGuard<R> {
-    fn drop(&mut self) {
-        unsafe {
-            self.mask.as_ref_unchecked().unpin(self.reg().into());
-        }
-    }
-}
-
-impl<R: TargetReg> RegGuard<R> {
-    fn new(reg: R, mask: &PinnedMask) -> Self {
-        mask.pin(reg.into());
-        Self { reg, mask }
-    }
-
-    pub fn reg(&self) -> R {
-        self.reg
+impl<R> From<VReg> for CallArg<R> {
+    fn from(v: VReg) -> Self {
+        CallArg::VReg(v)
     }
 }

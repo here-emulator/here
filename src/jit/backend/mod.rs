@@ -17,7 +17,7 @@ pub trait ISA: Sized {
 pub trait TargetReg: Into<u8> + From<u8> + Copy {
     const REG_MASK: u32;
     const CALLER_SAVE_MASK: u32;
-    const CALLEE_SAVE_MASK: u32 = Self::CALLER_SAVE_MASK.wrapping_neg() & Self::REG_MASK;
+    const CALLEE_SAVE_MASK: u32 = (!Self::CALLER_SAVE_MASK) & Self::REG_MASK;
 }
 
 pub trait TargetInst: Sized {
@@ -39,14 +39,15 @@ pub trait TargetBackend<'a, I: ISA>: Sized {
 
     fn config(&mut self) -> CodeGenConfig;
 
-    /// Emits a placeholder instruction allocating the stack frame for spill slots.
-    ///
-    /// Returns the offset into [`CodeBuf`] where the frame size placeholder is recorded,
-    /// so that it can be patched later by [`patch_stack_frame`].
-    fn emit_stack_frame(&mut self, ctx: &mut CodeGenContext<I>) -> usize;
+    /// Emits the function prologue allocating stack space for spill slots.
+    /// Only called in Pass 2 when `slots > 0`.
+    fn emit_prologue(&mut self, ctx: &mut CodeGenContext<I>, slots: u32);
 
-    /// Patches the stack frame size placeholder with the actual number of spill slots used.
-    fn patch_stack_frame(&mut self, buf: &mut [u8], offset: usize, slots: u32);
+    /// Emits the function epilogue restoring stack space before block exit.
+    fn emit_epilogue(&mut self, ctx: &mut CodeGenContext<I>);
+
+    /// Resets any internal backend state between compilation passes.
+    fn reset(&mut self) {}
 
     // TODO: add function to patch ret -> jmp
 }
