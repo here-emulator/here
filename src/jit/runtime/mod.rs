@@ -28,6 +28,9 @@ enum BBCacheEntry {
     InterpreterOnly,
 }
 
+use std::fs::File;
+use std::io::BufWriter;
+
 pub struct JitRuntime {
     frontend: Translator,
     backend: NativeCodeGen,
@@ -36,9 +39,15 @@ pub struct JitRuntime {
     basic_blocks: BasicBlockManager,
     // TODO: remove with a local variable when longjmp/setjmp is replaced
     block_initial_budget: u64,
+    dump_file: Option<BufWriter<File>>,
 }
 
 impl JitRuntime {
+    #[inline]
+    pub fn is_supported() -> bool {
+        NativeCodeGen::try_new().is_some()
+    }
+
     // TODO: Error instead of Option
     pub fn try_new() -> Option<Self> {
         let mut jit_ctx = Box::new(JitContext::default());
@@ -53,7 +62,36 @@ impl JitRuntime {
             icache_epoch: 0,
             basic_blocks: BasicBlockManager::new(),
             block_initial_budget: 0,
+            dump_file: None,
         })
+    }
+
+    pub fn enable_dump(&mut self, path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+        let path = path.as_ref();
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
+        let file = File::create(path)?;
+        self.backend.set_dump_asm(true);
+        self.dump_file = Some(BufWriter::new(file));
+        Ok(())
+    }
+
+    pub fn with_dump(mut self, path: impl AsRef<std::path::Path>) -> std::io::Result<Self> {
+        self.enable_dump(path)?;
+        Ok(self)
+    }
+
+    pub fn set_dump_writer(&mut self, writer: BufWriter<File>) {
+        self.backend.set_dump_asm(true);
+        self.dump_file = Some(writer);
+    }
+
+    pub fn disable_dump(&mut self) {
+        self.backend.set_dump_asm(false);
+        self.dump_file = None;
     }
 
     fn compile(&mut self, cpu: &mut RVCPU, pc: WordType) -> Option<BasicBlock> {
@@ -61,7 +99,37 @@ impl JitRuntime {
             ir_block,
             instr_cnt,
         } = self.frontend.translate(cpu, pc)?;
+
         let cb = self.backend.compile(&ir_block);
+
+        if let Some(ref mut file) = self.dump_file {
+            use std::io::Write;
+            let _ = writeln!(
+                file,
+                "; =============================================================================="
+            );
+            let _ = writeln!(
+                file,
+                "; === Block guest PC: {:#018x}, instructions: {} ===",
+                pc, instr_cnt
+            );
+            let _ = writeln!(
+                file,
+                "; =============================================================================="
+            );
+            let _ = writeln!(file, "; --- IR ---");
+            let _ = writeln!(file, "{}", ir_block);
+            let _ = writeln!(file, "; --- Host ASM ---");
+            if let Some(asm) = &cb.asm_text {
+                let _ = file.write_all(asm.as_bytes());
+                if !asm.ends_with('\n') {
+                    let _ = writeln!(file);
+                }
+            }
+            let _ = writeln!(file);
+            let _ = file.flush();
+        }
+
         let func = unsafe { self.basic_blocks.emit_code(cb.buf) };
 
         Some(BasicBlock {
@@ -79,6 +147,64 @@ impl JitRuntime {
             self.basic_blocks.put(pc, entry);
             entry
         })
+    }
+
+    #[cfg(test)]
+    #[inline(never)]
+    pub fn try_execute_instruction_for_test(
+        &mut self,
+        cpu: &mut RVCPU,
+        instr: crate::isa::riscv::instruction::instr_table::RiscvInstr,
+        info: crate::isa::riscv::instruction::RVInstrInfo,
+    ) -> bool {
+        let Some(ir_block) = self
+            .frontend
+            .translate_single_instruction(cpu.pc, instr, info)
+        else {
+            return false;
+        };
+
+        let cb = self.backend.compile(&ir_block);
+        if let Some(ref mut file) = self.dump_file {
+            use std::io::Write;
+            let _ = writeln!(
+                file,
+                "; =============================================================================="
+            );
+            let _ = writeln!(
+                file,
+                "; === Test Instruction guest PC: {:#018x} ===",
+                cpu.pc
+            );
+            let _ = writeln!(
+                file,
+                "; =============================================================================="
+            );
+            let _ = writeln!(file, "; --- IR ---");
+            let _ = writeln!(file, "{}", ir_block);
+            let _ = writeln!(file, "; --- Host ASM ---");
+            if let Some(asm) = &cb.asm_text {
+                let _ = file.write_all(asm.as_bytes());
+                if !asm.ends_with('\n') {
+                    let _ = writeln!(file);
+                }
+            }
+            let _ = writeln!(file);
+            let _ = file.flush();
+        }
+        let func = unsafe { self.basic_blocks.emit_code(cb.buf) };
+        let bb = BasicBlock {
+            max_instr_cnt: 1,
+            func,
+        };
+        self.context.budget = 1;
+        self.block_initial_budget = 1;
+        if unsafe { setjmp(self.context.jmp_buf_ptr()) } != 0 {
+            self.handle_exception_exit(cpu);
+        } else {
+            self.run_jit_block(cpu, bb);
+        }
+        true
     }
 }
 

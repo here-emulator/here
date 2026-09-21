@@ -87,12 +87,12 @@ impl Translator {
             builder.compute(ComputeKind::And, v1, (!1).into()) // clear LSB, see the manual
         } else {
             // TODO: check ialign here
-            (meta.instr_pc as u64 + offset).into()
+            meta.instr_pc.wrapping_add(offset).into()
         };
 
         if let Some(rd) = rd {
             if rd != 0 {
-                builder.set_reg(rd.into(), (meta.instr_pc + ilen).into());
+                builder.set_reg(rd.into(), meta.instr_pc.wrapping_add(ilen).into());
             }
         };
 
@@ -362,5 +362,33 @@ impl Translator {
                 instr_cnt: meta.instr_cnt,
             })
         }
+    }
+
+    #[cfg(test)]
+    pub fn translate_single_instruction(
+        &mut self,
+        pc: WordType,
+        instr: RiscvInstr,
+        info: RVInstrInfo,
+    ) -> Option<IRBlock> {
+        self.ir_builder = IRBuilder::default();
+        let meta = InstrMeta {
+            instr_pc: pc,
+            instr_cnt: 0,
+        };
+        let inst_info = (instr, info);
+        if let Some(block) = None
+            .or_else(|| self.translate_jmp(&inst_info, &meta))
+            .or_else(|| self.translate_branch(&inst_info, &meta))
+        {
+            return Some(block);
+        }
+        if self.translate_common(&inst_info, &meta) {
+            let next_pc = meta.instr_pc.wrapping_add(instr.len());
+            let block = self.take_builder().build_jmp((next_pc as u64).into());
+            return Some(block);
+        }
+        self.ir_builder = IRBuilder::default();
+        None
     }
 }

@@ -3,6 +3,7 @@ use std::{
     cell::{Cell, UnsafeCell},
     collections::HashMap,
     hint::cold_path,
+    path::{Path, PathBuf},
     ptr::NonNull,
     rc::Rc,
     sync::atomic::Ordering,
@@ -83,22 +84,29 @@ pub enum ExecutorBackendKind {
     Jit,
 }
 
-fn create_executor_backend(kind: ExecutorBackendKind) -> Result<Box<dyn ExecutorBackend>, String> {
+fn create_executor_backend(
+    kind: ExecutorBackendKind,
+    dump_jit: Option<&Path>,
+) -> Result<Box<dyn ExecutorBackend>, String> {
     match kind {
-        ExecutorBackendKind::Interpreter => Ok(Box::new(InterpreterBackend)),
+        ExecutorBackendKind::Interpreter => {
+            if dump_jit.is_some() {
+                log::warn!(
+                    "dump-jit option was provided, but executor backend is Interpreter; ignoring"
+                );
+            }
+            Ok(Box::new(InterpreterBackend))
+        }
         ExecutorBackendKind::Jit => {
-            #[cfg(all(target_arch = "x86_64", feature = "riscv64"))]
-            {
-                Ok(Box::new(crate::jit::old_engine::RvJitEngine::new()))
+            let mut jit = crate::jit::JitRuntime::try_new().ok_or_else(|| {
+                "JIT executor backend is not supported on this platform".to_string()
+            })?;
+            if let Some(path) = dump_jit {
+                jit.enable_dump(path).map_err(|e| {
+                    format!("failed to initialize JIT dump to {}: {e}", path.display())
+                })?;
             }
-
-            #[cfg(not(all(target_arch = "x86_64", feature = "riscv64")))]
-            {
-                Err(
-                    "JIT executor backend requires an x86_64 host and the riscv64 feature"
-                        .to_string(),
-                )
-            }
+            Ok(Box::new(jit) as Box<dyn ExecutorBackend>)
         }
     }
 }
@@ -110,6 +118,7 @@ pub struct VirtBoardConfig {
     initial_registers: Vec<(u8, WordType)>,
     uart_io: UartIoMode,
     executor_backend: ExecutorBackendKind,
+    dump_jit: Option<PathBuf>,
 }
 
 impl Default for VirtBoardConfig {
@@ -121,6 +130,7 @@ impl Default for VirtBoardConfig {
             initial_registers: Vec::new(),
             uart_io: UartIoMode::External,
             executor_backend: ExecutorBackendKind::Interpreter,
+            dump_jit: None,
         }
     }
 }
@@ -160,6 +170,11 @@ impl VirtBoardConfig {
         self.executor_backend = backend;
         self
     }
+
+    pub fn with_dump_jit(mut self, path: impl Into<PathBuf>) -> Self {
+        self.dump_jit = Some(path.into());
+        self
+    }
 }
 
 /// NOTE: Only used in single-threaded contexts.
@@ -191,6 +206,7 @@ pub struct RVBoardBuilder {
     initial_registers: Vec<(u8, WordType)>,
     uart_io: UartIoMode,
     executor_backend: ExecutorBackendKind,
+    dump_jit: Option<PathBuf>,
     #[cfg(not(target_arch = "wasm32"))]
     spawner: TaskSpawner,
 }
@@ -207,6 +223,7 @@ impl RVBoardBuilder {
             initial_registers: Vec::new(),
             uart_io: UartIoMode::External,
             executor_backend: ExecutorBackendKind::Interpreter,
+            dump_jit: None,
             #[cfg(not(target_arch = "wasm32"))]
             spawner: TaskSpawner::new(),
         }
@@ -260,6 +277,11 @@ impl RVBoardBuilder {
 
     pub fn with_executor_backend(mut self, backend: ExecutorBackendKind) -> Self {
         self.executor_backend = backend;
+        self
+    }
+
+    pub fn with_dump_jit(mut self, path: impl Into<PathBuf>) -> Self {
+        self.dump_jit = Some(path.into());
         self
     }
 
@@ -358,7 +380,8 @@ impl RVBoardBuilder {
 
         let decoder = self.decoder.take().unwrap_or_else(Decoder::new);
         let mut cpu = Box::new(RVCPU::from_decoder(decoder, vaddr_manager));
-        let executor_backend = create_executor_backend(self.executor_backend)?;
+        let executor_backend =
+            create_executor_backend(self.executor_backend, self.dump_jit.as_deref())?;
 
         for (register, value) in self.initial_registers {
             cpu.write_reg(register, value);
@@ -481,6 +504,7 @@ impl VirtBoard {
             initial_registers,
             uart_io,
             executor_backend,
+            dump_jit,
         } = config;
 
         for image in memory_images {
@@ -514,6 +538,10 @@ impl VirtBoard {
             .with_initial_registers(initial_registers)
             .with_uart_io(uart_io)
             .with_executor_backend(executor_backend);
+
+        if let Some(dump_path) = dump_jit {
+            builder = builder.with_dump_jit(dump_path);
+        }
 
         #[cfg(all(feature = "test-device", not(target_arch = "wasm32")))]
         {
@@ -674,9 +702,11 @@ mod tests {
         assert_eq!(board.cpu.read_pc(), ram_config::BASE_ADDR + requested * 4);
     }
 
-    #[cfg(all(target_arch = "x86_64", feature = "riscv64"))]
     #[test]
     fn jit_backend_matches_interpreter_for_supported_block() {
+        if !crate::jit::JitRuntime::is_supported() {
+            return;
+        }
         use crate::isa::riscv::csr_reg::csr_macro::{Mcycle, Minstret};
 
         let program = [
@@ -719,9 +749,11 @@ mod tests {
         );
     }
 
-    #[cfg(all(target_arch = "x86_64", feature = "riscv64"))]
     #[test]
     fn jit_fallback_executes_exactly_one_cycle_before_resuming_jit() {
+        if !crate::jit::JitRuntime::is_supported() {
+            return;
+        }
         use crate::isa::riscv::csr_reg::csr_macro::{Mcycle, Minstret};
 
         let program = [
@@ -747,9 +779,11 @@ mod tests {
         assert_eq!(board.cpu.debug_csr(Minstret::get_index(), None), Some(2));
     }
 
-    #[cfg(all(target_arch = "x86_64", feature = "riscv64"))]
     #[test]
     fn fence_i_invalidates_cached_jit_blocks() {
+        if !crate::jit::JitRuntime::is_supported() {
+            return;
+        }
         let program = [
             0x0010_8093_u32, // addi x1, x1, 1
             0x0000_100f_u32, // fence.i
@@ -776,9 +810,11 @@ mod tests {
         assert_eq!(board.cpu.read_reg(1), 3);
     }
 
-    #[cfg(all(target_arch = "x86_64", feature = "riscv64"))]
     #[test]
     fn satp_write_invalidates_cached_jit_blocks() {
+        if !crate::jit::JitRuntime::is_supported() {
+            return;
+        }
         let bytes = 0x0010_8093_u32.to_le_bytes(); // addi x1, x1, 1
         let mut board = VirtBoard::from_binary_with(
             &bytes,
@@ -798,9 +834,11 @@ mod tests {
         assert_eq!(board.cpu.read_reg(1), 3);
     }
 
-    #[cfg(all(target_arch = "x86_64", feature = "riscv64"))]
     #[test]
     fn hooked_execution_uses_per_instruction_interpreter_path_with_jit_configured() {
+        if !crate::jit::JitRuntime::is_supported() {
+            return;
+        }
         struct StopAfterTwo(Vec<WordType>);
 
         impl ExecutionHook for StopAfterTwo {

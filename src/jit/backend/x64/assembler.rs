@@ -189,14 +189,32 @@ impl X64Inst {
             },
             Self::Movsxd { dst, src } => emit_reg_rm(buf, OperandSize::Qword, 0x63_u8, dst, src),
             Self::Movsx8 { dst, src } => {
-                emit_reg_rm(buf, OperandSize::Qword, [0x0f, 0xbe], dst, src)
+                let force_rex = matches!(src, RegMem::Reg(r) if r.base() >= 4);
+                emit_modrm_encoding(
+                    buf,
+                    OperandSize::Qword,
+                    [0x0f, 0xbe],
+                    dst.base(),
+                    dst.rex_bit(),
+                    src,
+                    force_rex,
+                );
             }
             Self::Movsx16 { dst, src } => {
                 emit_reg_rm(buf, OperandSize::Qword, [0x0f, 0xbf], dst, src)
             }
             // 32-bit destination zero-extends to 64-bit, saving a REX.W prefix byte.
             Self::Movzx8 { dst, src } => {
-                emit_reg_rm(buf, OperandSize::Dword, [0x0f, 0xb6], dst, src)
+                let force_rex = matches!(src, RegMem::Reg(r) if r.base() >= 4);
+                emit_modrm_encoding(
+                    buf,
+                    OperandSize::Dword,
+                    [0x0f, 0xb6],
+                    dst.base(),
+                    dst.rex_bit(),
+                    src,
+                    force_rex,
+                );
             }
             Self::Movzx16 { dst, src } => {
                 emit_reg_rm(buf, OperandSize::Dword, [0x0f, 0xb7], dst, src)
@@ -517,6 +535,38 @@ mod tests {
                 dst: R8,
             }),
             [0x41, 0x0f, 0x94, 0xc0]
+        );
+        // Movzx8 with AL (base 0, no REX needed):
+        assert_eq!(
+            emit_inst(X64Inst::Movzx8 {
+                dst: RAX,
+                src: RAX.into(),
+            }),
+            [0x0f, 0xb6, 0xc0]
+        );
+        // Movzx8 with DIL (base 7, REX 0x40 required for byte register):
+        assert_eq!(
+            emit_inst(X64Inst::Movzx8 {
+                dst: RDI,
+                src: RDI.into(),
+            }),
+            [0x40, 0x0f, 0xb6, 0xff]
+        );
+        // Movzx8 with SIL (base 6, REX 0x40 required for byte register):
+        assert_eq!(
+            emit_inst(X64Inst::Movzx8 {
+                dst: RAX,
+                src: RSI.into(),
+            }),
+            [0x40, 0x0f, 0xb6, 0xc6]
+        );
+        // Movzx8 with R8D destination (extended register, REX 0x44):
+        assert_eq!(
+            emit_inst(X64Inst::Movzx8 {
+                dst: R8,
+                src: RAX.into(),
+            }),
+            [0x44, 0x0f, 0xb6, 0xc0]
         );
         assert_eq!(
             emit_inst(X64Inst::Cmovcc {

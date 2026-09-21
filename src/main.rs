@@ -201,6 +201,10 @@ struct Args {
         value_parser = parse_address
     )]
     dtb_address: Option<WordType>,
+
+    /// Dump JIT IR and generated host assembly to a file before execution.
+    #[arg(long = "dump-jit", value_name = "FILE")]
+    dump_jit: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -366,6 +370,10 @@ fn main() {
         .with_virtio_devices(cli_args.devices.clone())
         .with_uart_io(uart_io)
         .with_executor_backend(cli_args.executor);
+
+    if let Some(dump_path) = &cli_args.dump_jit {
+        board_config = board_config.with_dump_jit(dump_path.clone());
+    }
 
     if let Some(dtb_path) = &cli_args.dtb {
         let dtb_address = cli_args.dtb_address.unwrap_or(DEFAULT_DTB_ADDRESS);

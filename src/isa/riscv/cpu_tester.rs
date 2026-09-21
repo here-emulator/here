@@ -1,4 +1,5 @@
 #![cfg(test)]
+
 use std::{cell::UnsafeCell, fmt::Debug, rc::Rc};
 
 use rand::{Rng, SeedableRng};
@@ -24,13 +25,13 @@ use crate::{
     utils::{UnsignedInteger, sign_extend},
 };
 
-pub(super) struct TestCPUBuilder {
+pub struct TestCPUBuilder {
     cpu: Box<RVCPU>,
 }
 
 impl TestCPUBuilder {
     /// Build a RISC-V CPU, only has RAM, don't have other devices.
-    pub(super) fn new() -> Self {
+    pub fn new() -> Self {
         let ram_ref = Rc::new(UnsafeCell::new(Ram::new()));
         let mmio = MemoryMapIO::from_ram(ram_ref.clone());
         let decoder = Decoder::from_isa_str(TEST_ISA).expect("TEST_ISA must be valid");
@@ -43,28 +44,28 @@ impl TestCPUBuilder {
         Self { cpu: cpu }
     }
 
-    pub(super) fn reg(mut self, idx: u8, value: WordType) -> Self {
+    pub fn reg(mut self, idx: u8, value: WordType) -> Self {
         self.cpu.reg_file.write(idx, value);
         self
     }
 
     // Explicit float type in name to avoid deducing that may cause accidental error.
-    pub(super) fn reg_f32(mut self, idx: u8, value: f32) -> Self {
+    pub fn reg_f32(mut self, idx: u8, value: f32) -> Self {
         self.cpu.fpu.store(idx, value);
         self
     }
 
-    pub(super) fn reg_f64(mut self, idx: u8, value: f64) -> Self {
+    pub fn reg_f64(mut self, idx: u8, value: f64) -> Self {
         self.cpu.fpu.store(idx, value);
         self
     }
 
-    pub(super) fn reg_vec(mut self, lmul: u8, idx: u8, value: &[u8]) -> Self {
+    pub fn reg_vec(mut self, lmul: u8, idx: u8, value: &[u8]) -> Self {
         self.cpu.vector.write_as_type(lmul, idx, value);
         self
     }
 
-    pub(super) fn vector_status(
+    pub fn vector_status(
         mut self,
         vlmul: Vlmul,
         vsew: Vsew,
@@ -89,17 +90,17 @@ impl TestCPUBuilder {
         self
     }
 
-    pub(super) fn pc(mut self, value: WordType) -> Self {
+    pub fn pc(mut self, value: WordType) -> Self {
         self.cpu.pc = value;
         self
     }
 
-    pub(super) fn mem<T: UnsignedInteger>(mut self, addr: WordType, value: T) -> Self {
+    pub fn mem<T: UnsignedInteger>(mut self, addr: WordType, value: T) -> Self {
         self.cpu.write(addr, value).unwrap();
         self
     }
 
-    pub(super) fn mem_range<It: Iterator, T: UnsignedInteger>(
+    pub fn mem_range<It: Iterator, T: UnsignedInteger>(
         mut self,
         indexs: It,
         f: fn(usize) -> (WordType, T),
@@ -114,12 +115,12 @@ impl TestCPUBuilder {
         self
     }
 
-    pub(super) fn mem_base<T: UnsignedInteger>(mut self, addr: WordType, value: T) -> Self {
+    pub fn mem_base<T: UnsignedInteger>(mut self, addr: WordType, value: T) -> Self {
         self.cpu.write(BASE_ADDR + addr, value).unwrap();
         self
     }
 
-    pub(super) fn program(mut self, instrs: &[u32]) -> Self {
+    pub fn program(mut self, instrs: &[u32]) -> Self {
         let mut addr = BASE_ADDR;
         for instr in instrs {
             self.cpu.write(addr, *instr).unwrap();
@@ -128,26 +129,26 @@ impl TestCPUBuilder {
         self
     }
 
-    pub(super) fn csr(mut self, csr_addr: WordType, value: WordType) -> Self {
+    pub fn csr(mut self, csr_addr: WordType, value: WordType) -> Self {
         self.cpu.csr.write_uncheck_privilege(csr_addr, value);
         self
     }
 
-    pub(super) fn build(self) -> Box<RVCPU> {
+    pub fn build(self) -> Box<RVCPU> {
         self.cpu
     }
 }
 
-pub(super) struct CPUChecker<'a> {
-    pub(super) cpu: &'a mut RVCPU,
+pub struct CPUChecker<'a> {
+    pub cpu: &'a mut RVCPU,
 }
 
 impl<'a> CPUChecker<'a> {
-    pub(super) fn new(cpu: &'a mut RVCPU) -> Self {
+    pub fn new(cpu: &'a mut RVCPU) -> Self {
         Self { cpu }.reg(0, 0) // x0 is always 0
     }
 
-    pub(super) fn reg(self, idx: u8, value: WordType) -> Self {
+    pub fn reg(self, idx: u8, value: WordType) -> Self {
         assert_eq!(
             self.cpu.reg_file.read(idx, 0).0,
             value,
@@ -157,19 +158,19 @@ impl<'a> CPUChecker<'a> {
         self
     }
 
-    pub(super) fn reg_f32(self, idx: u8, value: f32) -> Self {
+    pub fn reg_f32(self, idx: u8, value: f32) -> Self {
         let reg_val: f32 = self.cpu.fpu.load(idx);
         assert_eq!(reg_val, value, "Float Register #{} incorrect", idx);
         self
     }
 
-    pub(super) fn reg_f64(self, idx: u8, value: f64) -> Self {
+    pub fn reg_f64(self, idx: u8, value: f64) -> Self {
         let reg_val: f64 = self.cpu.fpu.load(idx);
         assert_eq!(reg_val, value, "Float Register #{} incorrect", idx);
         self
     }
 
-    pub(super) fn reg_vec<T>(self, idx: u8, value: &[T]) -> Self
+    pub fn reg_vec<T>(self, idx: u8, value: &[T]) -> Self
     where
         T: Eq + Debug,
     {
@@ -184,12 +185,12 @@ impl<'a> CPUChecker<'a> {
         self
     }
 
-    pub(super) fn pc(self, value: WordType) -> Self {
+    pub fn pc(self, value: WordType) -> Self {
         assert_eq!(self.cpu.pc, value, "PC incorrect");
         self
     }
 
-    pub(super) fn mem<T>(self, addr: WordType, value: WordType) -> Self
+    pub fn mem<T>(self, addr: WordType, value: WordType) -> Self
     where
         T: UnsignedInteger,
     {
@@ -202,14 +203,14 @@ impl<'a> CPUChecker<'a> {
         self
     }
 
-    pub(super) fn mem_base<T>(self, addr: WordType, value: WordType) -> Self
+    pub fn mem_base<T>(self, addr: WordType, value: WordType) -> Self
     where
         T: UnsignedInteger,
     {
         self.mem::<T>(BASE_ADDR + addr, value)
     }
 
-    pub(super) fn csr(self, addr: WordType, value: WordType) -> Self {
+    pub fn csr(self, addr: WordType, value: WordType) -> Self {
         assert_eq!(
             self.cpu.csr.read_uncheck_privilege(addr).unwrap(),
             value,
@@ -219,7 +220,7 @@ impl<'a> CPUChecker<'a> {
         self
     }
 
-    pub(super) fn customized<F>(self, f: F) -> Self
+    pub fn customized<F>(self, f: F) -> Self
     where
         F: FnOnce(Self) -> Self,
     {
@@ -241,20 +242,22 @@ fn assert_execution_state_eq(label: &str, expected: &mut RVCPU, actual: &mut RVC
     assert_register_state_eq(label, expected, actual);
 }
 
-#[cfg(all(target_arch = "x86_64", feature = "riscv64"))]
 fn run_codegen_if_supported<F>(instr: RiscvInstr, info: RVInstrInfo, build: &F, interpreter: &RVCPU)
 where
     F: Fn(TestCPUBuilder) -> TestCPUBuilder,
 {
+    let Some(mut jit) = crate::jit::JitRuntime::try_new() else {
+        return;
+    };
     let mut jit_cpu = build(TestCPUBuilder::new()).build();
-    if !crate::jit::old_engine::try_execute_instruction_for_test(&mut jit_cpu, instr, info) {
+    if !jit.try_execute_instruction_for_test(&mut jit_cpu, instr, info) {
         return;
     }
 
     assert_register_state_eq("jit/interpreter", interpreter, &jit_cpu);
 }
 
-pub(super) fn run_test_exec<F, G>(instr: RiscvInstr, info: RVInstrInfo, build: F, check: G)
+pub fn run_test_exec<F, G>(instr: RiscvInstr, info: RVInstrInfo, build: F, check: G)
 where
     F: Fn(TestCPUBuilder) -> TestCPUBuilder,
     G: Fn(CPUChecker) -> CPUChecker,
@@ -263,11 +266,10 @@ where
     cpu.execute(instr, info).unwrap();
     check(CPUChecker::new(&mut cpu));
 
-    #[cfg(all(target_arch = "x86_64", feature = "riscv64"))]
     run_codegen_if_supported(instr, info, &build, &cpu);
 }
 
-pub(super) fn run_test_exec_decode<F, G>(raw_instr: u32, build: F, check: G)
+pub fn run_test_exec_decode<F, G>(raw_instr: u32, build: F, check: G)
 where
     F: Fn(TestCPUBuilder) -> TestCPUBuilder,
     G: Fn(CPUChecker) -> CPUChecker,
@@ -279,11 +281,10 @@ where
     cpu.execute(instr, info).unwrap();
     check(CPUChecker::new(&mut cpu));
 
-    #[cfg(all(target_arch = "x86_64", feature = "riscv64"))]
     run_codegen_if_supported(instr, info, &build, &cpu);
 }
 
-pub(super) fn run_test_cpu_step<F, G>(raw_instrs: &[u32], build: F, check: G)
+pub fn run_test_cpu_step<F, G>(raw_instrs: &[u32], build: F, check: G)
 where
     F: Fn(TestCPUBuilder) -> TestCPUBuilder,
     G: Fn(CPUChecker) -> CPUChecker,
@@ -305,50 +306,48 @@ where
     }
     check(CPUChecker::new(&mut cpu));
 
-    #[cfg(all(target_arch = "x86_64", feature = "riscv64"))]
-    {
+    if let Some(mut jit) = crate::jit::JitRuntime::try_new() {
         use crate::isa::riscv::executor::ExecutorBackend;
 
         let mut jit_cpu = make_cpu();
-        let mut jit = crate::jit::old_engine::RvJitEngine::new();
         jit.step_batch(&mut jit_cpu, raw_instrs.len() as u64);
         check(CPUChecker::new(&mut jit_cpu));
         assert_execution_state_eq("JIT executor/interpreter", &mut cpu, &mut jit_cpu);
     }
 }
 
-pub(super) struct ExecTester {
+pub struct ExecTester {
     rng: ChaCha12Rng,
 }
 
 impl ExecTester {
-    pub(super) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             rng: ChaCha12Rng::seed_from_u64(0721),
         }
     }
 
-    pub(super) fn rand_imm12(&mut self) -> WordType {
+    pub fn rand_imm12(&mut self) -> WordType {
         self.rng.random_range(0..=4095) as WordType
     }
 
-    pub(super) fn rand_word(&mut self) -> WordType {
+    pub fn rand_word(&mut self) -> WordType {
         self.rng.random_range(0..=WordType::MAX)
     }
 
-    pub(super) fn rand_word2(&mut self) -> (WordType, WordType) {
+    pub fn rand_word2(&mut self) -> (WordType, WordType) {
         (self.rand_word(), self.rand_word())
     }
 
-    pub(super) fn rand_reg_idx(&mut self) -> u8 {
+    pub fn rand_reg_idx(&mut self) -> u8 {
         self.rng.random_range(1..REGFILE_CNT) as u8
     }
 
-    pub(super) fn rand_reg_idx2(&mut self) -> (u8, u8) {
+    pub fn rand_reg_idx2(&mut self) -> (u8, u8) {
         (self.rand_reg_idx(), self.rand_reg_idx())
     }
 
-    pub(super) fn rand_unique_reg_idx2(&mut self) -> (u8, u8) {
+    pub fn rand_unique_reg_idx2(&mut self) -> (u8, u8) {
         let idx1 = self.rand_reg_idx();
         let mut idx2 = self.rand_reg_idx();
         while idx1 == idx2 {
@@ -357,7 +356,7 @@ impl ExecTester {
         (idx1, idx2)
     }
 
-    pub(super) fn test_rand_r_with(
+    pub fn test_rand_r_with(
         &mut self,
         instr: RiscvInstr,
         lhs: WordType,
@@ -376,7 +375,7 @@ impl ExecTester {
         );
     }
 
-    pub(super) fn test_rand_r<F>(&mut self, instr: RiscvInstr, calc: F)
+    pub fn test_rand_r<F>(&mut self, instr: RiscvInstr, calc: F)
     where
         F: FnOnce(WordType, WordType) -> WordType,
     {
@@ -384,14 +383,15 @@ impl ExecTester {
         self.test_rand_r_with(instr, val1, val2, calc(val1, val2));
     }
 
-    pub(super) fn test_rand_i_with(
+    pub fn test_rand_i_with(
         &mut self,
         instr: RiscvInstr,
         lhs: WordType,
         imm: WordType,
         expected: WordType,
     ) {
-        let (rd, rs1) = self.rand_reg_idx2();
+        let rd = self.rand_reg_idx2();
+        let (rd, rs1) = (rd.0, rd.1);
         let info = RVInstrInfo::I { rd, rs1, imm };
 
         run_test_exec(
@@ -402,7 +402,7 @@ impl ExecTester {
         );
     }
 
-    pub(super) fn test_rand_i<F>(&mut self, instr: RiscvInstr, calc: F)
+    pub fn test_rand_i<F>(&mut self, instr: RiscvInstr, calc: F)
     where
         F: FnOnce(WordType, WordType) -> WordType,
     {

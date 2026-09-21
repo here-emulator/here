@@ -13,7 +13,7 @@ pub(crate) enum FixedPointRoundingMode {
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum Vlmul {
+pub enum Vlmul {
     M1 = 0,
     M2 = 1,
     M4 = 2,
@@ -39,7 +39,7 @@ impl From<u8> for Vlmul {
 }
 
 impl Vlmul {
-    pub(crate) fn get_lmul(self) -> u8 {
+    pub fn get_lmul(self) -> u8 {
         match self {
             Self::M1 => 1,
             Self::M2 => 2,
@@ -54,7 +54,7 @@ impl Vlmul {
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum Vsew {
+pub enum Vsew {
     E8,
     E16,
     E32,

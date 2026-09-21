@@ -8,6 +8,7 @@ pub trait CodeGenTrait: Sized {
     fn try_new() -> Option<Self>;
     fn reset(&mut self);
     fn compile<'a>(&'a mut self, block: &IRBlock) -> CodeBlockRef<'a>;
+    fn set_dump_asm(&mut self, enable: bool);
 }
 
 /// A struct that provides data needed by each implementation of [`TargetBackend`],
@@ -209,6 +210,10 @@ impl<I: ISA> CodeGenTrait for CodeGen<I> {
             asm_text: self.asm_buf.as_deref(),
         }
     }
+
+    fn set_dump_asm(&mut self, enable: bool) {
+        CodeGen::set_dump_asm(self, enable);
+    }
 }
 
 pub type NativeCodeGen = cfg_select! {
@@ -233,6 +238,10 @@ impl CodeGenTrait for DummyCodeGen {
     }
 
     fn compile<'a>(&'a mut self, _block: &IRBlock) -> CodeBlockRef<'a> {
+        panic!()
+    }
+
+    fn set_dump_asm(&mut self, _enable: bool) {
         panic!()
     }
 }

@@ -199,7 +199,7 @@ pub trait IRReg: From<Self::IndexType> {
 }
 
 macro_rules! define_index {
-    ($name:ident, $type:ty) => {
+    ($name:ident, $type:ty, $prefix:literal) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub struct $name {
             idx: $type,
@@ -217,9 +217,131 @@ macro_rules! define_index {
                 self.idx as usize
             }
         }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, concat!($prefix, "{}"), self.idx)
+            }
+        }
     };
 }
 
-define_index! { GuestReg, u8 }
-define_index! { VReg, VRegId }
-define_index! { HostReg, u8 }
+define_index! { GuestReg, u8, "x" }
+define_index! { VReg, VRegId, "v" }
+define_index! { HostReg, u8, "h" }
+
+impl std::fmt::Display for ComputeKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::fmt::Display for CmpKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::fmt::Display for IRInst {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IRInst::Const { dst, imm } => {
+                if *imm > 9 {
+                    write!(f, "{dst} = const {imm:#x} ({imm})")
+                } else {
+                    write!(f, "{dst} = const {imm}")
+                }
+            }
+            IRInst::GetReg { dst, src } => write!(f, "{dst} = get_reg {src}"),
+            IRInst::SetReg { dst, src } => write!(f, "set_reg {dst}, {src}"),
+            IRInst::Compute {
+                kind,
+                dst,
+                src1,
+                src2,
+            } => {
+                write!(f, "{dst} = compute {kind}, {src1}, {src2}")
+            }
+            IRInst::Call {
+                can_trap,
+                pass_cpu,
+                func_ptr,
+                args,
+                ret,
+            } => {
+                if let Some(r) = ret {
+                    write!(f, "{r} = ")?;
+                }
+                write!(f, "call [")?;
+                let mut first = true;
+                if *pass_cpu {
+                    write!(f, "cpu")?;
+                    first = false;
+                }
+                if *can_trap {
+                    if !first {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "trap")?;
+                }
+                write!(f, "] {func_ptr:#x}, [")?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{arg}")?;
+                }
+                write!(f, "]")
+            }
+            IRInst::DirectJmp { target } => write!(f, "jmp {target:#x}"),
+            IRInst::DynamicJmp { target } => write!(f, "jmp {target}"),
+            IRInst::Branch {
+                cmp,
+                src1,
+                src2,
+                then_pc,
+                else_pc,
+            } => {
+                write!(
+                    f,
+                    "branch {cmp}, {src1}, {src2}, then={then_pc:#x}, else={else_pc:#x}"
+                )
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for IRBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (i, inst) in self.insts.iter().enumerate() {
+            if i > 0 {
+                writeln!(f)?;
+            }
+            write!(f, "    {inst}")?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ir_display() {
+        let mut builder = IRBuilder::default();
+        make_ir!(builder, [
+            v0 = const 42;
+            v1 = get_reg 1;
+            v2 = compute Add, v0, v1;
+            set_reg 2, v2;
+        ], []);
+        let block = builder.build_jmp(0x1000u64.into());
+        let s = format!("{block}");
+        assert!(s.contains("const 0x2a (42)"));
+        assert!(s.contains("get_reg x1"));
+        assert!(s.contains("compute Add"));
+        assert!(s.contains("set_reg x2"));
+        assert!(s.contains("jmp 0x1000"));
+    }
+}

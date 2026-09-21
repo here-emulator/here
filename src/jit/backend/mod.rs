@@ -5,6 +5,9 @@ mod cpu_access;
 mod reg_alloc;
 pub mod x64;
 
+#[cfg(test)]
+mod tests;
+
 pub use codegen::*;
 use pass::*;
 
@@ -27,6 +30,7 @@ pub trait TargetInst: Sized {
     fn put_asm_text(&self, w: &mut impl std::fmt::Write) -> std::fmt::Result;
 
     fn mov(dst: Self::Reg, src: Self::Reg) -> Self;
+    fn mov_imm(dst: Self::Reg, imm: u64) -> Self;
     fn spill(slot: u32, src: Self::Reg) -> Self;
     fn reload(dst: Self::Reg, slot: u32) -> Self;
 }

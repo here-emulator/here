@@ -2,13 +2,46 @@
 
 use super::*;
 
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
-enum RegLocation {
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RegLocation {
     #[default]
     None,
     Reg(u8),
     Spill(u32),
+    Const(u64),
+    ConstInReg(u8, u64),
     // TODO: add Guest(u8),
+}
+
+impl RegLocation {
+    #[inline]
+    pub const fn get_reg(&self) -> Option<u8> {
+        match *self {
+            Self::Reg(reg) | Self::ConstInReg(reg, _) => Some(reg),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub const fn get_const(&self) -> Option<u64> {
+        match *self {
+            Self::Const(imm) | Self::ConstInReg(_, imm) => Some(imm),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub const fn get_spill(&self) -> Option<u32> {
+        match *self {
+            Self::Spill(slot) => Some(slot),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub const fn is_const(&self) -> bool {
+        self.get_const().is_some()
+    }
 }
 
 /// At most 32 registier is supported, which should be enough.
@@ -75,22 +108,36 @@ impl RegAllocState {
         self.allocatable_mask & !self.occupied_mask & !self.pinned_mask()
     }
 
+    #[inline]
+    fn const_mask(&self) -> u32 {
+        let mut mask = 0u32;
+        let mut occupied = self.occupied_mask;
+        while occupied != 0 {
+            let r = occupied.trailing_zeros();
+            if let Some(vreg) = self.hreg_to_vreg[r as usize] {
+                if self.vreg_to_loc[vreg.index()].is_const() {
+                    mask |= 1 << r;
+                }
+            }
+            occupied &= occupied - 1;
+        }
+        mask
+    }
+
     fn unbind(&mut self, vreg: VReg) {
-        match self.vreg_to_loc[vreg.index()] {
-            RegLocation::Reg(old_reg) => {
-                self.hreg_to_vreg[old_reg as usize] = None;
-                self.occupied_mask &= !(1 << old_reg);
-            }
-            RegLocation::Spill(slot) => {
-                self.free_spill_slot.push(slot);
-            }
-            RegLocation::None => {}
+        let loc = self.vreg_to_loc[vreg.index()];
+        if let Some(old_reg) = loc.get_reg() {
+            self.hreg_to_vreg[old_reg as usize] = None;
+            self.occupied_mask &= !(1 << old_reg);
+        } else if let Some(slot) = loc.get_spill() {
+            self.free_spill_slot.push(slot);
         }
 
         self.vreg_to_loc[vreg.index()] = RegLocation::None;
     }
 
     fn bind(&mut self, vreg: VReg, reg: u8) {
+        let const_val = self.vreg_to_loc[vreg.index()].get_const();
         self.unbind(vreg);
 
         debug_assert!(
@@ -102,7 +149,20 @@ impl RegAllocState {
 
         self.hreg_to_vreg[reg as usize] = Some(vreg);
         self.occupied_mask |= 1 << reg;
-        self.vreg_to_loc[vreg.index()] = RegLocation::Reg(reg);
+        self.vreg_to_loc[vreg.index()] = match const_val {
+            Some(imm) => RegLocation::ConstInReg(reg, imm),
+            None => RegLocation::Reg(reg),
+        };
+    }
+
+    pub fn def_const(&mut self, vreg: VReg, imm: u64) {
+        self.unbind(vreg);
+        self.vreg_to_loc[vreg.index()] = RegLocation::Const(imm);
+    }
+
+    #[inline]
+    pub fn get_const(&self, vreg: VReg) -> Option<u64> {
+        self.vreg_to_loc[vreg.index()].get_const()
     }
 
     pub fn current_use_slot(&self) -> u32 {
@@ -125,38 +185,56 @@ impl RegAllocState {
 
         let occupant = self.hreg_to_vreg[reg as usize]?;
 
-        let slot = self.alloc_spill_slot();
         self.hreg_to_vreg[reg as usize] = None;
         self.occupied_mask &= !(1 << reg);
-        self.vreg_to_loc[occupant.index()] = RegLocation::Spill(slot);
 
-        Some((occupant, slot))
+        if let Some(imm) = self.vreg_to_loc[occupant.index()].get_const() {
+            self.vreg_to_loc[occupant.index()] = RegLocation::Const(imm);
+            None
+        } else {
+            let slot = self.alloc_spill_slot();
+            self.vreg_to_loc[occupant.index()] = RegLocation::Spill(slot);
+            Some((occupant, slot))
+        }
     }
 
-    #[must_use]
-    fn pick_free(&mut self) -> Option<u8> {
-        self.pick_free_in(u32::MAX)
-    }
-
-    #[must_use]
-    fn pick_free_in(&mut self, mask: u32) -> Option<u8> {
-        let free = self.free_mask() & mask;
-        if free != 0 {
-            Some(free.trailing_zeros() as u8)
+    #[inline]
+    fn pick_in(&self, mask: u32) -> Option<u8> {
+        if mask != 0 {
+            Some(mask.trailing_zeros() as u8)
         } else {
             None
         }
     }
 
     #[must_use]
-    fn pick_free_prefer(&mut self, prefer: u32) -> Option<u8> {
+    fn pick_free_in(&self, mask: u32) -> Option<u8> {
+        self.pick_in(self.free_mask() & mask)
+    }
+
+    #[must_use]
+    fn pick_free(&self) -> Option<u8> {
+        self.pick_free_in(u32::MAX)
+    }
+
+    #[must_use]
+    fn pick_free_prefer(&self, prefer: u32) -> Option<u8> {
         self.pick_free_in(prefer).or_else(|| self.pick_free())
     }
 
-    fn pick_victim(&mut self) -> u8 {
-        let mask = self.spillable_mask();
-        assert_ne!(mask, 0, "no spillable register available");
-        mask.trailing_zeros() as u8
+    #[must_use]
+    fn pick_victim_in(&self, mask: u32) -> Option<u8> {
+        self.pick_in(self.spillable_mask() & mask)
+    }
+
+    fn pick_victim_prefer(&self, prefer: u32) -> u8 {
+        self.pick_victim_in(prefer)
+            .or_else(|| self.pick_victim_in(u32::MAX))
+            .expect("no spillable register available")
+    }
+
+    fn pick_victim(&self) -> u8 {
+        self.pick_victim_prefer(self.const_mask())
     }
 }
 
@@ -164,6 +242,27 @@ impl<'b, I: ISA> CodeGenContext<'b, I> {
     #[inline]
     pub fn emit_mov(&mut self, dst: I::Reg, src: I::Reg) {
         self.emit(&I::Inst::mov(dst, src));
+    }
+
+    #[inline]
+    pub fn emit_mov_imm(&mut self, dst: I::Reg, imm: u64) {
+        self.emit(&I::Inst::mov_imm(dst, imm));
+    }
+
+    #[inline]
+    pub fn def_const(&mut self, vreg: VReg, imm: u64) {
+        self.state.def_const(vreg, imm);
+    }
+
+    #[inline]
+    pub fn try_get_const(&self, vreg: VReg) -> Option<u64> {
+        self.state.get_const(vreg)
+    }
+
+    #[inline]
+    pub fn try_get_const_i32(&self, vreg: VReg) -> Option<i32> {
+        self.try_get_const(vreg)
+            .and_then(|val| i32::try_from(val as i64).ok())
     }
 
     #[inline]
@@ -189,7 +288,7 @@ impl<'b, I: ISA> CodeGenContext<'b, I> {
     }
 
     fn pick_reg(&mut self, vreg: VReg) -> I::Reg {
-        if let RegLocation::Reg(reg) = self.state.vreg_to_loc[vreg.index()] {
+        if let Some(reg) = self.state.vreg_to_loc[vreg.index()].get_reg() {
             return reg.into();
         }
 
@@ -204,57 +303,49 @@ impl<'b, I: ISA> CodeGenContext<'b, I> {
             .unwrap_or_else(|| self.evict_one_victim())
     }
 
-    pub fn def_vreg(&mut self, vreg: VReg) -> I::Reg {
-        if let RegLocation::Reg(reg) = self.state.vreg_to_loc[vreg.index()] {
-            self.state.pin(reg);
-            return reg.into();
+    #[inline]
+    fn load_vreg_value_to_reg(&mut self, dst: I::Reg, vreg: VReg) {
+        let loc = self.state.vreg_to_loc[vreg.index()];
+        if let Some(old_reg) = loc.get_reg() {
+            if old_reg != dst.into() {
+                self.emit_mov(dst, old_reg.into());
+            }
+        } else if let Some(slot) = loc.get_spill() {
+            self.emit_reload(dst, slot);
+        } else if let Some(imm) = loc.get_const() {
+            self.emit_mov_imm(dst, imm);
+        } else {
+            panic!("use of unallocated/dead virtual register {:?}", vreg);
         }
+    }
 
+    pub fn def_vreg(&mut self, vreg: VReg) -> I::Reg {
         let hreg = self.pick_reg(vreg);
         self.def_vreg_fixed(vreg, hreg)
     }
 
     pub fn def_vreg_fixed(&mut self, vreg: VReg, hreg: I::Reg) -> I::Reg {
         let hreg_u8: u8 = hreg.into();
-        if self.state.vreg_to_loc[vreg.index()] == RegLocation::Reg(hreg_u8) {
+        if self.state.vreg_to_loc[vreg.index()].get_reg() == Some(hreg_u8) {
             self.state.pin(hreg_u8);
             return hreg;
         }
 
         self.evict(hreg);
+        self.state.unbind(vreg);
         self.state.bind(vreg, hreg_u8);
         self.state.pin(hreg_u8);
         hreg
     }
 
     pub fn use_vreg(&mut self, vreg: VReg) -> I::Reg {
-        if let RegLocation::Reg(reg) = self.state.vreg_to_loc[vreg.index()] {
-            self.state.pin(reg);
-            return reg.into();
-        }
-
         let hreg = self.pick_reg(vreg);
         self.use_vreg_fixed(vreg, hreg)
     }
 
-    #[inline]
-    fn load_vreg_value_to_reg(&mut self, dst: I::Reg, vreg: VReg) {
-        match self.state.vreg_to_loc[vreg.index()] {
-            RegLocation::Reg(old_reg) => {
-                if old_reg != dst.into() {
-                    self.emit_mov(dst, old_reg.into());
-                }
-            }
-            RegLocation::Spill(slot) => self.emit_reload(dst, slot),
-            RegLocation::None => panic!("use of unallocated/dead virtual register {:?}", vreg),
-        }
-    }
-
     pub fn use_vreg_fixed(&mut self, vreg: VReg, hreg: I::Reg) -> I::Reg {
         let hreg_u8: u8 = hreg.into();
-        let current_loc = self.state.vreg_to_loc[vreg.index()];
-
-        if current_loc == RegLocation::Reg(hreg_u8) {
+        if self.state.vreg_to_loc[vreg.index()].get_reg() == Some(hreg_u8) {
             self.state.pin(hreg_u8);
             return hreg;
         }
@@ -264,6 +355,11 @@ impl<'b, I: ISA> CodeGenContext<'b, I> {
         self.state.bind(vreg, hreg_u8);
         self.state.pin(hreg_u8);
         hreg
+    }
+
+    /// Guarentee that it's safe to do redundant calls.
+    pub fn unuse_vreg(&mut self, vreg: VReg) {
+        self.state.unbind(vreg);
     }
 
     pub fn alloc_scratch(&mut self) -> I::Reg {
@@ -313,11 +409,6 @@ impl<'b, I: ISA> CodeGenContext<'b, I> {
         }
     }
 
-    /// Guarentee that it's safe to do redundant calls.
-    pub fn unuse_vreg(&mut self, vreg: VReg) {
-        self.state.unbind(vreg);
-    }
-
     pub fn spill_given(&mut self, mut mask: u32) {
         mask &= self.state.occupied_mask;
         while mask != 0 {
@@ -328,7 +419,7 @@ impl<'b, I: ISA> CodeGenContext<'b, I> {
         }
     }
 
-    fn spill_caller_saved(&mut self) {
+    pub fn spill_caller_saved(&mut self) {
         self.spill_given(I::Reg::CALLER_SAVE_MASK);
     }
 
