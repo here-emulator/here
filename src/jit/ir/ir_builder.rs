@@ -204,10 +204,12 @@ impl IRBuilder {
 
         match target {
             Value::Imm(value) => {
-                self.insts.push(IRInst::DirectJmp { target: value });
+                self.insts
+                    .push(IRInst::Terminator(Terminator::DirectJmp { target: value }));
             }
             Value::VReg(reg) => {
-                self.insts.push(IRInst::DynamicJmp { target: reg });
+                self.insts
+                    .push(IRInst::Terminator(Terminator::DynamicJmp { target: reg }));
             }
         }
 
@@ -228,13 +230,13 @@ impl IRBuilder {
         let src1 = self.value_to_vreg(src1);
         let src2 = self.value_to_vreg(src2);
 
-        self.insts.push(IRInst::Branch {
+        self.insts.push(IRInst::Terminator(Terminator::Branch {
             cmp,
             src1,
             src2,
             then_pc,
             else_pc,
-        });
+        }));
         self.build()
     }
 

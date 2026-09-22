@@ -14,7 +14,51 @@ pub struct X86;
 impl ISA for X86 {
     type Reg = X86Reg;
     type Inst = X64Inst;
-    type Backend<'a> = X86CodeGen;
+    type Backend = X86CodeGen;
+    type PatchKind = X64PatchKind;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum X64PatchKind {
+    /// 32-bit immediate in `sub reg, imm32` (specifically `sub rsp, imm32`: `48 81 ec <imm32>`).
+    SubImm32,
+    /// 32-bit relative displacement in near jump (`jmp rel32`: `e9 <disp32>`).
+    JmpRel32,
+}
+
+impl X64PatchKind {
+    /// Check whether the immediate is legal for this patch kind.
+    #[inline]
+    pub fn fit(self, imm: i64) -> bool {
+        match self {
+            Self::SubImm32 => u32::try_from(imm).is_ok(),
+            Self::JmpRel32 => i32::try_from(imm).is_ok(),
+        }
+    }
+}
+
+impl PatchLoc<X64PatchKind> {
+    #[inline]
+    pub fn patch(&self, buf: &mut [u8], imm: i64) {
+        debug_assert!(self.kind.fit(imm));
+        match self.kind {
+            X64PatchKind::SubImm32 => {
+                debug_assert!(buf.len() >= self.offset + 7);
+                debug_assert!(
+                    buf[self.offset] == 0x48
+                        && (buf[self.offset + 1] == 0x81 || buf[self.offset + 1] == 0x83)
+                        && buf[self.offset + 2] == 0xec
+                );
+                buf[self.offset + 1] = 0x81;
+                buf[self.offset + 3..self.offset + 7].copy_from_slice(&(imm as u32).to_le_bytes());
+            }
+            X64PatchKind::JmpRel32 => {
+                debug_assert!(buf.len() >= self.offset + 5);
+                debug_assert_eq!(buf[self.offset], 0xe9);
+                buf[self.offset + 1..self.offset + 5].copy_from_slice(&(imm as i32).to_le_bytes());
+            }
+        }
+    }
 }
 
 #[rustfmt::skip]
@@ -238,7 +282,7 @@ impl RegMem {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum X64Inst {
-    // Data movement
+    // --- Data movement ---
     /// `mov dst, src`
     Mov {
         size: OperandSize,
@@ -262,7 +306,7 @@ pub enum X64Inst {
     /// `movzx dst, src` (zero-extend 16-bit to 32/64-bit)
     Movzx16 { dst: X86Reg, src: RegMem },
 
-    // Arithmetic & Logic
+    // --- Arithmetic & Logic ---
     /// `op dst, src`
     Alu {
         op: AluOp,
@@ -290,7 +334,7 @@ pub enum X64Inst {
         imm: u32,
     },
 
-    // Shift
+    // --- Shift ---
     /// `op dst, cl`
     ShiftCl {
         op: ShiftOp,
@@ -305,7 +349,7 @@ pub enum X64Inst {
         imm: u8,
     },
 
-    // Conditional
+    // --- Conditional ---
     /// `cmovcc dst, src`
     Cmovcc {
         condition: ConditionCode,
@@ -318,7 +362,7 @@ pub enum X64Inst {
         dst: X86Reg,
     },
 
-    // Control flow
+    // --- Control flow ---
     /// `call target`
     Call { target: X86Reg },
     /// `jmp target`

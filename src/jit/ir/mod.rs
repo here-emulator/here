@@ -39,7 +39,11 @@ pub enum IRInst {
         args: Vec<VReg>,
         ret: Option<VReg>,
     },
-    // TODO: move terminator into a seperate enum.
+    Terminator(Terminator),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Terminator {
     DirectJmp {
         target: u64,
     },
@@ -55,24 +59,39 @@ pub enum IRInst {
     },
 }
 
+impl Terminator {
+    pub fn for_each_use(&self, mut f: impl FnMut(VReg)) {
+        match self {
+            Terminator::DirectJmp { .. } => {}
+            Terminator::DynamicJmp { target } => {
+                f(*target);
+            }
+            Terminator::Branch { src1, src2, .. } => {
+                f(*src1);
+                f(*src2);
+            }
+        }
+    }
+}
+
 impl IRInst {
     pub fn is_terminator(&self) -> bool {
-        use IRInst::*;
-        matches!(self, DirectJmp { .. } | DynamicJmp { .. } | Branch { .. })
+        matches!(self, IRInst::Terminator(_))
+    }
+
+    pub fn get_terminator(&self) -> Option<Terminator> {
+        match self {
+            IRInst::Terminator(term) => Some(*term),
+            _ => None,
+        }
     }
 
     pub fn def(&self) -> Option<VReg> {
         use IRInst::*;
         match self {
-            GetReg { dst, .. } | Compute { dst, .. } | Const { dst, .. } => {
-                return Some(*dst);
-            }
-            Call { ret, .. } => {
-                return *ret;
-            }
-            SetReg { .. } | DirectJmp { .. } | DynamicJmp { .. } | Branch { .. } => {
-                return None;
-            }
+            GetReg { dst, .. } | Compute { dst, .. } | Const { dst, .. } => Some(*dst),
+            Call { ret, .. } => *ret,
+            SetReg { .. } | Terminator(_) => None,
         }
     }
 
@@ -82,7 +101,7 @@ impl IRInst {
             SetReg { src, .. } => {
                 f(*src);
             }
-            Compute { src1, src2, .. } | Branch { src1, src2, .. } => {
+            Compute { src1, src2, .. } => {
                 f(*src1);
                 f(*src2);
             }
@@ -91,10 +110,10 @@ impl IRInst {
                     f(*val);
                 }
             }
-            DynamicJmp { target: target_pc } => {
-                f(*target_pc);
+            Terminator(term) => {
+                term.for_each_use(f);
             }
-            GetReg { .. } | DirectJmp { .. } | Const { .. } => {}
+            GetReg { .. } | Const { .. } => {}
         }
     }
 }
@@ -107,6 +126,10 @@ pub struct IRBlock {
 impl IRBlock {
     pub fn vreg_count(&self) -> VRegId {
         self.vreg_count
+    }
+
+    pub fn get_terminator(&self) -> Option<Terminator> {
+        self.insts.last().and_then(IRInst::get_terminator)
     }
 }
 
@@ -183,7 +206,7 @@ fn sext_word(value: u32) -> u64 {
     value as i32 as i64 as u64
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CmpKind {
     Eq,
     NotEq,
@@ -293,9 +316,17 @@ impl std::fmt::Display for IRInst {
                 }
                 write!(f, "]")
             }
-            IRInst::DirectJmp { target } => write!(f, "jmp {target:#x}"),
-            IRInst::DynamicJmp { target } => write!(f, "jmp {target}"),
-            IRInst::Branch {
+            IRInst::Terminator(t) => write!(f, "{t}"),
+        }
+    }
+}
+
+impl std::fmt::Display for Terminator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Terminator::DirectJmp { target } => write!(f, "jmp {target:#x}"),
+            Terminator::DynamicJmp { target } => write!(f, "jmp {target}"),
+            Terminator::Branch {
                 cmp,
                 src1,
                 src2,
@@ -343,5 +374,56 @@ mod tests {
         assert!(s.contains("compute Add"));
         assert!(s.contains("set_reg x2"));
         assert!(s.contains("jmp 0x1000"));
+    }
+
+    #[test]
+    fn test_terminator_def_use_and_methods() {
+        let v1 = VReg::from(1);
+        let v2 = VReg::from(2);
+
+        let direct = IRInst::Terminator(Terminator::DirectJmp { target: 0x1000 });
+        assert!(direct.is_terminator());
+        assert_eq!(direct.def(), None);
+        let mut uses = Vec::new();
+        direct.for_each_use(|u| uses.push(u));
+        assert!(uses.is_empty());
+        assert_eq!(
+            direct.get_terminator(),
+            Some(Terminator::DirectJmp { target: 0x1000 })
+        );
+
+        let dynamic = IRInst::Terminator(Terminator::DynamicJmp { target: v1 });
+        assert!(dynamic.is_terminator());
+        assert_eq!(dynamic.def(), None);
+        let mut uses = Vec::new();
+        dynamic.for_each_use(|u| uses.push(u));
+        assert_eq!(uses, vec![v1]);
+        assert_eq!(
+            dynamic.get_terminator(),
+            Some(Terminator::DynamicJmp { target: v1 })
+        );
+
+        let branch = IRInst::Terminator(Terminator::Branch {
+            cmp: CmpKind::Eq,
+            src1: v1,
+            src2: v2,
+            then_pc: 0x2000,
+            else_pc: 0x3000,
+        });
+        assert!(branch.is_terminator());
+        assert_eq!(branch.def(), None);
+        let mut uses = Vec::new();
+        branch.for_each_use(|u| uses.push(u));
+        assert_eq!(uses, vec![v1, v2]);
+        assert_eq!(
+            branch.get_terminator(),
+            Some(Terminator::Branch {
+                cmp: CmpKind::Eq,
+                src1: v1,
+                src2: v2,
+                then_pc: 0x2000,
+                else_pc: 0x3000,
+            })
+        );
     }
 }

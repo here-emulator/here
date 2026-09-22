@@ -2,7 +2,6 @@
 //! because many of them will disappear after const folding.
 //! but some fusions are helpful, include:
 //! - branch + mov => cmov
-//! -
 
 use crate::{
     config::arch_config::WordType,

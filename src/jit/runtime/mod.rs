@@ -1,16 +1,16 @@
 use crate::config::arch_config::WordType;
 use crate::isa::cache::*;
 use crate::isa::riscv::executor::{ExecutorBackend, RVCPU};
-use crate::jit::new_translator::TranslateResult;
-mod jit_function;
-
-pub use jit_function::{JitContext, JitFunction};
 
 use super::*;
 
 use super::backend::{CodeGenTrait, NativeCodeGen};
 use super::jit_buffer::JitBuffer;
-use super::new_translator::Translator;
+use super::new_translator::{TranslateResult, Translator};
+
+mod jit_function;
+
+pub use jit_function::{JitContext, JitFunction};
 
 impl Cacheable for BBCacheEntry {
     const ADDR_SHIFT_BITS: usize = 1;

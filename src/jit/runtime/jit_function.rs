@@ -24,8 +24,8 @@ pub(crate) struct JmpBuf {
 #[derive(Default)]
 pub struct JitContext {
     jmp_buf: JmpBuf,
-    pub guest_pc: WordType,
     pub budget: u64,
+    pub guest_pc: WordType,
     pub exception: Option<(Exception, WordType)>,
 }
 

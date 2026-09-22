@@ -14,7 +14,21 @@ use pass::*;
 pub trait ISA: Sized {
     type Reg: TargetReg;
     type Inst: TargetInst<Reg = Self::Reg>;
-    type Backend<'a>: TargetBackend<'a, Self>;
+    type Backend: CodeGenBackend<Self>;
+    type PatchKind: Copy + std::fmt::Debug;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PatchLoc<K> {
+    pub offset: usize,
+    pub kind: K,
+}
+
+impl<K> PatchLoc<K> {
+    #[inline]
+    pub const fn new(offset: usize, kind: K) -> Self {
+        Self { offset, kind }
+    }
 }
 
 pub trait TargetReg: Into<u8> + From<u8> + Copy {
@@ -35,28 +49,41 @@ pub trait TargetInst: Sized {
     fn reload(dst: Self::Reg, slot: u32) -> Self;
 }
 
-pub trait TargetBackend<'a, I: ISA>: Sized {
-    fn new() -> Self;
-
+pub trait CodeGenBackend<I: ISA> {
     #[must_use]
-    fn codegen(&mut self, ctx: &mut CodeGenContext<I>, insts: &[IRInst]) -> usize;
+    fn codegen(ctx: &mut CodeGenContext<I>, insts: &[IRInst]) -> usize;
 
-    fn config(&mut self) -> CodeGenConfig;
+    fn codegen_terminator(ctx: &mut CodeGenContext<I>, term: &Terminator);
 
-    /// Emits the function prologue allocating stack space for spill slots.
-    /// Only called in Pass 2 when `slots > 0`.
-    fn emit_prologue(&mut self, ctx: &mut CodeGenContext<I>, slots: u32);
+    fn config() -> CodeGenConfig;
 
-    /// Emits the function epilogue restoring stack space before block exit.
-    fn emit_epilogue(&mut self, ctx: &mut CodeGenContext<I>);
+    /// Reserves space for spill frame allocation (stack adjustment) at the start of code buffer.
+    fn reserve_spill_frame(ctx: &mut CodeGenContext<I>) -> PatchLoc<I::PatchKind>;
 
-    /// Resets any internal backend state between compilation passes.
-    fn reset(&mut self) {}
+    /// Patches spill frame allocation with the actual slot count.
+    fn patch_spill_frame(
+        buf: &mut CodeBuf,
+        asm_buf: Option<&mut String>,
+        loc: PatchLoc<I::PatchKind>,
+        slots: u32,
+    );
 
-    // TODO: add function to patch ret -> jmp
+    /// Emits block exit (restoring spill stack frame if needed, and returning).
+    fn emit_block_exit(ctx: &mut CodeGenContext<I>);
 }
 
 pub type CodeBuf = Vec<u8>;
+
+pub trait CodeBufExt {
+    fn emit_zeros(&mut self, len: usize);
+}
+
+impl CodeBufExt for CodeBuf {
+    #[inline]
+    fn emit_zeros(&mut self, len: usize) {
+        self.resize(self.len() + len, 0);
+    }
+}
 
 trait Emitable {
     fn emit_to(self, buf: &mut CodeBuf);

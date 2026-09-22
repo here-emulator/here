@@ -27,12 +27,39 @@ impl JitChunk {
     }
 }
 
+#[cfg(target_os = "linux")]
+struct PerfMap {
+    file: std::fs::File,
+}
+
+#[cfg(target_os = "linux")]
+impl PerfMap {
+    fn new() -> Option<Self> {
+        let pid = std::process::id();
+        let path = format!("/tmp/perf-{}.map", pid);
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .ok()?;
+        Some(Self { file })
+    }
+
+    fn register_chunk(&mut self, start: usize, size: usize) {
+        use std::io::Write;
+        let _ = writeln!(self.file, "{:x} {:x} {}", start, size, "jit_code");
+        let _ = self.file.flush();
+    }
+}
+
 /// Storage for generated code.
 pub(super) struct JitBuffer {
     chunks: Vec<JitChunk>,
     current_chunk: usize,
     used_bytes: usize,
     peak_used_bytes: usize,
+    #[cfg(target_os = "linux")]
+    perf_map: Option<PerfMap>,
 }
 
 impl Drop for JitBuffer {
@@ -55,13 +82,22 @@ impl JitBuffer {
             current_chunk: 0,
             used_bytes: 0,
             peak_used_bytes: 0,
+            #[cfg(target_os = "linux")]
+            perf_map: PerfMap::new(),
         };
         buffer.allocate_chunk();
         buffer
     }
 
     fn allocate_chunk(&mut self) {
-        self.chunks.push(JitChunk::with_capacity(JIT_BUFFER_SIZE));
+        let chunk = JitChunk::with_capacity(JIT_BUFFER_SIZE);
+        #[cfg(target_os = "linux")]
+        if let Some(perf_map) = &mut self.perf_map {
+            let start = chunk.alloc.as_ptr::<u8>() as usize;
+            let size = chunk.capacity();
+            perf_map.register_chunk(start, size);
+        }
+        self.chunks.push(chunk);
     }
 
     pub unsafe fn emit_code(&mut self, code: &[u8]) -> JitFunction {

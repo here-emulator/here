@@ -60,44 +60,51 @@ impl TargetInst for X64Inst {
 use crate::jit::backend::cpu_access::hreg_mem_offset;
 
 #[derive(Default)]
-pub struct X86CodeGen {
-    slots: u32,
-}
+pub struct X86CodeGen;
 
-impl<'a> TargetBackend<'a, X86> for X86CodeGen {
-    #[inline]
-    fn new() -> Self {
-        Self { slots: 0 }
-    }
-
-    fn reset(&mut self) {
-        self.slots = 0;
-    }
-
-    fn config(&mut self) -> CodeGenConfig {
+impl CodeGenBackend<X86> for X86CodeGen {
+    fn config() -> CodeGenConfig {
         // Exclude RSP (stack pointer) and RBP (CPU pointer).
         let alloc_mask =
             X86Reg::REG_MASK & !(1 << (X86Reg::RSP as u8)) & !(1 << (X86Reg::RBP as u8));
         CodeGenConfig::new(alloc_mask)
     }
 
-    fn emit_prologue(&mut self, ctx: &mut CodeGenContext<X86>, slots: u32) {
-        self.slots = slots;
-        if slots > 0 {
-            let aligned_slots = (slots + 1) & !1;
-            let bytes = (aligned_slots as usize * size_of::<WordType>()) as u32;
-            ctx.emit(&X64Inst::AluImm {
-                op: AluOp::Sub,
-                size: OperandSize::Qword,
-                dst: STACK_REG.into(),
-                imm: bytes,
-            });
+    fn reserve_spill_frame(ctx: &mut CodeGenContext<X86>) -> PatchLoc<X64PatchKind> {
+        let offset = ctx.buf().len();
+        ctx.emit(&X64Inst::AluImm {
+            op: AluOp::Sub,
+            size: OperandSize::Qword,
+            dst: STACK_REG.into(),
+            imm: 0,
+        });
+        let emitted_len = ctx.buf().len() - offset;
+        if emitted_len < 7 {
+            ctx.emit_zeros(7 - emitted_len);
+        }
+        PatchLoc::new(offset, X64PatchKind::SubImm32)
+    }
+
+    fn patch_spill_frame(
+        buf: &mut CodeBuf,
+        asm_buf: Option<&mut String>,
+        loc: PatchLoc<X64PatchKind>,
+        slots: u32,
+    ) {
+        let aligned_slots = (slots + 1) & !1;
+        let bytes = (aligned_slots as usize * size_of::<WordType>()) as u32;
+        loc.patch(buf, bytes as i64);
+        if let Some(asm) = asm_buf {
+            if let Some(first_newline) = asm.find('\n') {
+                asm.replace_range(..first_newline, &format!("sub rsp, {bytes}"));
+            }
         }
     }
 
-    fn emit_epilogue(&mut self, ctx: &mut CodeGenContext<X86>) {
-        if self.slots > 0 {
-            let aligned_slots = (self.slots + 1) & !1;
+    fn emit_block_exit(ctx: &mut CodeGenContext<X86>) {
+        let slots = ctx.current_use_slot();
+        if slots > 0 {
+            let aligned_slots = (slots + 1) & !1;
             let bytes = (aligned_slots as usize * size_of::<WordType>()) as u32;
             ctx.emit(&X64Inst::AluImm {
                 op: AluOp::Add,
@@ -109,7 +116,7 @@ impl<'a> TargetBackend<'a, X86> for X86CodeGen {
         ctx.emit(&X64Inst::Ret);
     }
 
-    fn codegen(&mut self, ctx: &mut CodeGenContext<X86>, insts: &[IRInst]) -> usize {
+    fn codegen(ctx: &mut CodeGenContext<X86>, insts: &[IRInst]) -> usize {
         match &insts[0] {
             IRInst::Const { dst, imm } => {
                 ctx.def_const(*dst, *imm);
@@ -154,7 +161,7 @@ impl<'a> TargetBackend<'a, X86> for X86CodeGen {
                 src1,
                 src2,
             } => {
-                self.codegen_compute(ctx, *kind, *dst, *src1, *src2);
+                Self::codegen_compute(ctx, *kind, *dst, *src1, *src2);
             }
             IRInst::Call {
                 pass_cpu,
@@ -163,40 +170,45 @@ impl<'a> TargetBackend<'a, X86> for X86CodeGen {
                 ret,
                 ..
             } => {
-                self.codegen_call(ctx, *pass_cpu, *func_ptr, args, *ret);
+                Self::codegen_call(ctx, *pass_cpu, *func_ptr, args, *ret);
             }
-            IRInst::DirectJmp { target } => {
+            IRInst::Terminator(_) => crate::debug_unreachable!(),
+        }
+        1
+    }
+
+    fn codegen_terminator(ctx: &mut CodeGenContext<X86>, term: &Terminator) {
+        match term {
+            Terminator::DirectJmp { target } => {
                 let rax = ctx.alloc_scratch_fixed(X86Reg::RAX);
                 ctx.emit(&X64Inst::MovImm {
                     size: OperandSize::Qword,
                     dst: rax.into(),
                     imm: *target,
                 });
-                self.emit_epilogue(ctx);
+                Self::emit_block_exit(ctx);
                 ctx.end_instruction();
             }
-            IRInst::DynamicJmp { target } => {
+            Terminator::DynamicJmp { target } => {
                 let _ = ctx.use_vreg_fixed(*target, X86Reg::RAX);
-                self.emit_epilogue(ctx);
+                Self::emit_block_exit(ctx);
                 ctx.end_instruction();
             }
-            IRInst::Branch {
+            Terminator::Branch {
                 cmp,
                 src1,
                 src2,
                 then_pc,
                 else_pc,
             } => {
-                self.codegen_branch(ctx, *cmp, *src1, *src2, *then_pc, *else_pc);
+                Self::codegen_branch(ctx, *cmp, *src1, *src2, *then_pc, *else_pc);
             }
         }
-        1
     }
 }
 
 impl X86CodeGen {
     fn codegen_compute(
-        &mut self,
         ctx: &mut CodeGenContext<X86>,
         kind: ComputeKind,
         dst: VReg,
@@ -398,7 +410,6 @@ impl X86CodeGen {
     }
 
     fn codegen_call(
-        &mut self,
         ctx: &mut CodeGenContext<X86>,
         pass_cpu: bool,
         func_ptr: usize,
@@ -447,7 +458,6 @@ impl X86CodeGen {
     }
 
     fn codegen_branch(
-        &mut self,
         ctx: &mut CodeGenContext<X86>,
         cmp: CmpKind,
         src1: VReg,
@@ -462,7 +472,7 @@ impl X86CodeGen {
                 dst: rax.into(),
                 imm: then_pc,
             });
-            self.emit_epilogue(ctx);
+            Self::emit_block_exit(ctx);
             ctx.end_instruction();
             return;
         }
@@ -521,7 +531,7 @@ impl X86CodeGen {
             dst: rax,
             src: rcx.into(),
         });
-        self.emit_epilogue(ctx);
+        Self::emit_block_exit(ctx);
         ctx.end_instruction();
     }
 }

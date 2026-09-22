@@ -11,10 +11,10 @@ pub trait CodeGenTrait: Sized {
     fn set_dump_asm(&mut self, enable: bool);
 }
 
-/// A struct that provides data needed by each implementation of [`TargetBackend`],
+/// A struct that provides data needed by each implementation of [`CodeGenBackend`],
 /// like data for register allocation.
 pub struct CodeGenContext<'a, I: ISA> {
-    buf: Option<&'a mut CodeBuf>,
+    buf: &'a mut CodeBuf,
     asm_buf: Option<&'a mut String>,
     pub(super) state: &'a mut RegAllocState,
     pub(super) liveness: &'a [liveness::Liveness],
@@ -29,7 +29,7 @@ impl<'a, I: ISA> CodeGenContext<'a, I> {
         liveness: &'a [liveness::Liveness],
     ) -> Self {
         Self {
-            buf: Some(buf),
+            buf,
             asm_buf,
             state,
             liveness,
@@ -37,35 +37,28 @@ impl<'a, I: ISA> CodeGenContext<'a, I> {
         }
     }
 
-    pub fn new_dry_run(state: &'a mut RegAllocState, liveness: &'a [liveness::Liveness]) -> Self {
-        Self {
-            buf: None,
-            asm_buf: None,
-            state,
-            liveness,
-            _phantom: PhantomData,
-        }
-    }
-
-    #[inline]
-    pub fn is_dry_run(&self) -> bool {
-        self.buf.is_none()
-    }
-
     #[inline]
     pub fn emit(&mut self, inst: &I::Inst) {
-        if let Some(buf) = &mut self.buf {
-            inst.emit_to(buf);
-            if let Some(asm) = &mut self.asm_buf {
-                let _ = inst.put_asm_text(*asm);
-                asm.push('\n');
-            }
+        inst.emit_to(self.buf);
+        if let Some(asm) = &mut self.asm_buf {
+            let _ = inst.put_asm_text(*asm);
+            asm.push('\n');
         }
     }
 
     #[inline]
-    pub fn buf(&mut self) -> Option<&mut CodeBuf> {
-        self.buf.as_deref_mut()
+    pub fn buf(&mut self) -> &mut CodeBuf {
+        self.buf
+    }
+
+    #[inline]
+    pub fn emit_zeros(&mut self, len: usize) {
+        self.buf.emit_zeros(len);
+    }
+
+    #[inline]
+    pub fn current_use_slot(&self) -> u32 {
+        self.state.current_use_slot()
     }
 
     #[inline]
@@ -115,20 +108,17 @@ impl<I: ISA> CodeGen<I> {
         self
     }
 
-    fn run_pass(
-        backend: &mut I::Backend<'_>,
-        ctx: &mut CodeGenContext<I>,
-        block: &IRBlock,
-        liveness: &[liveness::Liveness],
-    ) {
+    fn emit_insts(ctx: &mut CodeGenContext<I>, block: &IRBlock, liveness: &[liveness::Liveness]) {
         let mut curr = 0;
         while curr < block.insts.len() {
             let window = &block.insts[curr..];
-            let cnt = backend.codegen(ctx, window);
-            assert!(
-                cnt > 0,
-                "backend.codegen must consume at least one instruction"
-            );
+            if let Some(term) = window[0].get_terminator() {
+                I::Backend::codegen_terminator(ctx, &term);
+                break;
+            }
+
+            let cnt = I::Backend::codegen(ctx, window);
+            debug_assert!(cnt > 0);
 
             for ir in window[..cnt].iter() {
                 // If defined a vreg that has no subsequent uses, release it immediately
@@ -145,10 +135,6 @@ impl<I: ISA> CodeGen<I> {
                         ctx.unuse_vreg(vreg);
                     }
                 });
-
-                if ir.is_terminator() {
-                    break;
-                }
             }
 
             curr += cnt;
@@ -182,17 +168,8 @@ impl<I: ISA> CodeGenTrait for CodeGen<I> {
         }
         liveness::analyze(block, &mut self.liveness);
 
-        let mut backend = I::Backend::new();
-        let config = backend.config();
+        let config = I::Backend::config();
 
-        // Pass 1: Dry-run to calculate exact spill slots
-        self.state.init(block.vreg_count(), config.alloc_reg_mask);
-        let mut dry_ctx = CodeGenContext::<I>::new_dry_run(&mut self.state, &self.liveness);
-        Self::run_pass(&mut backend, &mut dry_ctx, block, &self.liveness);
-        let total_slots = self.state.current_use_slot();
-
-        // Pass 2: Real emission with known total_slots
-        backend.reset();
         self.state.init(block.vreg_count(), config.alloc_reg_mask);
         let mut ctx = CodeGenContext::<I>::new(
             &mut self.code_buf,
@@ -200,10 +177,17 @@ impl<I: ISA> CodeGenTrait for CodeGen<I> {
             &mut self.state,
             &self.liveness,
         );
-        backend.emit_prologue(&mut ctx, total_slots);
-        Self::run_pass(&mut backend, &mut ctx, block, &self.liveness);
+        let spill_loc = I::Backend::reserve_spill_frame(&mut ctx);
 
-        debug_assert_eq!(self.state.current_use_slot(), total_slots);
+        Self::emit_insts(&mut ctx, block, &self.liveness);
+
+        let total_slots = self.state.current_use_slot();
+        I::Backend::patch_spill_frame(
+            &mut self.code_buf,
+            self.asm_buf.as_mut(),
+            spill_loc,
+            total_slots,
+        );
 
         CodeBlockRef {
             buf: self.code_buf.as_slice(),
@@ -349,5 +333,18 @@ mod tests {
             (crate::jit::backend::x64::X86Reg::RCX, v0.into()),
             (crate::jit::backend::x64::X86Reg::RCX, v1.into()),
         ]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_codegen_terminator_arm_unreachable() {
+        let mut code_buf = CodeBuf::new();
+        let mut state = RegAllocState::default();
+        state.init(4, 0b1111);
+        let liveness = vec![liveness::Liveness::default(); 4];
+
+        let mut ctx = CodeGenContext::<X86>::new(&mut code_buf, None, &mut state, &liveness);
+        let inst = IRInst::Terminator(Terminator::DirectJmp { target: 0x1000 });
+        let _ = <X86 as ISA>::Backend::codegen(&mut ctx, std::slice::from_ref(&inst));
     }
 }
