@@ -320,6 +320,7 @@ impl Translator {
     }
 
     pub fn translate(&mut self, cpu: &mut RVCPU, pc: WordType) -> Option<TranslateResult> {
+        self.ir_builder = IRBuilder::new(pc);
         let mut meta = InstrMeta {
             instr_pc: pc,
             instr_cnt: 0,
@@ -328,7 +329,7 @@ impl Translator {
         let fallback_build =
             |t: &mut Self, instr_pc| t.take_builder().build_jmp((instr_pc as u64).into());
 
-        let ir_block = loop {
+        let mut ir_block = loop {
             let Some(DecodeInstr { instr, info, .. }) = cpu.decode_at(meta.instr_pc) else {
                 break fallback_build(self, meta.instr_pc);
             };
@@ -338,6 +339,7 @@ impl Translator {
                 .or_else(|| self.translate_jmp(&inst_info, &meta))
                 .or_else(|| self.translate_branch(&inst_info, &meta))
             {
+                meta.instr_cnt += 1;
                 break block;
             }
 
@@ -356,6 +358,8 @@ impl Translator {
         if meta.instr_cnt == 0 {
             None
         } else {
+            ir_block.start_pc = pc;
+            ir_block.instr_cnt = meta.instr_cnt as u32;
             Some(TranslateResult {
                 ir_block,
                 instr_cnt: meta.instr_cnt,
@@ -370,21 +374,25 @@ impl Translator {
         instr: RiscvInstr,
         info: RVInstrInfo,
     ) -> Option<IRBlock> {
-        self.ir_builder = IRBuilder::default();
+        self.ir_builder = IRBuilder::new(pc);
         let meta = InstrMeta {
             instr_pc: pc,
             instr_cnt: 0,
         };
         let inst_info = (instr, info);
-        if let Some(block) = None
+        if let Some(mut block) = None
             .or_else(|| self.translate_jmp(&inst_info, &meta))
             .or_else(|| self.translate_branch(&inst_info, &meta))
         {
+            block.start_pc = pc;
+            block.instr_cnt = 1;
             return Some(block);
         }
         if self.translate_common(&inst_info, &meta) {
             let next_pc = meta.instr_pc.wrapping_add(instr.len());
-            let block = self.take_builder().build_jmp((next_pc as u64).into());
+            let mut block = self.take_builder().build_jmp((next_pc as u64).into());
+            block.start_pc = pc;
+            block.instr_cnt = 1;
             return Some(block);
         }
         self.ir_builder = IRBuilder::default();

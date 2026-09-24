@@ -1,3 +1,4 @@
+use smallvec::SmallVec;
 use std::marker::PhantomData;
 
 pub use super::reg_alloc::CallArg;
@@ -5,10 +6,13 @@ use super::reg_alloc::*;
 use super::*;
 
 pub trait CodeGenTrait: Sized {
+    type PatchKind: Copy + std::fmt::Debug + 'static;
+
     fn try_new() -> Option<Self>;
     fn reset(&mut self);
-    fn compile<'a>(&'a mut self, block: &IRBlock) -> CodeBlockRef<'a>;
+    fn compile<'a>(&'a mut self, block: &IRBlock) -> CodeBlockRef<'a, Self::PatchKind>;
     fn set_dump_asm(&mut self, enable: bool);
+    unsafe fn patch(buf: *mut u8, loc: PatchLoc<Self::PatchKind>, imm: i64);
 }
 
 /// A struct that provides data needed by each implementation of [`CodeGenBackend`],
@@ -65,6 +69,14 @@ impl<'a, I: ISA> CodeGenContext<'a, I> {
     pub fn asm_buf(&mut self) -> Option<&mut String> {
         self.asm_buf.as_deref_mut()
     }
+
+    #[inline]
+    pub fn patch_jmp(&mut self, loc: PatchLoc<I::PatchKind>, target_offset: usize) {
+        unsafe {
+            let target_addr = self.buf.as_ptr().add(target_offset) as usize as i64;
+            I::Backend::patch(self.buf.as_mut_ptr(), loc, target_addr);
+        }
+    }
 }
 
 pub struct CodeGenConfig {
@@ -79,9 +91,10 @@ impl CodeGenConfig {
     }
 }
 
-pub struct CodeBlockRef<'a> {
+pub struct CodeBlockRef<'a, K: 'static> {
     pub buf: &'a [u8],
     pub asm_text: Option<&'a str>,
+    pub patches: SmallVec<[ChainPatch<K>; 2]>,
 }
 
 pub struct CodeGen<I: ISA> {
@@ -108,12 +121,65 @@ impl<I: ISA> CodeGen<I> {
         self
     }
 
-    fn emit_insts(ctx: &mut CodeGenContext<I>, block: &IRBlock, liveness: &[liveness::Liveness]) {
+    fn emit_terminator(
+        ctx: &mut CodeGenContext<I>,
+        term: &Terminator,
+        block_insts: u32,
+    ) -> SmallVec<[ChainPatch<I::PatchKind>; 2]> {
+        let mut patches = SmallVec::new();
+        match term {
+            Terminator::DirectJmp { target } => {
+                I::Backend::emit_update_budget(ctx, block_insts);
+                I::Backend::emit_stack_free(ctx);
+                let patch = I::Backend::emit_static_jmp(ctx);
+                let exit_offset = I::Backend::emit_block_exit(ctx, *target as WordType);
+                ctx.patch_jmp(patch, exit_offset);
+                patches.push(ChainPatch::new(patch, *target as WordType));
+            }
+            Terminator::DynamicJmp { target } => {
+                let hreg = ctx.use_vreg(*target);
+                I::Backend::emit_update_budget(ctx, block_insts);
+                I::Backend::emit_stack_free(ctx);
+                I::Backend::emit_dynamic_jmp(ctx, hreg);
+                ctx.end_instruction();
+            }
+            Terminator::Branch {
+                cmp,
+                src1,
+                src2,
+                then_pc,
+                else_pc,
+            } => {
+                let r_src1 = ctx.use_vreg(*src1);
+                let r_src2 = ctx.use_vreg(*src2);
+                I::Backend::emit_update_budget(ctx, block_insts);
+                I::Backend::emit_stack_free(ctx);
+                let (then_patch, else_patch) = I::Backend::emit_branch(ctx, *cmp, r_src1, r_src2);
+                ctx.end_instruction();
+
+                let then_exit = I::Backend::emit_block_exit(ctx, *then_pc as WordType);
+                ctx.patch_jmp(then_patch, then_exit);
+                patches.push(ChainPatch::new(then_patch, *then_pc as WordType));
+
+                let else_exit = I::Backend::emit_block_exit(ctx, *else_pc as WordType);
+                ctx.patch_jmp(else_patch, else_exit);
+                patches.push(ChainPatch::new(else_patch, *else_pc as WordType));
+            }
+        }
+        patches
+    }
+
+    fn emit_insts(
+        ctx: &mut CodeGenContext<I>,
+        block: &IRBlock,
+        liveness: &[liveness::Liveness],
+    ) -> SmallVec<[ChainPatch<I::PatchKind>; 2]> {
         let mut curr = 0;
+        let mut patches = SmallVec::new();
         while curr < block.insts.len() {
             let window = &block.insts[curr..];
             if let Some(term) = window[0].get_terminator() {
-                I::Backend::codegen_terminator(ctx, &term);
+                patches = Self::emit_terminator(ctx, &term, block.instr_cnt);
                 break;
             }
 
@@ -139,6 +205,7 @@ impl<I: ISA> CodeGen<I> {
 
             curr += cnt;
         }
+        patches
     }
 }
 
@@ -161,7 +228,9 @@ impl<I: ISA> CodeGenTrait for CodeGen<I> {
         self.liveness.clear();
     }
 
-    fn compile<'a>(&'a mut self, block: &IRBlock) -> CodeBlockRef<'a> {
+    type PatchKind = I::PatchKind;
+
+    fn compile<'a>(&'a mut self, block: &IRBlock) -> CodeBlockRef<'a, Self::PatchKind> {
         self.code_buf.clear();
         if let Some(asm) = &mut self.asm_buf {
             asm.clear();
@@ -177,12 +246,18 @@ impl<I: ISA> CodeGenTrait for CodeGen<I> {
             &mut self.state,
             &self.liveness,
         );
-        let spill_loc = I::Backend::reserve_spill_frame(&mut ctx);
+        let oob_patch = I::Backend::emit_check_budget(&mut ctx, block.instr_cnt);
+        let spill_loc = I::Backend::emit_stack_alloc(&mut ctx);
 
-        Self::emit_insts(&mut ctx, block, &self.liveness);
+        let patches = Self::emit_insts(&mut ctx, block, &self.liveness);
 
-        let total_slots = self.state.current_use_slot();
-        I::Backend::patch_spill_frame(
+        let oob_exit = I::Backend::emit_block_exit(&mut ctx, block.start_pc);
+        ctx.patch_jmp(oob_patch, oob_exit);
+
+        let total_slots = ctx.current_use_slot();
+        drop(ctx);
+
+        I::Backend::patch_stack_alloc(
             &mut self.code_buf,
             self.asm_buf.as_mut(),
             spill_loc,
@@ -192,11 +267,18 @@ impl<I: ISA> CodeGenTrait for CodeGen<I> {
         CodeBlockRef {
             buf: self.code_buf.as_slice(),
             asm_text: self.asm_buf.as_deref(),
+            patches,
         }
     }
 
     fn set_dump_asm(&mut self, enable: bool) {
         CodeGen::set_dump_asm(self, enable);
+    }
+
+    unsafe fn patch(buf: *mut u8, loc: PatchLoc<Self::PatchKind>, imm: i64) {
+        unsafe {
+            I::Backend::patch(buf, loc, imm);
+        }
     }
 }
 
@@ -213,6 +295,8 @@ pub type NativeCodeGen = cfg_select! {
 struct DummyCodeGen {}
 
 impl CodeGenTrait for DummyCodeGen {
+    type PatchKind = ();
+
     fn try_new() -> Option<Self> {
         None
     }
@@ -221,11 +305,15 @@ impl CodeGenTrait for DummyCodeGen {
         panic!()
     }
 
-    fn compile<'a>(&'a mut self, _block: &IRBlock) -> CodeBlockRef<'a> {
+    fn compile<'a>(&'a mut self, _block: &IRBlock) -> CodeBlockRef<'a, Self::PatchKind> {
         panic!()
     }
 
     fn set_dump_asm(&mut self, _enable: bool) {
+        panic!()
+    }
+
+    unsafe fn patch(_buf: *mut u8, _loc: PatchLoc<Self::PatchKind>, _imm: i64) {
         panic!()
     }
 }
@@ -346,5 +434,87 @@ mod tests {
         let mut ctx = CodeGenContext::<X86>::new(&mut code_buf, None, &mut state, &liveness);
         let inst = IRInst::Terminator(Terminator::DirectJmp { target: 0x1000 });
         let _ = <X86 as ISA>::Backend::codegen(&mut ctx, std::slice::from_ref(&inst));
+    }
+
+    #[test]
+    fn test_emit_static_jmp_and_patch() {
+        let mut code_buf = CodeBuf::new();
+        let mut state = RegAllocState::default();
+        state.init(4, 0b1111);
+        let liveness = vec![liveness::Liveness::default(); 4];
+
+        let mut ctx = CodeGenContext::<X86>::new(&mut code_buf, None, &mut state, &liveness);
+        let patch = <X86 as ISA>::Backend::emit_static_jmp(&mut ctx);
+        let exit_offset = <X86 as ISA>::Backend::emit_block_exit(&mut ctx, 0x1234);
+        ctx.patch_jmp(patch, exit_offset);
+
+        assert_eq!(code_buf[patch.offset], 0xe9);
+        let disp = i32::from_le_bytes(
+            code_buf[patch.offset + 1..patch.offset + 5]
+                .try_into()
+                .unwrap(),
+        );
+        assert_eq!(disp, 0);
+    }
+
+    #[test]
+    fn test_emit_branch_and_patch() {
+        let mut code_buf = CodeBuf::new();
+        let mut state = RegAllocState::default();
+        state.init(4, 0b1111);
+        let liveness = vec![liveness::Liveness::default(); 4];
+
+        let mut ctx = CodeGenContext::<X86>::new(&mut code_buf, None, &mut state, &liveness);
+        let (then_patch, else_patch) = <X86 as ISA>::Backend::emit_branch(
+            &mut ctx,
+            CmpKind::Eq,
+            crate::jit::backend::x64::X86Reg::RAX,
+            crate::jit::backend::x64::X86Reg::RCX,
+        );
+        let then_exit = <X86 as ISA>::Backend::emit_block_exit(&mut ctx, 0x1111);
+        ctx.patch_jmp(then_patch, then_exit);
+
+        let else_exit = <X86 as ISA>::Backend::emit_block_exit(&mut ctx, 0x2222);
+        ctx.patch_jmp(else_patch, else_exit);
+
+        assert_eq!(code_buf[then_patch.offset], 0x0f);
+        assert_eq!(code_buf[then_patch.offset + 1], 0x84);
+        let then_disp = i32::from_le_bytes(
+            code_buf[then_patch.offset + 2..then_patch.offset + 6]
+                .try_into()
+                .unwrap(),
+        );
+        assert_eq!(then_patch.offset + 6 + (then_disp as usize), then_exit);
+
+        assert_eq!(code_buf[else_patch.offset], 0xe9);
+        let else_disp = i32::from_le_bytes(
+            code_buf[else_patch.offset + 1..else_patch.offset + 5]
+                .try_into()
+                .unwrap(),
+        );
+        assert_eq!(else_patch.offset + 5 + (else_disp as usize), else_exit);
+    }
+
+    #[test]
+    fn test_emit_check_and_update_budget() {
+        let mut code_buf = CodeBuf::new();
+        let mut state = RegAllocState::default();
+        state.init(4, 0b1111);
+        let liveness = vec![liveness::Liveness::default(); 4];
+
+        let mut ctx = CodeGenContext::<X86>::new(&mut code_buf, None, &mut state, &liveness);
+        let oob_patch = <X86 as ISA>::Backend::emit_check_budget(&mut ctx, 10);
+        <X86 as ISA>::Backend::emit_update_budget(&mut ctx, 10);
+        let oob_exit = <X86 as ISA>::Backend::emit_block_exit(&mut ctx, 0x5000);
+        ctx.patch_jmp(oob_patch, oob_exit);
+
+        assert_eq!(code_buf[oob_patch.offset], 0x0f);
+        assert_eq!(code_buf[oob_patch.offset + 1], 0x82); // ConditionCode::Below
+        let disp = i32::from_le_bytes(
+            code_buf[oob_patch.offset + 2..oob_patch.offset + 6]
+                .try_into()
+                .unwrap(),
+        );
+        assert_eq!(oob_patch.offset + 6 + (disp as usize), oob_exit);
     }
 }

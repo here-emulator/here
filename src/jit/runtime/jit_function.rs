@@ -65,7 +65,17 @@ impl JitFunction {
         Self { entry }
     }
 
-    pub unsafe fn call(self, cpu: *mut RVCPU) -> WordType {
+    #[inline]
+    pub fn as_ptr(self) -> *const u8 {
+        self.entry
+    }
+
+    #[inline]
+    pub fn as_mut_ptr(self) -> *mut u8 {
+        self.entry as *mut u8
+    }
+
+    pub unsafe fn call(self, cpu: *mut RVCPU, context: *mut JitContext) -> WordType {
         let next_pc: WordType;
         #[cfg(not(target_family = "windows"))]
         unsafe {
@@ -78,6 +88,7 @@ impl JitFunction {
                 "push r15",
                 "sub rsp, 8",
                 "mov rbp, r11",
+                "mov rbx, r8",
                 "call r10",
                 "add rsp, 8",
                 "pop r15",
@@ -88,6 +99,7 @@ impl JitFunction {
                 "pop rbx",
                 in("r10") self.entry,
                 in("r11") cpu,
+                in("r8") context,
                 lateout("rax") next_pc,
                 clobber_abi("C"),
             );
@@ -105,6 +117,7 @@ impl JitFunction {
                 // Keep the JIT stack aligned and leave Windows shadow space available.
                 "sub rsp, 40",
                 "mov rbp, r11",
+                "mov rbx, r8",
                 "call r10",
                 "add rsp, 40",
                 "pop r15",
@@ -115,6 +128,7 @@ impl JitFunction {
                 "pop rbx",
                 in("r10") self.entry,
                 in("r11") cpu,
+                in("r8") context,
                 lateout("rax") next_pc,
                 clobber_abi("C"),
             );

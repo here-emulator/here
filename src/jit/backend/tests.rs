@@ -7,12 +7,20 @@ use crate::jit::ir::*;
 use crate::jit::jit_buffer::JitBuffer;
 use crate::make_ir;
 
+use crate::jit::runtime::JitContext;
+
 fn compile_and_run(block: &IRBlock, cpu: &mut RVCPU) -> WordType {
+    let mut ctx = JitContext::default();
+    ctx.budget = 100_000;
+    compile_and_run_with_ctx(block, cpu, &mut ctx)
+}
+
+fn compile_and_run_with_ctx(block: &IRBlock, cpu: &mut RVCPU, ctx: &mut JitContext) -> WordType {
     let mut codegen = NativeCodeGen::try_new().expect("Native CodeGen must be supported");
     let code_block = codegen.compile(block);
     let mut jit_buf = JitBuffer::new();
     let func = unsafe { jit_buf.emit_code(code_block.buf) };
-    unsafe { func.call(cpu as *mut RVCPU) }
+    unsafe { func.call(cpu as *mut RVCPU, ctx as *mut JitContext) }
 }
 
 #[test]
@@ -644,4 +652,83 @@ fn test_subw_wrap() {
     let next_pc = compile_and_run(&block, &mut cpu);
     assert_eq!(next_pc, 0x1000);
     CPUChecker::new(&mut cpu).reg(1, 0xffff_ffff_ffff_ffff);
+}
+
+#[test]
+fn test_budget_deduction() {
+    let mut cpu = TestCPUBuilder::new().build();
+    let mut builder = IRBuilder::new(0x2000);
+    builder.set_instr_cnt(5);
+    let block = builder.build_jmp(0x3000u64.into());
+
+    let mut ctx = JitContext::default();
+    ctx.budget = 100;
+    let next_pc = compile_and_run_with_ctx(&block, &mut cpu, &mut ctx);
+    assert_eq!(next_pc, 0x3000);
+    assert_eq!(ctx.budget, 95);
+}
+
+#[test]
+fn test_out_of_budget_exit() {
+    let mut cpu = TestCPUBuilder::new().build();
+    let mut builder = IRBuilder::new(0x2000);
+    builder.set_instr_cnt(5);
+    let block = builder.build_jmp(0x3000u64.into());
+
+    // budget is 4, which is less than block.instr_cnt (5)
+    let mut ctx = JitContext::default();
+    ctx.budget = 4;
+    let next_pc = compile_and_run_with_ctx(&block, &mut cpu, &mut ctx);
+    // Should exit immediately returning start_pc (0x2000), without decrementing budget
+    assert_eq!(next_pc, 0x2000);
+    assert_eq!(ctx.budget, 4);
+}
+
+#[test]
+fn test_budget_exact_match() {
+    let mut cpu = TestCPUBuilder::new().build();
+    let mut builder = IRBuilder::new(0x2000);
+    builder.set_instr_cnt(5);
+    let block = builder.build_jmp(0x3000u64.into());
+
+    let mut ctx = JitContext::default();
+    ctx.budget = 5;
+    let next_pc = compile_and_run_with_ctx(&block, &mut cpu, &mut ctx);
+    assert_eq!(next_pc, 0x3000);
+    assert_eq!(ctx.budget, 0);
+}
+
+#[test]
+fn test_budget_deduction_branch() {
+    let mut cpu = TestCPUBuilder::new().build();
+    let mut builder = IRBuilder::new(0x4000);
+    builder.set_instr_cnt(3);
+    let (v0, v1) = make_ir!(builder, [
+        v0 = const 10;
+        v1 = const 20;
+    ], [v0, v1]);
+    let block = builder.build_branch(CmpKind::Lt, v0, v1, 0x5000, 0x6000);
+
+    let mut ctx = JitContext::default();
+    ctx.budget = 10;
+    let next_pc = compile_and_run_with_ctx(&block, &mut cpu, &mut ctx);
+    assert_eq!(next_pc, 0x5000);
+    assert_eq!(ctx.budget, 7);
+}
+
+#[test]
+fn test_budget_deduction_dynamic_jmp() {
+    let mut cpu = TestCPUBuilder::new().reg(1, 0x7777).build();
+    let mut builder = IRBuilder::new(0x1000);
+    builder.set_instr_cnt(2);
+    let target = make_ir!(builder, [
+        target = get_reg 1;
+    ], [target]);
+    let block = builder.build_jmp(target);
+
+    let mut ctx = JitContext::default();
+    ctx.budget = 50;
+    let next_pc = compile_and_run_with_ctx(&block, &mut cpu, &mut ctx);
+    assert_eq!(next_pc, 0x7777);
+    assert_eq!(ctx.budget, 48);
 }

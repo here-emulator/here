@@ -4,6 +4,8 @@ use super::*;
 
 const CPU_REG: X86Reg = X86Reg::RBP;
 const STACK_REG: X86Reg = X86Reg::RSP;
+const CTX_REG: X86Reg = X86Reg::RBX;
+const BUDGET_OFFSET: i32 = std::mem::offset_of!(crate::jit::runtime::JitContext, budget) as i32;
 
 impl TargetInst for X64Inst {
     type Reg = X86Reg;
@@ -64,13 +66,15 @@ pub struct X86CodeGen;
 
 impl CodeGenBackend<X86> for X86CodeGen {
     fn config() -> CodeGenConfig {
-        // Exclude RSP (stack pointer) and RBP (CPU pointer).
-        let alloc_mask =
-            X86Reg::REG_MASK & !(1 << (X86Reg::RSP as u8)) & !(1 << (X86Reg::RBP as u8));
+        // Exclude RSP (stack pointer), RBP (CPU pointer), and RBX (JitContext pointer).
+        let alloc_mask = X86Reg::REG_MASK
+            & !(1 << (X86Reg::RSP as u8))
+            & !(1 << (X86Reg::RBP as u8))
+            & !(1 << (X86Reg::RBX as u8));
         CodeGenConfig::new(alloc_mask)
     }
 
-    fn reserve_spill_frame(ctx: &mut CodeGenContext<X86>) -> PatchLoc<X64PatchKind> {
+    fn emit_stack_alloc(ctx: &mut CodeGenContext<X86>) -> PatchLoc<X64PatchKind> {
         let offset = ctx.buf().len();
         ctx.emit(&X64Inst::AluImm {
             op: AluOp::Sub,
@@ -85,7 +89,7 @@ impl CodeGenBackend<X86> for X86CodeGen {
         PatchLoc::new(offset, X64PatchKind::SubImm32)
     }
 
-    fn patch_spill_frame(
+    fn patch_stack_alloc(
         buf: &mut CodeBuf,
         asm_buf: Option<&mut String>,
         loc: PatchLoc<X64PatchKind>,
@@ -93,15 +97,18 @@ impl CodeGenBackend<X86> for X86CodeGen {
     ) {
         let aligned_slots = (slots + 1) & !1;
         let bytes = (aligned_slots as usize * size_of::<WordType>()) as u32;
-        loc.patch(buf, bytes as i64);
+        unsafe {
+            loc.patch(buf.as_mut_ptr(), bytes as i64);
+        }
         if let Some(asm) = asm_buf {
-            if let Some(first_newline) = asm.find('\n') {
-                asm.replace_range(..first_newline, &format!("sub rsp, {bytes}"));
+            if let Some(pos) = asm.find("sub rsp,") {
+                let end = asm[pos..].find('\n').map(|p| pos + p).unwrap_or(asm.len());
+                asm.replace_range(pos..end, &format!("sub rsp, {bytes}"));
             }
         }
     }
 
-    fn emit_block_exit(ctx: &mut CodeGenContext<X86>) {
+    fn emit_stack_free(ctx: &mut CodeGenContext<X86>) {
         let slots = ctx.current_use_slot();
         if slots > 0 {
             let aligned_slots = (slots + 1) & !1;
@@ -113,7 +120,100 @@ impl CodeGenBackend<X86> for X86CodeGen {
                 imm: bytes,
             });
         }
+    }
+
+    fn emit_block_exit(ctx: &mut CodeGenContext<X86>, next_pc: WordType) -> usize {
+        let offset = ctx.buf().len();
+        ctx.emit(&X64Inst::MovImm {
+            size: OperandSize::Qword,
+            dst: X86Reg::RAX.into(),
+            imm: next_pc as u64,
+        });
         ctx.emit(&X64Inst::Ret);
+        offset
+    }
+
+    fn emit_dynamic_jmp(ctx: &mut CodeGenContext<X86>, hreg: X86Reg) {
+        if hreg != X86Reg::RAX {
+            ctx.emit(&X64Inst::Mov {
+                size: OperandSize::Qword,
+                dst: X86Reg::RAX.into(),
+                src: hreg.into(),
+            });
+        }
+        ctx.emit(&X64Inst::Ret);
+    }
+
+    fn emit_static_jmp(ctx: &mut CodeGenContext<X86>) -> PatchLoc<X64PatchKind> {
+        let offset = ctx.buf().len();
+        ctx.emit(&X64Inst::JmpRel { offset: 0 });
+        PatchLoc::new(offset, X64PatchKind::JmpRel32)
+    }
+
+    fn emit_branch(
+        ctx: &mut CodeGenContext<X86>,
+        cmp: CmpKind,
+        src1: X86Reg,
+        src2: X86Reg,
+    ) -> (PatchLoc<X64PatchKind>, PatchLoc<X64PatchKind>) {
+        let condition = match cmp {
+            CmpKind::Eq => ConditionCode::Equal,
+            CmpKind::NotEq => ConditionCode::NotEqual,
+            CmpKind::GtEq => ConditionCode::GreaterOrEqual,
+            CmpKind::GtEqUnsigned => ConditionCode::AboveOrEqual,
+            CmpKind::Lt => ConditionCode::Less,
+            CmpKind::LtUnsigned => ConditionCode::Below,
+        };
+        ctx.emit(&X64Inst::Alu {
+            op: AluOp::Cmp,
+            size: OperandSize::Qword,
+            dst: src1.into(),
+            src: src2,
+        });
+        let then_loc = ctx.buf().len();
+        ctx.emit(&X64Inst::Jcc {
+            condition,
+            offset: 0,
+        });
+        let else_loc = ctx.buf().len();
+        ctx.emit(&X64Inst::JmpRel { offset: 0 });
+        (
+            PatchLoc::new(then_loc, X64PatchKind::JccRel32),
+            PatchLoc::new(else_loc, X64PatchKind::JmpRel32),
+        )
+    }
+
+    unsafe fn patch(buf: *mut u8, loc: PatchLoc<X64PatchKind>, imm: i64) {
+        unsafe {
+            loc.patch(buf, imm);
+        }
+    }
+
+    fn emit_check_budget(
+        ctx: &mut CodeGenContext<X86>,
+        block_insts: u32,
+    ) -> PatchLoc<X64PatchKind> {
+        ctx.emit(&X64Inst::AluImm {
+            op: AluOp::Cmp,
+            size: OperandSize::Qword,
+            dst: RegMem::from_disp(CTX_REG, BUDGET_OFFSET),
+            imm: block_insts,
+        });
+        let offset = ctx.buf().len();
+        ctx.emit(&X64Inst::Jcc {
+            condition: ConditionCode::Below,
+            offset: 0,
+        });
+        PatchLoc::new(offset, X64PatchKind::JccRel32)
+    }
+
+    fn emit_update_budget(ctx: &mut CodeGenContext<X86>, block_insts: u32) {
+        ctx.emit(&X64Inst::AluImm {
+            op: AluOp::Sub,
+            size: OperandSize::Qword,
+            dst: RegMem::from_disp(CTX_REG, BUDGET_OFFSET),
+            imm: block_insts,
+        });
     }
 
     fn codegen(ctx: &mut CodeGenContext<X86>, insts: &[IRInst]) -> usize {
@@ -175,35 +275,6 @@ impl CodeGenBackend<X86> for X86CodeGen {
             IRInst::Terminator(_) => crate::debug_unreachable!(),
         }
         1
-    }
-
-    fn codegen_terminator(ctx: &mut CodeGenContext<X86>, term: &Terminator) {
-        match term {
-            Terminator::DirectJmp { target } => {
-                let rax = ctx.alloc_scratch_fixed(X86Reg::RAX);
-                ctx.emit(&X64Inst::MovImm {
-                    size: OperandSize::Qword,
-                    dst: rax.into(),
-                    imm: *target,
-                });
-                Self::emit_block_exit(ctx);
-                ctx.end_instruction();
-            }
-            Terminator::DynamicJmp { target } => {
-                let _ = ctx.use_vreg_fixed(*target, X86Reg::RAX);
-                Self::emit_block_exit(ctx);
-                ctx.end_instruction();
-            }
-            Terminator::Branch {
-                cmp,
-                src1,
-                src2,
-                then_pc,
-                else_pc,
-            } => {
-                Self::codegen_branch(ctx, *cmp, *src1, *src2, *then_pc, *else_pc);
-            }
-        }
     }
 }
 
@@ -454,84 +525,6 @@ impl X86CodeGen {
         if let Some(ret_vreg) = ret {
             let _ = ctx.def_vreg_fixed(ret_vreg, X86Reg::RAX);
         }
-        ctx.end_instruction();
-    }
-
-    fn codegen_branch(
-        ctx: &mut CodeGenContext<X86>,
-        cmp: CmpKind,
-        src1: VReg,
-        src2: VReg,
-        then_pc: u64,
-        else_pc: u64,
-    ) {
-        if then_pc == else_pc {
-            let rax = ctx.alloc_scratch_fixed(X86Reg::RAX);
-            ctx.emit(&X64Inst::MovImm {
-                size: OperandSize::Qword,
-                dst: rax.into(),
-                imm: then_pc,
-            });
-            Self::emit_block_exit(ctx);
-            ctx.end_instruction();
-            return;
-        }
-
-        let condition = match cmp {
-            CmpKind::Eq => ConditionCode::Equal,
-            CmpKind::NotEq => ConditionCode::NotEqual,
-            CmpKind::GtEq => ConditionCode::GreaterOrEqual,
-            CmpKind::GtEqUnsigned => ConditionCode::AboveOrEqual,
-            CmpKind::Lt => ConditionCode::Less,
-            CmpKind::LtUnsigned => ConditionCode::Below,
-        };
-
-        let (src1, src2) = if ctx.try_get_const_i32(src2).is_none()
-            && ctx.try_get_const_i32(src1).is_some()
-            && matches!(cmp, CmpKind::Eq | CmpKind::NotEq)
-        {
-            (src2, src1)
-        } else {
-            (src1, src2)
-        };
-
-        let rax = ctx.alloc_scratch_fixed(X86Reg::RAX);
-        let rcx = ctx.alloc_scratch_fixed(X86Reg::RCX);
-
-        let r_src1 = ctx.use_vreg(src1);
-        if let Some(imm) = ctx.try_get_const_i32(src2) {
-            ctx.emit(&X64Inst::AluImm {
-                op: AluOp::Cmp,
-                size: OperandSize::Qword,
-                dst: r_src1.into(),
-                imm: imm as u32,
-            });
-        } else {
-            let r_src2 = ctx.use_vreg(src2);
-            ctx.emit(&X64Inst::Alu {
-                op: AluOp::Cmp,
-                size: OperandSize::Qword,
-                dst: r_src1.into(),
-                src: r_src2,
-            });
-        }
-
-        ctx.emit(&X64Inst::MovImm {
-            size: OperandSize::Qword,
-            dst: rax.into(),
-            imm: else_pc,
-        });
-        ctx.emit(&X64Inst::MovImm {
-            size: OperandSize::Qword,
-            dst: rcx.into(),
-            imm: then_pc,
-        });
-        ctx.emit(&X64Inst::Cmovcc {
-            condition,
-            dst: rax,
-            src: rcx.into(),
-        });
-        Self::emit_block_exit(ctx);
         ctx.end_instruction();
     }
 }

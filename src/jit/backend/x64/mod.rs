@@ -24,38 +24,57 @@ pub enum X64PatchKind {
     SubImm32,
     /// 32-bit relative displacement in near jump (`jmp rel32`: `e9 <disp32>`).
     JmpRel32,
-}
-
-impl X64PatchKind {
-    /// Check whether the immediate is legal for this patch kind.
-    #[inline]
-    pub fn fit(self, imm: i64) -> bool {
-        match self {
-            Self::SubImm32 => u32::try_from(imm).is_ok(),
-            Self::JmpRel32 => i32::try_from(imm).is_ok(),
-        }
-    }
+    /// 32-bit relative displacement in near conditional branch (`jcc rel32`: `0f 8x <disp32>`).
+    JccRel32,
 }
 
 impl PatchLoc<X64PatchKind> {
     #[inline]
-    pub fn patch(&self, buf: &mut [u8], imm: i64) {
-        debug_assert!(self.kind.fit(imm));
-        match self.kind {
-            X64PatchKind::SubImm32 => {
-                debug_assert!(buf.len() >= self.offset + 7);
-                debug_assert!(
-                    buf[self.offset] == 0x48
-                        && (buf[self.offset + 1] == 0x81 || buf[self.offset + 1] == 0x83)
-                        && buf[self.offset + 2] == 0xec
-                );
-                buf[self.offset + 1] = 0x81;
-                buf[self.offset + 3..self.offset + 7].copy_from_slice(&(imm as u32).to_le_bytes());
-            }
-            X64PatchKind::JmpRel32 => {
-                debug_assert!(buf.len() >= self.offset + 5);
-                debug_assert_eq!(buf[self.offset], 0xe9);
-                buf[self.offset + 1..self.offset + 5].copy_from_slice(&(imm as i32).to_le_bytes());
+    pub unsafe fn patch(&self, buf: *mut u8, imm: i64) {
+        unsafe {
+            let ptr = buf.add(self.offset);
+            match self.kind {
+                X64PatchKind::SubImm32 => {
+                    debug_assert!(
+                        *ptr == 0x48
+                            && (*ptr.add(1) == 0x81 || *ptr.add(1) == 0x83)
+                            && *ptr.add(2) == 0xec
+                    );
+                    *ptr.add(1) = 0x81;
+                    std::ptr::copy_nonoverlapping(
+                        (imm as u32).to_le_bytes().as_ptr(),
+                        ptr.add(3),
+                        4,
+                    );
+                }
+                X64PatchKind::JmpRel32 => {
+                    debug_assert_eq!(*ptr, 0xe9);
+                    let next_pc = ptr.add(5);
+                    let disp = imm - (next_pc as isize as i64);
+                    debug_assert!(
+                        i32::try_from(disp).is_ok(),
+                        "jump target out of rel32 range"
+                    );
+                    std::ptr::copy_nonoverlapping(
+                        (disp as i32).to_le_bytes().as_ptr(),
+                        ptr.add(1),
+                        4,
+                    );
+                }
+                X64PatchKind::JccRel32 => {
+                    debug_assert!(*ptr == 0x0f && (*ptr.add(1) & 0xf0) == 0x80);
+                    let next_pc = ptr.add(6);
+                    let disp = imm - (next_pc as isize as i64);
+                    debug_assert!(
+                        i32::try_from(disp).is_ok(),
+                        "branch target out of rel32 range"
+                    );
+                    std::ptr::copy_nonoverlapping(
+                        (disp as i32).to_le_bytes().as_ptr(),
+                        ptr.add(2),
+                        4,
+                    );
+                }
             }
         }
     }

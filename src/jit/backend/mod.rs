@@ -8,6 +8,7 @@ pub mod x64;
 #[cfg(test)]
 mod tests;
 
+use crate::config::arch_config::WordType;
 pub use codegen::*;
 use pass::*;
 
@@ -15,7 +16,7 @@ pub trait ISA: Sized {
     type Reg: TargetReg;
     type Inst: TargetInst<Reg = Self::Reg>;
     type Backend: CodeGenBackend<Self>;
-    type PatchKind: Copy + std::fmt::Debug;
+    type PatchKind: Copy + std::fmt::Debug + 'static;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,6 +29,19 @@ impl<K> PatchLoc<K> {
     #[inline]
     pub const fn new(offset: usize, kind: K) -> Self {
         Self { offset, kind }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChainPatch<K> {
+    pub loc: PatchLoc<K>,
+    pub target_pc: WordType,
+}
+
+impl<K> ChainPatch<K> {
+    #[inline]
+    pub const fn new(loc: PatchLoc<K>, target_pc: WordType) -> Self {
+        Self { loc, target_pc }
     }
 }
 
@@ -53,23 +67,54 @@ pub trait CodeGenBackend<I: ISA> {
     #[must_use]
     fn codegen(ctx: &mut CodeGenContext<I>, insts: &[IRInst]) -> usize;
 
-    fn codegen_terminator(ctx: &mut CodeGenContext<I>, term: &Terminator);
-
     fn config() -> CodeGenConfig;
 
     /// Reserves space for spill frame allocation (stack adjustment) at the start of code buffer.
-    fn reserve_spill_frame(ctx: &mut CodeGenContext<I>) -> PatchLoc<I::PatchKind>;
+    fn emit_stack_alloc(ctx: &mut CodeGenContext<I>) -> PatchLoc<I::PatchKind>;
 
     /// Patches spill frame allocation with the actual slot count.
-    fn patch_spill_frame(
+    fn patch_stack_alloc(
         buf: &mut CodeBuf,
         asm_buf: Option<&mut String>,
         loc: PatchLoc<I::PatchKind>,
         slots: u32,
     );
 
-    /// Emits block exit (restoring spill stack frame if needed, and returning).
-    fn emit_block_exit(ctx: &mut CodeGenContext<I>);
+    /// Emits stack frame deallocation (`add rsp, bytes` if stack was allocated).
+    fn emit_stack_free(ctx: &mut CodeGenContext<I>);
+
+    /// Emits block exit returning `next_pc` in register `rax` and returning.
+    /// Returns the buffer offset where the block exit entry point starts.
+    fn emit_block_exit(ctx: &mut CodeGenContext<I>, next_pc: WordType) -> usize;
+
+    /// Emits dynamic jump setting return register `rax` from `hreg` and returning.
+    fn emit_dynamic_jmp(ctx: &mut CodeGenContext<I>, hreg: I::Reg);
+
+    /// Emits a static jump instruction, returning a patch location for its displacement.
+    fn emit_static_jmp(ctx: &mut CodeGenContext<I>) -> PatchLoc<I::PatchKind>;
+
+    /// Emits comparison and conditional/unconditional branches, returning `(then_patch, else_patch)`.
+    fn emit_branch(
+        ctx: &mut CodeGenContext<I>,
+        cmp: CmpKind,
+        src1: I::Reg,
+        src2: I::Reg,
+    ) -> (PatchLoc<I::PatchKind>, PatchLoc<I::PatchKind>);
+
+    /// Patches the instruction at `loc` (relative to `buf`) with `imm`.
+    ///
+    /// For immediate patches (e.g. stack allocation), `imm` is the raw value.
+    /// For jump/branch targets, `imm` is the target absolute address, and the backend computes the displacement.
+    ///
+    /// # Safety
+    /// `buf` must point to valid code memory.
+    unsafe fn patch(buf: *mut u8, loc: PatchLoc<I::PatchKind>, imm: i64);
+
+    /// Emits budget check at the start of a block, returning a patch location for the out-of-budget branch.
+    fn emit_check_budget(ctx: &mut CodeGenContext<I>, block_insts: u32) -> PatchLoc<I::PatchKind>;
+
+    /// Emits budget decrement before block exit.
+    fn emit_update_budget(ctx: &mut CodeGenContext<I>, block_insts: u32);
 }
 
 pub type CodeBuf = Vec<u8>;

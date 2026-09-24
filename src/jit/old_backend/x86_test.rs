@@ -13,7 +13,7 @@ unsafe fn execute_returning_u64(mut asm: X86Assembler) -> u64 {
     asm.ret();
     let mut buffer = JitBuffer::new();
     let function = unsafe { buffer.emit_code(&asm.build()) };
-    unsafe { function.call(std::ptr::null_mut()) }
+    unsafe { function.call(std::ptr::null_mut(), std::ptr::null_mut()) }
 }
 
 unsafe extern "C" fn mixed_helper_args(
@@ -234,7 +234,7 @@ fn executes_disp8_and_disp32_memory_operands() {
 
     let mut buffer = JitBuffer::new();
     let function = unsafe { buffer.emit_code(&asm.build()) };
-    let _ = unsafe { function.call(base.cast()) };
+    let _ = unsafe { function.call(base.cast(), std::ptr::null_mut()) };
 
     assert_eq!(words[48], 977);
 }

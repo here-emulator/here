@@ -4,6 +4,8 @@ mod macros;
 mod ir_builder;
 pub use ir_builder::*;
 
+use crate::config::arch_config::WordType;
+
 pub type VRegId = u32;
 
 /// Never construct it by hand, always use [`IRBuilder`] or [`make_ir`].
@@ -120,12 +122,31 @@ impl IRInst {
 
 pub struct IRBlock {
     vreg_count: VRegId,
+    pub start_pc: WordType,
+    pub instr_cnt: u32,
     pub insts: Vec<IRInst>,
 }
 
 impl IRBlock {
+    pub fn new(start_pc: WordType, instr_cnt: u32, vreg_count: VRegId, insts: Vec<IRInst>) -> Self {
+        Self {
+            vreg_count,
+            start_pc,
+            instr_cnt,
+            insts,
+        }
+    }
+
     pub fn vreg_count(&self) -> VRegId {
         self.vreg_count
+    }
+
+    pub fn start_pc(&self) -> WordType {
+        self.start_pc
+    }
+
+    pub fn instr_cnt(&self) -> u32 {
+        self.instr_cnt
     }
 
     pub fn get_terminator(&self) -> Option<Terminator> {

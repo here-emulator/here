@@ -49,8 +49,9 @@ impl CallOptions {
 /// To reduce the amount of [`IRInst`], instead of relying following IR pass, [`ir_builder`] will:
 /// - track the guest register states, feel free to use [`Self::get_reg`] and [`Self::set_reg`]
 /// - simple constant folding
-#[derive(Default)]
 pub struct IRBuilder {
+    start_pc: WordType,
+    instr_cnt: u32,
     guest_map: [Option<Value>; REGFILE_CNT],
     last_saved_guest: [Option<Value>; REGFILE_CNT],
     // TODO: Take a ref instead of owning a Vec<IRInst> to reuse buffer.
@@ -58,7 +59,36 @@ pub struct IRBuilder {
     next: <VReg as IRReg>::IndexType,
 }
 
+impl Default for IRBuilder {
+    fn default() -> Self {
+        Self {
+            start_pc: 0,
+            instr_cnt: 1,
+            guest_map: [None; REGFILE_CNT],
+            last_saved_guest: [None; REGFILE_CNT],
+            insts: Vec::new(),
+            next: 0,
+        }
+    }
+}
+
 impl IRBuilder {
+    pub fn new(start_pc: WordType) -> Self {
+        Self {
+            start_pc,
+            instr_cnt: 1,
+            ..Default::default()
+        }
+    }
+
+    pub fn set_start_pc(&mut self, pc: WordType) {
+        self.start_pc = pc;
+    }
+
+    pub fn set_instr_cnt(&mut self, cnt: u32) {
+        self.instr_cnt = cnt;
+    }
+
     fn alloc_vreg(&mut self) -> VReg {
         let reg = VReg { idx: self.next };
         self.next += 1;
@@ -247,6 +277,8 @@ impl IRBuilder {
         );
 
         IRBlock {
+            start_pc: self.start_pc,
+            instr_cnt: self.instr_cnt,
             insts: self.insts,
             vreg_count: self.next,
         }
