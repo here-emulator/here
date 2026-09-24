@@ -284,7 +284,7 @@ impl<I: ISA> CodeGenTrait for CodeGen<I> {
 
 pub type NativeCodeGen = cfg_select! {
     target_arch = "x86_64" => {
-        CodeGen<x64::X86>
+        CodeGen<x64::X64>
     }
 
     _ => {
@@ -321,7 +321,7 @@ impl CodeGenTrait for DummyCodeGen {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jit::backend::x64::{X64Inst, X86};
+    use crate::jit::backend::x64::{X64, X64Inst};
 
     #[test]
     fn test_codegen_context_asm_text() {
@@ -332,7 +332,7 @@ mod tests {
         let liveness = vec![liveness::Liveness::default(); 4];
 
         let mut ctx =
-            CodeGenContext::<X86>::new(&mut code_buf, Some(&mut asm_buf), &mut state, &liveness);
+            CodeGenContext::<X64>::new(&mut code_buf, Some(&mut asm_buf), &mut state, &liveness);
 
         ctx.emit(&X64Inst::Ret);
 
@@ -352,7 +352,7 @@ mod tests {
 
     #[test]
     fn test_codegen_try_new_and_reset() {
-        let mut codegen = CodeGen::<X86>::try_new().expect("try_new should succeed for X86");
+        let mut codegen = CodeGen::<X64>::try_new().unwrap();
         codegen.set_dump_asm(true);
         codegen.reset();
     }
@@ -365,7 +365,7 @@ mod tests {
         state.init(4, 0b11);
         let liveness = vec![liveness::Liveness::default(); 4];
 
-        let mut ctx = CodeGenContext::<X86>::new(&mut code_buf, None, &mut state, &liveness);
+        let mut ctx = CodeGenContext::<X64>::new(&mut code_buf, None, &mut state, &liveness);
         let v0 = VReg::from(0);
         let _ = ctx.use_vreg(v0);
     }
@@ -377,12 +377,12 @@ mod tests {
         state.init(4, 0b1111);
         let liveness = vec![liveness::Liveness::default(); 4];
 
-        let mut ctx = CodeGenContext::<X86>::new(&mut code_buf, None, &mut state, &liveness);
+        let mut ctx = CodeGenContext::<X64>::new(&mut code_buf, None, &mut state, &liveness);
         let v0 = VReg::from(0);
         let _ = ctx.def_vreg(v0);
         ctx.end_instruction();
 
-        ctx.prepare_call_args([(crate::jit::backend::x64::X86Reg::RCX, v0.into())]);
+        ctx.prepare_call_args([(crate::jit::backend::x64::X64Reg::RCX, v0.into())]);
         assert!(!code_buf.is_empty());
     }
 
@@ -394,12 +394,12 @@ mod tests {
         state.init(4, 0b1111);
         let liveness = vec![liveness::Liveness::default(); 4];
 
-        let mut ctx = CodeGenContext::<X86>::new(&mut code_buf, None, &mut state, &liveness);
+        let mut ctx = CodeGenContext::<X64>::new(&mut code_buf, None, &mut state, &liveness);
         let v0 = VReg::from(0);
         let _ = ctx.def_vreg(v0);
         ctx.end_instruction();
 
-        ctx.prepare_call_args([(crate::jit::backend::x64::X86Reg::RBX, v0.into())]);
+        ctx.prepare_call_args([(crate::jit::backend::x64::X64Reg::RBX, v0.into())]);
     }
 
     #[test]
@@ -410,7 +410,7 @@ mod tests {
         state.init(4, 0b1111);
         let liveness = vec![liveness::Liveness::default(); 4];
 
-        let mut ctx = CodeGenContext::<X86>::new(&mut code_buf, None, &mut state, &liveness);
+        let mut ctx = CodeGenContext::<X64>::new(&mut code_buf, None, &mut state, &liveness);
         let v0 = VReg::from(0);
         let v1 = VReg::from(1);
         let _ = ctx.def_vreg(v0);
@@ -418,8 +418,8 @@ mod tests {
         ctx.end_instruction();
 
         ctx.prepare_call_args([
-            (crate::jit::backend::x64::X86Reg::RCX, v0.into()),
-            (crate::jit::backend::x64::X86Reg::RCX, v1.into()),
+            (crate::jit::backend::x64::X64Reg::RCX, v0.into()),
+            (crate::jit::backend::x64::X64Reg::RCX, v1.into()),
         ]);
     }
 
@@ -431,9 +431,9 @@ mod tests {
         state.init(4, 0b1111);
         let liveness = vec![liveness::Liveness::default(); 4];
 
-        let mut ctx = CodeGenContext::<X86>::new(&mut code_buf, None, &mut state, &liveness);
+        let mut ctx = CodeGenContext::<X64>::new(&mut code_buf, None, &mut state, &liveness);
         let inst = IRInst::Terminator(Terminator::DirectJmp { target: 0x1000 });
-        let _ = <X86 as ISA>::Backend::codegen(&mut ctx, std::slice::from_ref(&inst));
+        let _ = <X64 as ISA>::Backend::codegen(&mut ctx, std::slice::from_ref(&inst));
     }
 
     #[test]
@@ -443,9 +443,9 @@ mod tests {
         state.init(4, 0b1111);
         let liveness = vec![liveness::Liveness::default(); 4];
 
-        let mut ctx = CodeGenContext::<X86>::new(&mut code_buf, None, &mut state, &liveness);
-        let patch = <X86 as ISA>::Backend::emit_static_jmp(&mut ctx);
-        let exit_offset = <X86 as ISA>::Backend::emit_block_exit(&mut ctx, 0x1234);
+        let mut ctx = CodeGenContext::<X64>::new(&mut code_buf, None, &mut state, &liveness);
+        let patch = <X64 as ISA>::Backend::emit_static_jmp(&mut ctx);
+        let exit_offset = <X64 as ISA>::Backend::emit_block_exit(&mut ctx, 0x1234);
         ctx.patch_jmp(patch, exit_offset);
 
         assert_eq!(code_buf[patch.offset], 0xe9);
@@ -464,17 +464,17 @@ mod tests {
         state.init(4, 0b1111);
         let liveness = vec![liveness::Liveness::default(); 4];
 
-        let mut ctx = CodeGenContext::<X86>::new(&mut code_buf, None, &mut state, &liveness);
-        let (then_patch, else_patch) = <X86 as ISA>::Backend::emit_branch(
+        let mut ctx = CodeGenContext::<X64>::new(&mut code_buf, None, &mut state, &liveness);
+        let (then_patch, else_patch) = <X64 as ISA>::Backend::emit_branch(
             &mut ctx,
             CmpKind::Eq,
-            crate::jit::backend::x64::X86Reg::RAX,
-            crate::jit::backend::x64::X86Reg::RCX,
+            crate::jit::backend::x64::X64Reg::RAX,
+            crate::jit::backend::x64::X64Reg::RCX,
         );
-        let then_exit = <X86 as ISA>::Backend::emit_block_exit(&mut ctx, 0x1111);
+        let then_exit = <X64 as ISA>::Backend::emit_block_exit(&mut ctx, 0x1111);
         ctx.patch_jmp(then_patch, then_exit);
 
-        let else_exit = <X86 as ISA>::Backend::emit_block_exit(&mut ctx, 0x2222);
+        let else_exit = <X64 as ISA>::Backend::emit_block_exit(&mut ctx, 0x2222);
         ctx.patch_jmp(else_patch, else_exit);
 
         assert_eq!(code_buf[then_patch.offset], 0x0f);
@@ -502,10 +502,10 @@ mod tests {
         state.init(4, 0b1111);
         let liveness = vec![liveness::Liveness::default(); 4];
 
-        let mut ctx = CodeGenContext::<X86>::new(&mut code_buf, None, &mut state, &liveness);
-        let oob_patch = <X86 as ISA>::Backend::emit_check_budget(&mut ctx, 10);
-        <X86 as ISA>::Backend::emit_update_budget(&mut ctx, 10);
-        let oob_exit = <X86 as ISA>::Backend::emit_block_exit(&mut ctx, 0x5000);
+        let mut ctx = CodeGenContext::<X64>::new(&mut code_buf, None, &mut state, &liveness);
+        let oob_patch = <X64 as ISA>::Backend::emit_check_budget(&mut ctx, 10);
+        <X64 as ISA>::Backend::emit_update_budget(&mut ctx, 10);
+        let oob_exit = <X64 as ISA>::Backend::emit_block_exit(&mut ctx, 0x5000);
         ctx.patch_jmp(oob_patch, oob_exit);
 
         assert_eq!(code_buf[oob_patch.offset], 0x0f);

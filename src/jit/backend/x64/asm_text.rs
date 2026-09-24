@@ -2,7 +2,7 @@ use std::fmt::{self, Write};
 
 use super::*;
 
-impl X86Reg {
+impl X64Reg {
     pub fn name(self, size: OperandSize) -> &'static str {
         match size {
             OperandSize::Byte => self.name_byte(),
@@ -309,8 +309,8 @@ mod tests {
         assert_eq!(
             X64Inst::Mov {
                 size: OperandSize::Qword,
-                dst: X86Reg::RAX.into(),
-                src: X86Reg::RBX.into(),
+                dst: X64Reg::RAX.into(),
+                src: X64Reg::RBX.into(),
             }
             .to_asm_string(),
             "mov rax, rbx"
@@ -318,8 +318,8 @@ mod tests {
         assert_eq!(
             X64Inst::Mov {
                 size: OperandSize::Qword,
-                dst: X86Reg::RAX.into(),
-                src: RegMem::from_disp(X86Reg::RBP, -8),
+                dst: X64Reg::RAX.into(),
+                src: RegMem::from_disp(X64Reg::RBP, -8),
             }
             .to_asm_string(),
             "mov rax, qword ptr [rbp - 0x8]"
@@ -327,8 +327,8 @@ mod tests {
         assert_eq!(
             X64Inst::Mov {
                 size: OperandSize::Qword,
-                dst: X86Reg::RAX.into(),
-                src: RegMem::Mem(X86Reg::RBP),
+                dst: X64Reg::RAX.into(),
+                src: RegMem::Mem(X64Reg::RBP),
             }
             .to_asm_string(),
             "mov rax, qword ptr [rbp]"
@@ -336,7 +336,7 @@ mod tests {
         assert_eq!(
             X64Inst::MovImm {
                 size: OperandSize::Qword,
-                dst: X86Reg::RAX.into(),
+                dst: X64Reg::RAX.into(),
                 imm: 0x1234,
             }
             .to_asm_string(),
@@ -345,7 +345,7 @@ mod tests {
         assert_eq!(
             X64Inst::MovImm {
                 size: OperandSize::Qword,
-                dst: RegMem::from_disp(X86Reg::RBP, -8),
+                dst: RegMem::from_disp(X64Reg::RBP, -8),
                 imm: 0,
             }
             .to_asm_string(),
@@ -355,8 +355,8 @@ mod tests {
             X64Inst::Alu {
                 op: AluOp::Add,
                 size: OperandSize::Qword,
-                dst: X86Reg::RAX.into(),
-                src: X86Reg::RBX,
+                dst: X64Reg::RAX.into(),
+                src: X64Reg::RBX,
             }
             .to_asm_string(),
             "add rax, rbx"
@@ -365,7 +365,7 @@ mod tests {
             X64Inst::AluImm {
                 op: AluOp::Sub,
                 size: OperandSize::Qword,
-                dst: X86Reg::RAX.into(),
+                dst: X64Reg::RAX.into(),
                 imm: 10,
             }
             .to_asm_string(),
@@ -374,8 +374,8 @@ mod tests {
         assert_eq!(
             X64Inst::Test {
                 size: OperandSize::Qword,
-                dst: X86Reg::RAX.into(),
-                src: X86Reg::RAX,
+                dst: X64Reg::RAX.into(),
+                src: X64Reg::RAX,
             }
             .to_asm_string(),
             "test rax, rax"
@@ -383,7 +383,7 @@ mod tests {
         assert_eq!(
             X64Inst::TestImm {
                 size: OperandSize::Qword,
-                dst: X86Reg::RAX.into(),
+                dst: X64Reg::RAX.into(),
                 imm: 1,
             }
             .to_asm_string(),
@@ -393,7 +393,7 @@ mod tests {
             X64Inst::ShiftCl {
                 op: ShiftOp::Shl,
                 size: OperandSize::Qword,
-                dst: X86Reg::RAX.into(),
+                dst: X64Reg::RAX.into(),
             }
             .to_asm_string(),
             "shl rax, cl"
@@ -401,14 +401,14 @@ mod tests {
         assert_eq!(
             X64Inst::Setcc {
                 condition: ConditionCode::Equal,
-                dst: X86Reg::RAX,
+                dst: X64Reg::RAX,
             }
             .to_asm_string(),
             "sete al"
         );
         assert_eq!(
             X64Inst::Call {
-                target: X86Reg::R11
+                target: X64Reg::R11
             }
             .to_asm_string(),
             "call r11"
@@ -417,8 +417,8 @@ mod tests {
         assert_eq!(
             X64Inst::Mov {
                 size: OperandSize::Byte,
-                dst: RegMem::Mem(X86Reg::RDI),
-                src: X86Reg::RSI.into(),
+                dst: RegMem::Mem(X64Reg::RDI),
+                src: X64Reg::RSI.into(),
             }
             .to_asm_string(),
             "mov byte ptr [rdi], sil"
@@ -426,8 +426,8 @@ mod tests {
         assert_eq!(
             X64Inst::Mov {
                 size: OperandSize::Word,
-                dst: RegMem::Mem(X86Reg::RDI),
-                src: X86Reg::RSI.into(),
+                dst: RegMem::Mem(X64Reg::RDI),
+                src: X64Reg::RSI.into(),
             }
             .to_asm_string(),
             "mov word ptr [rdi], si"
@@ -435,7 +435,7 @@ mod tests {
         assert_eq!(
             X64Inst::MovImm {
                 size: OperandSize::Byte,
-                dst: RegMem::Mem(X86Reg::RDI),
+                dst: RegMem::Mem(X64Reg::RDI),
                 imm: 0x42,
             }
             .to_asm_string(),
@@ -444,7 +444,7 @@ mod tests {
         assert_eq!(
             X64Inst::MovImm {
                 size: OperandSize::Word,
-                dst: RegMem::Mem(X86Reg::RDI),
+                dst: RegMem::Mem(X64Reg::RDI),
                 imm: 0x1234,
             }
             .to_asm_string(),

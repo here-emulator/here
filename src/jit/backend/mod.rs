@@ -55,6 +55,7 @@ pub trait TargetInst: Sized {
     type Reg: TargetReg;
 
     fn emit_to(&self, buf: &mut CodeBuf);
+    // TODO: maybe it's better to impl Display?
     fn put_asm_text(&self, w: &mut impl std::fmt::Write) -> std::fmt::Result;
 
     fn mov(dst: Self::Reg, src: Self::Reg) -> Self;

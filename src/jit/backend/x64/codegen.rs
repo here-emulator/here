@@ -2,13 +2,13 @@ use crate::config::arch_config::WordType;
 
 use super::*;
 
-const CPU_REG: X86Reg = X86Reg::RBP;
-const STACK_REG: X86Reg = X86Reg::RSP;
-const CTX_REG: X86Reg = X86Reg::RBX;
+const CPU_REG: X64Reg = X64Reg::RBP;
+const STACK_REG: X64Reg = X64Reg::RSP;
+const CTX_REG: X64Reg = X64Reg::RBX;
 const BUDGET_OFFSET: i32 = std::mem::offset_of!(crate::jit::runtime::JitContext, budget) as i32;
 
 impl TargetInst for X64Inst {
-    type Reg = X86Reg;
+    type Reg = X64Reg;
 
     #[inline]
     fn emit_to(&self, buf: &mut CodeBuf) {
@@ -62,19 +62,19 @@ impl TargetInst for X64Inst {
 use crate::jit::backend::cpu_access::hreg_mem_offset;
 
 #[derive(Default)]
-pub struct X86CodeGen;
+pub struct X64CodeGen;
 
-impl CodeGenBackend<X86> for X86CodeGen {
+impl CodeGenBackend<X64> for X64CodeGen {
     fn config() -> CodeGenConfig {
         // Exclude RSP (stack pointer), RBP (CPU pointer), and RBX (JitContext pointer).
-        let alloc_mask = X86Reg::REG_MASK
-            & !(1 << (X86Reg::RSP as u8))
-            & !(1 << (X86Reg::RBP as u8))
-            & !(1 << (X86Reg::RBX as u8));
+        let alloc_mask = X64Reg::REG_MASK
+            & !(1 << (X64Reg::RSP as u8))
+            & !(1 << (X64Reg::RBP as u8))
+            & !(1 << (X64Reg::RBX as u8));
         CodeGenConfig::new(alloc_mask)
     }
 
-    fn emit_stack_alloc(ctx: &mut CodeGenContext<X86>) -> PatchLoc<X64PatchKind> {
+    fn emit_stack_alloc(ctx: &mut CodeGenContext<X64>) -> PatchLoc<X64PatchKind> {
         let offset = ctx.buf().len();
         ctx.emit(&X64Inst::AluImm {
             op: AluOp::Sub,
@@ -108,7 +108,7 @@ impl CodeGenBackend<X86> for X86CodeGen {
         }
     }
 
-    fn emit_stack_free(ctx: &mut CodeGenContext<X86>) {
+    fn emit_stack_free(ctx: &mut CodeGenContext<X64>) {
         let slots = ctx.current_use_slot();
         if slots > 0 {
             let aligned_slots = (slots + 1) & !1;
@@ -122,39 +122,39 @@ impl CodeGenBackend<X86> for X86CodeGen {
         }
     }
 
-    fn emit_block_exit(ctx: &mut CodeGenContext<X86>, next_pc: WordType) -> usize {
+    fn emit_block_exit(ctx: &mut CodeGenContext<X64>, next_pc: WordType) -> usize {
         let offset = ctx.buf().len();
         ctx.emit(&X64Inst::MovImm {
             size: OperandSize::Qword,
-            dst: X86Reg::RAX.into(),
+            dst: X64Reg::RAX.into(),
             imm: next_pc as u64,
         });
         ctx.emit(&X64Inst::Ret);
         offset
     }
 
-    fn emit_dynamic_jmp(ctx: &mut CodeGenContext<X86>, hreg: X86Reg) {
-        if hreg != X86Reg::RAX {
+    fn emit_dynamic_jmp(ctx: &mut CodeGenContext<X64>, hreg: X64Reg) {
+        if hreg != X64Reg::RAX {
             ctx.emit(&X64Inst::Mov {
                 size: OperandSize::Qword,
-                dst: X86Reg::RAX.into(),
+                dst: X64Reg::RAX.into(),
                 src: hreg.into(),
             });
         }
         ctx.emit(&X64Inst::Ret);
     }
 
-    fn emit_static_jmp(ctx: &mut CodeGenContext<X86>) -> PatchLoc<X64PatchKind> {
+    fn emit_static_jmp(ctx: &mut CodeGenContext<X64>) -> PatchLoc<X64PatchKind> {
         let offset = ctx.buf().len();
         ctx.emit(&X64Inst::JmpRel { offset: 0 });
         PatchLoc::new(offset, X64PatchKind::JmpRel32)
     }
 
     fn emit_branch(
-        ctx: &mut CodeGenContext<X86>,
+        ctx: &mut CodeGenContext<X64>,
         cmp: CmpKind,
-        src1: X86Reg,
-        src2: X86Reg,
+        src1: X64Reg,
+        src2: X64Reg,
     ) -> (PatchLoc<X64PatchKind>, PatchLoc<X64PatchKind>) {
         let condition = match cmp {
             CmpKind::Eq => ConditionCode::Equal,
@@ -190,7 +190,7 @@ impl CodeGenBackend<X86> for X86CodeGen {
     }
 
     fn emit_check_budget(
-        ctx: &mut CodeGenContext<X86>,
+        ctx: &mut CodeGenContext<X64>,
         block_insts: u32,
     ) -> PatchLoc<X64PatchKind> {
         ctx.emit(&X64Inst::AluImm {
@@ -207,7 +207,7 @@ impl CodeGenBackend<X86> for X86CodeGen {
         PatchLoc::new(offset, X64PatchKind::JccRel32)
     }
 
-    fn emit_update_budget(ctx: &mut CodeGenContext<X86>, block_insts: u32) {
+    fn emit_update_budget(ctx: &mut CodeGenContext<X64>, block_insts: u32) {
         ctx.emit(&X64Inst::AluImm {
             op: AluOp::Sub,
             size: OperandSize::Qword,
@@ -216,7 +216,7 @@ impl CodeGenBackend<X86> for X86CodeGen {
         });
     }
 
-    fn codegen(ctx: &mut CodeGenContext<X86>, insts: &[IRInst]) -> usize {
+    fn codegen(ctx: &mut CodeGenContext<X64>, insts: &[IRInst]) -> usize {
         match &insts[0] {
             IRInst::Const { dst, imm } => {
                 ctx.def_const(*dst, *imm);
@@ -278,9 +278,9 @@ impl CodeGenBackend<X86> for X86CodeGen {
     }
 }
 
-impl X86CodeGen {
+impl X64CodeGen {
     fn codegen_compute(
-        ctx: &mut CodeGenContext<X86>,
+        ctx: &mut CodeGenContext<X64>,
         kind: ComputeKind,
         dst: VReg,
         src1: VReg,
@@ -414,7 +414,7 @@ impl X86CodeGen {
                     }
                     ctx.end_instruction();
                 } else {
-                    let _ = ctx.use_vreg_fixed(src2, X86Reg::RCX);
+                    let _ = ctx.use_vreg_fixed(src2, X64Reg::RCX);
                     let r_src1 = ctx.use_vreg(src1);
 
                     // If dst == src2 && src1 != src2, dst cannot be in RCX (which holds shift count).
@@ -481,23 +481,23 @@ impl X86CodeGen {
     }
 
     fn codegen_call(
-        ctx: &mut CodeGenContext<X86>,
+        ctx: &mut CodeGenContext<X64>,
         pass_cpu: bool,
         func_ptr: usize,
         args: &[VReg],
         ret: Option<VReg>,
     ) {
         #[cfg(not(target_family = "windows"))]
-        const ARG_REGS: [X86Reg; 6] = [
-            X86Reg::RDI,
-            X86Reg::RSI,
-            X86Reg::RDX,
-            X86Reg::RCX,
-            X86Reg::R8,
-            X86Reg::R9,
+        const ARG_REGS: [X64Reg; 6] = [
+            X64Reg::RDI,
+            X64Reg::RSI,
+            X64Reg::RDX,
+            X64Reg::RCX,
+            X64Reg::R8,
+            X64Reg::R9,
         ];
         #[cfg(target_family = "windows")]
-        const ARG_REGS: [X86Reg; 4] = [X86Reg::RCX, X86Reg::RDX, X86Reg::R8, X86Reg::R9];
+        const ARG_REGS: [X64Reg; 4] = [X64Reg::RCX, X64Reg::RDX, X64Reg::R8, X64Reg::R9];
 
         let total_args = args.len() + pass_cpu as usize;
         assert!(
@@ -514,7 +514,7 @@ impl X86CodeGen {
 
         ctx.prepare_call_args(cpu_arg.into_iter().chain(vreg_args));
 
-        let scratch = ctx.alloc_scratch_fixed(X86Reg::R11);
+        let scratch = ctx.alloc_scratch_fixed(X64Reg::R11);
         ctx.emit(&X64Inst::MovImm {
             size: OperandSize::Qword,
             dst: scratch.into(),
@@ -523,7 +523,7 @@ impl X86CodeGen {
         ctx.emit(&X64Inst::Call { target: scratch });
 
         if let Some(ret_vreg) = ret {
-            let _ = ctx.def_vreg_fixed(ret_vreg, X86Reg::RAX);
+            let _ = ctx.def_vreg_fixed(ret_vreg, X64Reg::RAX);
         }
         ctx.end_instruction();
     }

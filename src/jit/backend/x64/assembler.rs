@@ -7,7 +7,7 @@ impl RegMem {
         match *self {
             RegMem::Reg(_) => 0b11,
             // mod=00 with rbp/r13 encodes rip-relative in x86-64, so disp8 [reg+0] is used instead.
-            RegMem::Mem(r) if matches!(r, X86Reg::RBP | X86Reg::R13) => 0b01,
+            RegMem::Mem(r) if matches!(r, X64Reg::RBP | X64Reg::R13) => 0b01,
             RegMem::Mem(_) => 0b00,
             RegMem::MemDisp8(_, _) => 0b01,
             RegMem::MemDisp32(_, _) => 0b10,
@@ -18,7 +18,7 @@ impl RegMem {
         match *self {
             RegMem::Reg(_) => {}
             // mod=01 requires 1-byte displacement (0x00 for [rbp]/[r13] with no offset).
-            RegMem::Mem(r) if matches!(r, X86Reg::RBP | X86Reg::R13) => buf.push(0),
+            RegMem::Mem(r) if matches!(r, X64Reg::RBP | X64Reg::R13) => buf.push(0),
             RegMem::Mem(_) => {}
             RegMem::MemDisp8(_, byte) => buf.push(byte as u8),
             RegMem::MemDisp32(_, bytes) => buf.extend_from_slice(&bytes.to_le_bytes()),
@@ -56,7 +56,7 @@ fn emit_modrm(buf: &mut CodeBuf, mode: u8, reg_or_op: u8, rm: u8) {
 
 /// spl, bpl, sil, dil (base 4..7) require a REX prefix to distinguish from legacy ah, ch, dh, bh.
 #[inline]
-fn needs_byte_rex(reg: X86Reg, rm: RegMem) -> bool {
+fn needs_byte_rex(reg: X64Reg, rm: RegMem) -> bool {
     reg.base() >= 4 || matches!(rm, RegMem::Reg(r) if r.base() >= 4)
 }
 
@@ -89,7 +89,7 @@ fn emit_reg_rm(
     buf: &mut CodeBuf,
     size: OperandSize,
     opcode: impl Emitable,
-    dst: X86Reg,
+    dst: X64Reg,
     src: RegMem,
 ) {
     let force_rex = size.is_byte() && needs_byte_rex(dst, src);
@@ -102,7 +102,7 @@ fn emit_rm_reg(
     size: OperandSize,
     opcode: impl Emitable,
     dst: RegMem,
-    src: X86Reg,
+    src: X64Reg,
 ) {
     let force_rex = size.is_byte() && needs_byte_rex(src, dst);
     emit_modrm_encoding(buf, size, opcode, src.base(), src.rex_bit(), dst, force_rex);
@@ -121,7 +121,7 @@ fn emit_group_rm(
 }
 
 /// Short-form `mov reg, imm`: register index embedded in opcode (`0xb0+r` / `0xb8+r`).
-fn emit_mov_reg_imm(buf: &mut CodeBuf, size: OperandSize, dst: X86Reg, imm: u64) {
+fn emit_mov_reg_imm(buf: &mut CodeBuf, size: OperandSize, dst: X64Reg, imm: u64) {
     if size.is_word() {
         buf.push(0x66);
     }
@@ -297,7 +297,7 @@ impl X64Inst {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use X86Reg::*;
+    use X64Reg::*;
 
     fn emit_inst(inst: X64Inst) -> Vec<u8> {
         let mut buf = Vec::new();

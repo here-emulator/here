@@ -9,12 +9,12 @@ pub mod codegen;
 pub use codegen::*;
 
 // TODO: rename to x64
-pub struct X86;
+pub struct X64;
 
-impl ISA for X86 {
-    type Reg = X86Reg;
+impl ISA for X64 {
+    type Reg = X64Reg;
     type Inst = X64Inst;
-    type Backend = X86CodeGen;
+    type Backend = X64CodeGen;
     type PatchKind = X64PatchKind;
 }
 
@@ -83,25 +83,25 @@ impl PatchLoc<X64PatchKind> {
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
-pub enum X86Reg {
+pub enum X64Reg {
     RAX = 0, RCX = 1, RDX = 2,  RBX = 3,  RSP = 4,  RBP = 5,  RSI = 6,  RDI = 7,
     R8 = 8,  R9 = 9,  R10 = 10, R11 = 11, R12 = 12, R13 = 13, R14 = 14, R15 = 15,
 }
 
-impl From<X86Reg> for u8 {
-    fn from(value: X86Reg) -> Self {
+impl From<X64Reg> for u8 {
+    fn from(value: X64Reg) -> Self {
         value as u8
     }
 }
 
-impl From<u8> for X86Reg {
+impl From<u8> for X64Reg {
     fn from(value: u8) -> Self {
         debug_assert!(value <= 15);
         unsafe { std::mem::transmute(value) }
     }
 }
 
-impl X86Reg {
+impl X64Reg {
     #[inline]
     pub fn base(self) -> u8 {
         (self as u8) & 7
@@ -125,7 +125,7 @@ impl X86Reg {
     }
 
     #[cfg(target_family = "windows")]
-    pub const CALLER_SAVES: &[X86Reg] = &[
+    pub const CALLER_SAVES: &[X64Reg] = &[
         Self::RAX,
         Self::RCX,
         Self::RDX,
@@ -136,7 +136,7 @@ impl X86Reg {
     ];
 
     #[cfg(not(target_family = "windows"))]
-    pub const CALLER_SAVES: &[X86Reg] = &[
+    pub const CALLER_SAVES: &[X64Reg] = &[
         Self::RAX,
         Self::RCX,
         Self::RDX,
@@ -152,16 +152,16 @@ impl X86Reg {
 const fn caller_save_mask() -> u32 {
     let mut rst = 0;
     let mut index = 0;
-    while index < X86Reg::CALLER_SAVES.len() {
-        rst |= 1 << (X86Reg::CALLER_SAVES[index] as u8);
+    while index < X64Reg::CALLER_SAVES.len() {
+        rst |= 1 << (X64Reg::CALLER_SAVES[index] as u8);
         index += 1;
     }
     rst
 }
 
-impl TargetReg for X86Reg {
+impl TargetReg for X64Reg {
     const REG_MASK: u32 = u16::MAX as u32;
-    const CALLER_SAVE_MASK: u32 = X86Reg::CALLER_SAVE_MASK;
+    const CALLER_SAVE_MASK: u32 = X64Reg::CALLER_SAVE_MASK;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -183,7 +183,7 @@ impl OperandSize {
         matches!(self, Self::Word)
     }
 
-    /// The x86 opcode width bit (`w`): bit 0 is 0 for 8-bit, 1 for full-width (16/32/64-bit).
+    /// The x64 opcode width bit (`w`): bit 0 is 0 for 8-bit, 1 for full-width (16/32/64-bit).
     #[inline]
     pub const fn w_bit(self) -> u8 {
         match self {
@@ -265,22 +265,22 @@ pub enum ConditionCode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RegMem {
-    Reg(X86Reg),
-    Mem(X86Reg),
-    MemDisp8(X86Reg, i8),
-    MemDisp32(X86Reg, i32),
+    Reg(X64Reg),
+    Mem(X64Reg),
+    MemDisp8(X64Reg, i8),
+    MemDisp32(X64Reg, i32),
 }
 
-impl From<X86Reg> for RegMem {
+impl From<X64Reg> for RegMem {
     #[inline]
-    fn from(r: X86Reg) -> Self {
+    fn from(r: X64Reg) -> Self {
         RegMem::Reg(r)
     }
 }
 
 impl RegMem {
     #[inline]
-    pub fn from_disp(reg: X86Reg, disp: impl Into<i32>) -> Self {
+    pub fn from_disp(reg: X64Reg, disp: impl Into<i32>) -> Self {
         let disp: i32 = disp.into();
         if disp == 0 {
             RegMem::Mem(reg)
@@ -292,7 +292,7 @@ impl RegMem {
     }
 
     #[inline]
-    pub fn reg(&self) -> X86Reg {
+    pub fn reg(&self) -> X64Reg {
         match *self {
             RegMem::Reg(r) | RegMem::Mem(r) | RegMem::MemDisp8(r, _) | RegMem::MemDisp32(r, _) => r,
         }
@@ -315,15 +315,15 @@ pub enum X64Inst {
         imm: u64,
     },
     /// `movsxd dst, src` (sign-extend 32-bit to 64-bit)
-    Movsxd { dst: X86Reg, src: RegMem },
+    Movsxd { dst: X64Reg, src: RegMem },
     /// `movsx dst, src` (sign-extend 8-bit to 64-bit)
-    Movsx8 { dst: X86Reg, src: RegMem },
+    Movsx8 { dst: X64Reg, src: RegMem },
     /// `movsx dst, src` (sign-extend 16-bit to 64-bit)
-    Movsx16 { dst: X86Reg, src: RegMem },
+    Movsx16 { dst: X64Reg, src: RegMem },
     /// `movzx dst, src` (zero-extend 8-bit to 32/64-bit)
-    Movzx8 { dst: X86Reg, src: RegMem },
+    Movzx8 { dst: X64Reg, src: RegMem },
     /// `movzx dst, src` (zero-extend 16-bit to 32/64-bit)
-    Movzx16 { dst: X86Reg, src: RegMem },
+    Movzx16 { dst: X64Reg, src: RegMem },
 
     // --- Arithmetic & Logic ---
     /// `op dst, src`
@@ -331,7 +331,7 @@ pub enum X64Inst {
         op: AluOp,
         size: OperandSize,
         dst: RegMem,
-        src: X86Reg,
+        src: X64Reg,
     },
     /// `op dst, imm`
     AluImm {
@@ -344,7 +344,7 @@ pub enum X64Inst {
     Test {
         size: OperandSize,
         dst: RegMem,
-        src: X86Reg,
+        src: X64Reg,
     },
     /// `test dst, imm`
     TestImm {
@@ -372,20 +372,20 @@ pub enum X64Inst {
     /// `cmovcc dst, src`
     Cmovcc {
         condition: ConditionCode,
-        dst: X86Reg,
+        dst: X64Reg,
         src: RegMem,
     },
     /// `setcc dst`
     Setcc {
         condition: ConditionCode,
-        dst: X86Reg,
+        dst: X64Reg,
     },
 
     // --- Control flow ---
     /// `call target`
-    Call { target: X86Reg },
+    Call { target: X64Reg },
     /// `jmp target`
-    Jmp { target: X86Reg },
+    Jmp { target: X64Reg },
     /// `jmp offset` (relative)
     JmpRel { offset: i32 },
     /// `jcc offset` (relative)
