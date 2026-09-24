@@ -8,7 +8,6 @@ pub mod codegen;
 
 pub use codegen::*;
 
-// TODO: rename to x64
 pub struct X64;
 
 impl ISA for X64 {

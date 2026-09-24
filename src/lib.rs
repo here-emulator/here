@@ -1,5 +1,5 @@
 // TODO: Always allow dead code for now, as we want to release the crate while many dead code exists.
-#![allow(dead_code)]
+// #![allow(dead_code)]
 // Only Allow dead code in debug mode
 // #![cfg_attr(debug_assertions, allow(dead_code))]
 #![allow(incomplete_features)]
@@ -15,20 +15,29 @@ compile_error!("feature 'native-cli' is not supported on wasm32 targets");
 compile_error!("feature 'web' requires wasm32 target");
 
 mod clock;
+// TODO: remove these before commit
+#[allow(dead_code)]
 mod cpu;
+#[allow(dead_code)]
 mod fpu;
+#[allow(dead_code)]
 mod utils;
 
 #[cfg(feature = "native-cli")]
+#[allow(dead_code)]
 pub mod gdb;
 
 #[cfg(any(feature = "native-cli", feature = "web"))]
+#[allow(dead_code)]
 pub mod rvdb;
 
 pub mod board;
 pub mod byte_io;
 pub mod config;
+
+#[allow(dead_code)]
 pub mod device;
+#[allow(dead_code)]
 pub mod isa;
 mod jit;
 pub mod load;

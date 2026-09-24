@@ -30,7 +30,7 @@ enum BBCacheEntry {
 }
 
 use super::stats::JitStats;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::fs::File;
 use std::io::BufWriter;
 
@@ -41,7 +41,7 @@ pub struct JitRuntime {
     context: Box<JitContext>,
     icache_epoch: u64,
     basic_blocks: BasicBlockManager,
-    unresolved_chains: HashMap<
+    unresolved_chains: FxHashMap<
         WordType,
         Vec<(
             JitFunction,
@@ -73,7 +73,7 @@ impl JitRuntime {
             context: jit_ctx,
             icache_epoch: 0,
             basic_blocks: BasicBlockManager::new(),
-            unresolved_chains: HashMap::new(),
+            unresolved_chains: FxHashMap::default(),
             dump_file: None,
             stats: JitStats::default(),
         })
@@ -266,12 +266,10 @@ impl JitRuntime {
 }
 
 struct BasicBlockManager {
-    // TODO: BB cache eviction drops JIT function pointers,
-    // leaving old translated blocks unused and causing high JIT memory usage.
-    // `SetCache` is used to improve hit rates and ease this issue.
-    // - use a quick hashmap (maybe `rustc_hash::FxHashMap`) for secondary lookup
-    // - consider if we should reset jit buffer if its too large
-    cache: Cache<SetCache<BBCacheEntry, 4096, 8>>,
+    // BB cache must never evict or have at least 99.5% hit rate,
+    // because eviction drops JIT function pointers,
+    // leaving old translated blocks forgotten and causing high JIT memory usage.
+    cache: Cache<ChainedCache<DirectCache<BBCacheEntry, 4096>, FxCache<BBCacheEntry>>>,
     jit_buffer: JitBuffer,
 }
 

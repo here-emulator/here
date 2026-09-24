@@ -40,15 +40,10 @@ impl JitContext {
         context_ref.exception = Some((exception, tval));
         unsafe { jit_abort(context_ref) }
     }
-
-    #[inline]
-    pub unsafe fn abort(&mut self) -> ! {
-        unsafe { jit_abort(self) }
-    }
 }
 
 #[inline]
-pub unsafe fn jit_abort(context: &mut JitContext) -> ! {
+unsafe fn jit_abort(context: &mut JitContext) -> ! {
     unsafe { arch::abort_jit_unwind(&context.arch) }
 }
 

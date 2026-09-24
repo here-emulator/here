@@ -20,7 +20,7 @@ pub enum IRInst {
         dst: VReg,
         src: GuestReg,
     },
-    // TODO: Trace vreg to guest reg mapping, instead of a dedicated Inst.
+    // TODO: Consider trace vreg to guest reg mapping, instead of a dedicated Inst.
     SetReg {
         dst: GuestReg,
         src: VReg,

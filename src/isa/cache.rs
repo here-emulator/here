@@ -1,4 +1,5 @@
-use std::cell::Cell;
+use rustc_hash::FxHashMap;
+use std::cell::{Cell, RefCell};
 
 use crate::config::arch_config::WordType;
 
@@ -241,6 +242,116 @@ impl<T: Cacheable> CachePolicy for NullCache<T> {
     fn clear(&mut self) {}
 }
 
+pub type FxCache<T> = FxHashMap<WordType, T>;
+
+impl<T: Cacheable> CachePolicy for FxHashMap<WordType, T> {
+    type T = T;
+
+    fn new() -> Self {
+        Self::default()
+    }
+
+    #[inline]
+    fn get(&self, addr: WordType) -> Option<T> {
+        self.get(&addr).copied()
+    }
+
+    #[inline]
+    fn put(&mut self, addr: WordType, data: T) {
+        self.insert(addr, data);
+    }
+
+    #[inline]
+    fn invalidate(&mut self, addr: WordType) {
+        self.remove(&addr);
+    }
+
+    #[inline]
+    fn clear(&mut self) {
+        self.clear();
+    }
+}
+
+/// Chained two-level cache policy.
+///
+/// Lookups query `L1` first. On an `L1` miss, `L2` is queried.
+/// If `L2` hits, the entry is promoted (written back) into `L1`.
+/// Writes and invalidations are applied to both levels.
+pub struct ChainedCache<L1: CachePolicy, L2: CachePolicy<T = L1::T>> {
+    l1: RefCell<L1>,
+    l2: L2,
+}
+
+pub type TwoLevelCache<L1, L2> = ChainedCache<L1, L2>;
+
+impl<L1: CachePolicy, L2: CachePolicy<T = L1::T>> ChainedCache<L1, L2> {
+    pub fn with_layers(l1: L1, l2: L2) -> Self {
+        Self {
+            l1: RefCell::new(l1),
+            l2,
+        }
+    }
+
+    #[inline]
+    pub fn l1(&self) -> &RefCell<L1> {
+        &self.l1
+    }
+
+    #[inline]
+    pub fn l1_mut(&mut self) -> &mut L1 {
+        self.l1.get_mut()
+    }
+
+    #[inline]
+    pub fn l2(&self) -> &L2 {
+        &self.l2
+    }
+
+    #[inline]
+    pub fn l2_mut(&mut self) -> &mut L2 {
+        &mut self.l2
+    }
+}
+
+impl<L1: CachePolicy, L2: CachePolicy<T = L1::T>> CachePolicy for ChainedCache<L1, L2> {
+    type T = L1::T;
+
+    fn new() -> Self {
+        Self {
+            l1: RefCell::new(L1::new()),
+            l2: L2::new(),
+        }
+    }
+
+    #[inline]
+    fn get(&self, addr: WordType) -> Option<Self::T> {
+        if let Some(data) = self.l1.borrow().get(addr) {
+            return Some(data);
+        }
+        let data = self.l2.get(addr)?;
+        self.l1.borrow_mut().put(addr, data);
+        Some(data)
+    }
+
+    #[inline]
+    fn put(&mut self, addr: WordType, data: Self::T) {
+        self.l1.get_mut().put(addr, data);
+        self.l2.put(addr, data);
+    }
+
+    #[inline]
+    fn invalidate(&mut self, addr: WordType) {
+        self.l1.get_mut().invalidate(addr);
+        self.l2.invalidate(addr);
+    }
+
+    #[inline]
+    fn clear(&mut self) {
+        self.l1.get_mut().clear();
+        self.l2.clear();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,6 +391,8 @@ mod tests {
     fn common_cache_tests() {
         test_cache_common::<DirectCache<MockCacheable, 8>>();
         test_cache_common::<SetCache<MockCacheable, 4, 2>>();
+        test_cache_common::<FxCache<MockCacheable>>();
+        test_cache_common::<ChainedCache<DirectCache<MockCacheable, 8>, FxCache<MockCacheable>>>();
     }
 
     #[test]
@@ -297,5 +410,27 @@ mod tests {
         }
 
         assert_eq!(cache.get(8), Some(MockCacheable(8)));
+    }
+
+    #[test]
+    fn test_chained_cache_l1_eviction_and_promotion() {
+        let mut cache =
+            ChainedCache::<DirectCache<MockCacheable, 2>, FxCache<MockCacheable>>::new();
+
+        cache.put(0, MockCacheable(10));
+        cache.put(1, MockCacheable(20));
+        assert_eq!(cache.get(0), Some(MockCacheable(10)));
+        assert_eq!(cache.get(1), Some(MockCacheable(20)));
+
+        // Address 2 collides with address 0 in 2-slot DirectCache (2 & 1 == 0 & 1 == 0).
+        cache.put(2, MockCacheable(30));
+
+        // Address 0 was evicted from L1, but remains in L2.
+        assert_eq!(cache.l1().borrow().get(0), None);
+        assert_eq!(CachePolicy::get(cache.l2(), 0), Some(MockCacheable(10)));
+
+        // Querying address 0 hits L2 and promotes back into L1!
+        assert_eq!(cache.get(0), Some(MockCacheable(10)));
+        assert_eq!(cache.l1().borrow().get(0), Some(MockCacheable(10)));
     }
 }
