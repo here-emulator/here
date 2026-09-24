@@ -1,3 +1,5 @@
+use std::hint::cold_path;
+
 use crate::config::arch_config::WordType;
 use crate::isa::cache::*;
 use crate::isa::riscv::executor::{ExecutorBackend, RVCPU};
@@ -6,7 +8,7 @@ use super::*;
 
 use super::backend::{CodeGenTrait, NativeCodeGen, PatchLoc};
 use super::jit_buffer::JitBuffer;
-use super::new_translator::{TranslateResult, Translator};
+use super::translator::{TranslateResult, Translator};
 
 mod jit_function;
 
@@ -58,7 +60,7 @@ impl JitRuntime {
     // TODO: Error instead of Option
     pub fn try_new() -> Option<Self> {
         let mut jit_ctx = Box::new(JitContext::default());
-        let trans_ctx = new_translator::TranslatorContext {
+        let trans_ctx = translator::TranslatorContext {
             jit_context: jit_ctx.as_mut(),
         };
 
@@ -315,10 +317,6 @@ impl BasicBlockManager {
         self.jit_buffer.peak_used_bytes()
     }
 }
-
-// TODO: migrate from legacy code, can be re-written
-
-use std::hint::cold_path;
 
 impl JitRuntime {
     fn sync_icache_epoch(&mut self, cpu: &RVCPU) {

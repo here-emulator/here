@@ -11,20 +11,23 @@ use crate::{
         executor::RVCPU,
         instruction::{RVInstrInfo, instr_table::RiscvInstr},
     },
-    jit::{
-        helpers::{LoadKind, StoreKind},
-        runtime::JitContext,
-    },
     make_ir,
 };
 
 use super::*;
+
+use super::{
+    helpers::{LoadKind, StoreKind},
+    runtime::JitContext,
+    stats::BlockStopReason,
+};
 
 pub const MAX_BLOCK_INSTRUCTIONS: u64 = 1024;
 
 pub struct TranslateResult {
     pub ir_block: IRBlock,
     pub instr_cnt: u64,
+    /// for stats
     pub guest_bytes: u64,
     pub stop_reason: BlockStopReason,
 }

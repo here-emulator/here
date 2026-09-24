@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use crate::isa::riscv::instruction::instr_table::RiscvInstr;
 #[cfg(feature = "jit-stats")]
-use crate::jit::new_translator::MAX_BLOCK_INSTRUCTIONS;
+use crate::jit::translator::MAX_BLOCK_INSTRUCTIONS;
 
 /// Reason why translation of a basic block terminated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
