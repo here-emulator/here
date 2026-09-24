@@ -28,16 +28,33 @@ pub struct BatchResult {
 }
 
 pub trait ExecutorBackend {
+    fn cpu(&self) -> &RVCPU;
+    fn cpu_mut(&mut self) -> &mut RVCPU;
     /// Execute exactly `cycles` cycles.
-    fn step_batch(&mut self, cpu: &mut RVCPU, cycles: u64);
+    fn step_batch(&mut self, cycles: u64);
 }
 
-#[derive(Default)]
-pub struct InterpreterBackend;
+pub struct InterpreterBackend {
+    pub cpu: Box<RVCPU>,
+}
+
+impl InterpreterBackend {
+    pub fn new(cpu: Box<RVCPU>) -> Self {
+        Self { cpu }
+    }
+}
 
 impl ExecutorBackend for InterpreterBackend {
-    fn step_batch(&mut self, cpu: &mut RVCPU, cycles: u64) {
-        cpu.step_batch(cycles);
+    fn cpu(&self) -> &RVCPU {
+        &self.cpu
+    }
+
+    fn cpu_mut(&mut self) -> &mut RVCPU {
+        &mut self.cpu
+    }
+
+    fn step_batch(&mut self, cycles: u64) {
+        self.cpu.step_batch(cycles);
     }
 }
 

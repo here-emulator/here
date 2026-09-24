@@ -79,11 +79,6 @@ impl RegAllocState {
     }
 
     #[inline]
-    fn unpin(&mut self, reg: u8) {
-        self.inst_pinned_mask &= !(1 << reg);
-    }
-
-    #[inline]
     fn clear_inst_pins(&mut self) {
         self.inst_pinned_mask = 0;
     }

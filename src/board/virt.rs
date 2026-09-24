@@ -87,6 +87,7 @@ pub enum ExecutorBackendKind {
 fn create_executor_backend(
     kind: ExecutorBackendKind,
     dump_jit: Option<&Path>,
+    cpu: Box<RVCPU>,
 ) -> Result<Box<dyn ExecutorBackend>, String> {
     match kind {
         ExecutorBackendKind::Interpreter => {
@@ -95,10 +96,10 @@ fn create_executor_backend(
                     "dump-jit option was provided, but executor backend is Interpreter; ignoring"
                 );
             }
-            Ok(Box::new(InterpreterBackend))
+            Ok(Box::new(InterpreterBackend::new(cpu)))
         }
         ExecutorBackendKind::Jit => {
-            let mut jit = crate::jit::JitRuntime::try_new().ok_or_else(|| {
+            let mut jit = crate::jit::JitRuntime::try_new(cpu).ok_or_else(|| {
                 "JIT executor backend is not supported on this platform".to_string()
             })?;
             if let Some(path) = dump_jit {
@@ -380,8 +381,6 @@ impl RVBoardBuilder {
 
         let decoder = self.decoder.take().unwrap_or_else(Decoder::new);
         let mut cpu = Box::new(RVCPU::from_decoder(decoder, vaddr_manager));
-        let executor_backend =
-            create_executor_backend(self.executor_backend, self.dump_jit.as_deref())?;
 
         for (register, value) in self.initial_registers {
             cpu.write_reg(register, value);
@@ -425,9 +424,11 @@ impl RVBoardBuilder {
             VirtBoardPlicContextId::Cpu0SuperviserMode.into(),
         );
 
+        let executor_backend =
+            create_executor_backend(self.executor_backend, self.dump_jit.as_deref(), cpu)?;
+
         Ok(VirtBoard {
             loader: None,
-            cpu,
             executor_backend,
             cycles,
             clock,
@@ -449,7 +450,6 @@ impl RVBoardBuilder {
 pub struct VirtBoard {
     loader: Option<ELFLoader>,
 
-    pub cpu: Box<RVCPU>,
     executor_backend: Box<dyn ExecutorBackend>,
     cycles: Rc<Cell<u64>>,
     pub clock: VirtualClock,
@@ -464,11 +464,19 @@ pub struct VirtBoard {
 
     status: BoardStatus,
 
-    // Must remain after `cpu`: MemoryMapIO stores a non-owning pointer into this arena.
+    // Must remain after `executor_backend`: MemoryMapIO stores a non-owning pointer into this arena.
     device_arena: Box<DeviceArena>,
 }
 
 impl VirtBoard {
+    pub fn cpu(&self) -> &RVCPU {
+        self.executor_backend.cpu()
+    }
+
+    pub fn cpu_mut(&mut self) -> &mut RVCPU {
+        self.executor_backend.cpu_mut()
+    }
+
     pub fn device<D: device::DeviceTrait>(&self, handle: DeviceHandle<D>) -> &D {
         self.device_arena.device(handle)
     }
@@ -607,7 +615,7 @@ impl VirtBoard {
         // TODO: We can simply read from `PowerManager` if VirtBoard owns `PowerManager`.
         if POWER_STATUS.load(Ordering::Acquire).eq(&POWER_OFF_CODE) {
             cold_path();
-            self.cpu.power_off();
+            self.executor_backend.cpu_mut().power_off();
             self.status = BoardStatus::Halt;
             log::info!("Total cycles: {}", self.cycles());
         }
@@ -639,11 +647,11 @@ impl Board for VirtBoard {
     }
 
     fn cpu(&self) -> &RVCPU {
-        &self.cpu
+        self.executor_backend.cpu()
     }
 
     fn cpu_mut(&mut self) -> &mut RVCPU {
-        &mut self.cpu
+        self.executor_backend.cpu_mut()
     }
 
     fn loader(&self) -> Option<&crate::load::ELFLoader> {
@@ -652,12 +660,17 @@ impl Board for VirtBoard {
 
     #[inline]
     fn step_batch_with_hook<H: ExecutionHook>(&mut self, cycles: u64, hook: &mut H) -> BatchResult {
-        self.execute_cpu_batch(|board| board.cpu.step_batch_with_hook(cycles, hook))
+        self.execute_cpu_batch(|board| {
+            board
+                .executor_backend
+                .cpu_mut()
+                .step_batch_with_hook(cycles, hook)
+        })
     }
 
     fn step_batch(&mut self, cycles: u64) -> BatchResult {
         self.execute_cpu_batch(|board| {
-            board.executor_backend.step_batch(&mut board.cpu, cycles);
+            board.executor_backend.step_batch(cycles);
             BatchResult {
                 cycles,
                 hook_stopped: false,
@@ -685,7 +698,9 @@ mod tests {
         }
 
         let mut board = VirtBoard::from_ram_with(ram, VirtBoardConfig::new()).unwrap();
-        board.cpu.debug_csr(csr_index::mtvec, Some(0x8000_2000));
+        board
+            .cpu_mut()
+            .debug_csr(csr_index::mtvec, Some(0x8000_2000));
         board
     }
 
@@ -699,7 +714,7 @@ mod tests {
         assert_eq!(executed, requested);
         assert_eq!(board.cycles(), requested);
         assert_eq!(board.clock.now(), requested >> 3);
-        assert_eq!(board.cpu.read_pc(), ram_config::BASE_ADDR + requested * 4);
+        assert_eq!(board.cpu().read_pc(), ram_config::BASE_ADDR + requested * 4);
     }
 
     #[test]
@@ -728,24 +743,24 @@ mod tests {
             VirtBoardConfig::new().with_executor_backend(ExecutorBackendKind::Jit),
         )
         .unwrap();
-        interpreter.cpu.write_reg(2, 7);
-        jit.cpu.write_reg(2, 7);
+        interpreter.cpu_mut().write_reg(2, 7);
+        jit.cpu_mut().write_reg(2, 7);
 
         assert_eq!(interpreter.run_cycles(6), 6);
         assert_eq!(jit.run_cycles(6), 6);
 
-        assert_eq!(jit.cpu.read_pc(), interpreter.cpu.read_pc());
-        assert_eq!(jit.cpu.read_reg(1), interpreter.cpu.read_reg(1));
-        assert_eq!(jit.cpu.read_reg(2), interpreter.cpu.read_reg(2));
-        assert_eq!(jit.cpu.read_reg(3), interpreter.cpu.read_reg(3));
-        assert_eq!(jit.cpu.read_reg(31), interpreter.cpu.read_reg(31));
+        assert_eq!(jit.cpu().read_pc(), interpreter.cpu().read_pc());
+        assert_eq!(jit.cpu().read_reg(1), interpreter.cpu().read_reg(1));
+        assert_eq!(jit.cpu().read_reg(2), interpreter.cpu().read_reg(2));
+        assert_eq!(jit.cpu().read_reg(3), interpreter.cpu().read_reg(3));
+        assert_eq!(jit.cpu().read_reg(31), interpreter.cpu().read_reg(31));
         assert_eq!(
-            jit.cpu.debug_csr(Mcycle::get_index(), None),
-            interpreter.cpu.debug_csr(Mcycle::get_index(), None)
+            jit.cpu_mut().debug_csr(Mcycle::get_index(), None),
+            interpreter.cpu_mut().debug_csr(Mcycle::get_index(), None)
         );
         assert_eq!(
-            jit.cpu.debug_csr(Minstret::get_index(), None),
-            interpreter.cpu.debug_csr(Minstret::get_index(), None)
+            jit.cpu_mut().debug_csr(Minstret::get_index(), None),
+            interpreter.cpu_mut().debug_csr(Minstret::get_index(), None)
         );
     }
 
@@ -769,14 +784,20 @@ mod tests {
             VirtBoardConfig::new().with_executor_backend(ExecutorBackendKind::Jit),
         )
         .unwrap();
-        board.cpu.write_reg(1, 3);
-        board.cpu.write_reg(2, 4);
+        board.cpu_mut().write_reg(1, 3);
+        board.cpu_mut().write_reg(2, 4);
 
         assert_eq!(board.run_cycles(2), 2);
-        assert_eq!(board.cpu.read_pc(), ram_config::BASE_ADDR + 8);
-        assert_eq!(board.cpu.read_reg(1), 13);
-        assert_eq!(board.cpu.debug_csr(Mcycle::get_index(), None), Some(2));
-        assert_eq!(board.cpu.debug_csr(Minstret::get_index(), None), Some(2));
+        assert_eq!(board.cpu().read_pc(), ram_config::BASE_ADDR + 8);
+        assert_eq!(board.cpu().read_reg(1), 13);
+        assert_eq!(
+            board.cpu_mut().debug_csr(Mcycle::get_index(), None),
+            Some(2)
+        );
+        assert_eq!(
+            board.cpu_mut().debug_csr(Minstret::get_index(), None),
+            Some(2)
+        );
     }
 
     #[test]
@@ -800,14 +821,14 @@ mod tests {
 
         assert_eq!(board.run_cycles(1), 1);
         board
-            .cpu
+            .cpu_mut()
             .write_memory(Address::Virt(ram_config::BASE_ADDR), 0x0020_8093_u32)
             .unwrap(); // addi x1, x1, 2
         assert_eq!(board.run_cycles(1), 1);
-        board.cpu.write_pc(ram_config::BASE_ADDR);
+        board.cpu_mut().write_pc(ram_config::BASE_ADDR);
         assert_eq!(board.run_cycles(1), 1);
 
-        assert_eq!(board.cpu.read_reg(1), 3);
+        assert_eq!(board.cpu().read_reg(1), 3);
     }
 
     #[test]
@@ -824,14 +845,14 @@ mod tests {
 
         assert_eq!(board.run_cycles(1), 1);
         board
-            .cpu
+            .cpu_mut()
             .write_memory(Address::Virt(ram_config::BASE_ADDR), 0x0020_8093_u32)
             .unwrap(); // addi x1, x1, 2
-        board.cpu.write_csr(Satp::get_index(), 1).unwrap();
-        board.cpu.write_pc(ram_config::BASE_ADDR);
+        board.cpu_mut().write_csr(Satp::get_index(), 1).unwrap();
+        board.cpu_mut().write_pc(ram_config::BASE_ADDR);
         assert_eq!(board.run_cycles(1), 1);
 
-        assert_eq!(board.cpu.read_reg(1), 3);
+        assert_eq!(board.cpu().read_reg(1), 3);
     }
 
     #[test]
@@ -875,7 +896,7 @@ mod tests {
         assert!(result.hook_stopped);
         assert_eq!(hook.0, [ram_config::BASE_ADDR, ram_config::BASE_ADDR + 4]);
         assert_eq!(board.cycles(), 2);
-        assert_eq!(board.cpu.read_reg(1), 2);
+        assert_eq!(board.cpu().read_reg(1), 2);
     }
 
     #[test]
@@ -893,11 +914,11 @@ mod tests {
 
         let mut board = VirtBoard::from_ram_with(ram, config).unwrap();
 
-        assert_eq!(board.cpu.read_reg(11), image_address);
+        assert_eq!(board.cpu().read_reg(11), image_address);
         for (offset, expected) in image.into_iter().enumerate() {
             assert_eq!(
                 board
-                    .cpu
+                    .cpu_mut()
                     .read_memory::<u8>(Address::Phys(image_address as u64 + offset as u64))
                     .unwrap(),
                 expected
@@ -1115,21 +1136,21 @@ mod tests {
         // Mask writes cancel an outstanding deadline, so configure it before
         // the interval registers that schedule the timer.
         board
-            .cpu
+            .cpu_mut()
             .write_memory(
                 Address::Phys(SAMPLE_TIMER_BASE + size_of::<u32>() as WordType),
                 1u32,
             )
             .unwrap();
         board
-            .cpu
+            .cpu_mut()
             .write_memory(
                 Address::Phys(SAMPLE_TIMER_BASE + 2 * size_of::<u32>() as WordType),
                 10u32,
             )
             .unwrap();
         board
-            .cpu
+            .cpu_mut()
             .write_memory(
                 Address::Phys(SAMPLE_TIMER_BASE + 3 * size_of::<u32>() as WordType),
                 0u32,
@@ -1141,7 +1162,7 @@ mod tests {
 
         // Clear the device before completing the level-triggered PLIC interrupt.
         board
-            .cpu
+            .cpu_mut()
             .write_memory(Address::Phys(SAMPLE_TIMER_BASE), 1u32)
             .unwrap();
         board

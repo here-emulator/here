@@ -308,7 +308,7 @@ fn dump_signature(
         match step {
             4 => {
                 let v = board
-                    .cpu
+                    .cpu_mut()
                     .read_memory::<u32>(Address::Phys(addr))
                     .map_err(|e| format!("Failed to read signature @0x{:x}: {:?}", addr, e))?;
                 use std::io::Write;
@@ -317,7 +317,7 @@ fn dump_signature(
             }
             8 => {
                 let v = board
-                    .cpu
+                    .cpu_mut()
                     .read_memory::<u64>(Address::Phys(addr))
                     .map_err(|e| format!("Failed to read signature @0x{:x}: {:?}", addr, e))?;
                 use std::io::Write;

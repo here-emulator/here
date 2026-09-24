@@ -42,6 +42,7 @@ struct InstrMeta {
 /// Info that is immutable during translation.
 pub struct TranslatorContext {
     pub jit_context: *mut JitContext,
+    pub ialign: WordType,
 }
 
 pub struct Translator {
@@ -92,8 +93,12 @@ impl Translator {
             let v1 = builder.compute(ComputeKind::Add, base, offset.into());
             builder.compute(ComputeKind::And, v1, (!1).into()) // clear LSB, see the manual
         } else {
-            // TODO: check ialign here
-            meta.instr_pc.wrapping_add(offset).into()
+            let target = meta.instr_pc.wrapping_add(offset);
+            if (target & (self.trans_context.ialign - 1)) != 0 {
+                self.ir_builder = builder;
+                return None;
+            }
+            target.into()
         };
 
         if let Some(rd) = rd {
@@ -128,17 +133,17 @@ impl Translator {
             _ => debug_unreachable!(),
         };
 
-        let mut builder = self.take_builder();
-
         let target = meta.instr_pc.wrapping_add(offset) as u64;
         let fallthrough = meta.instr_pc.wrapping_add(inst.len()) as u64;
 
+        if (target & (self.trans_context.ialign as u64 - 1)) != 0 {
+            return None;
+        }
+
+        let mut builder = self.take_builder();
+
         let rs1 = builder.get_reg(rs1.into());
         let rs2 = builder.get_reg(rs2.into());
-
-        // TODO: Check ialign here. It's a bit difficult,
-        // cause maybe we have to emit branches, or call helper unconditionally.
-        // What about check ialign when exiting BB? Is it too expensive?
 
         let block = builder.build_branch(kind, rs1, rs2, target, fallthrough);
         Some(block)
@@ -433,5 +438,71 @@ impl Translator {
         }
         self.ir_builder = IRBuilder::default();
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ialign_checks_jal_and_branch() {
+        let mut translator_align4 = Translator::new(TranslatorContext {
+            jit_context: std::ptr::null_mut(),
+            ialign: 4,
+        });
+
+        let mut translator_align2 = Translator::new(TranslatorContext {
+            jit_context: std::ptr::null_mut(),
+            ialign: 2,
+        });
+
+        // 1. JAL aligned to 4 bytes: PC = 0x1000, imm = 8 => target = 0x1008 (aligned)
+        let res = translator_align4.translate_single_instruction(
+            0x1000,
+            RiscvInstr::JAL,
+            RVInstrInfo::J { rd: 1, imm: 8 },
+        );
+        assert!(res.is_some());
+
+        // 2. JAL not aligned to 4 bytes: PC = 0x1000, imm = 2 => target = 0x1002 (misaligned when ialign=4)
+        let res = translator_align4.translate_single_instruction(
+            0x1000,
+            RiscvInstr::JAL,
+            RVInstrInfo::J { rd: 1, imm: 2 },
+        );
+        assert!(res.is_none());
+
+        // 3. JAL with imm = 2 is valid when ialign = 2 (C extension)
+        let res = translator_align2.translate_single_instruction(
+            0x1000,
+            RiscvInstr::JAL,
+            RVInstrInfo::J { rd: 1, imm: 2 },
+        );
+        assert!(res.is_some());
+
+        // 4. Branch not aligned to 4 bytes: PC = 0x1000, imm = 2 => target = 0x1002 (misaligned when ialign=4)
+        let res = translator_align4.translate_single_instruction(
+            0x1000,
+            RiscvInstr::BEQ,
+            RVInstrInfo::B {
+                rs1: 1,
+                rs2: 2,
+                imm: 2,
+            },
+        );
+        assert!(res.is_none());
+
+        // 5. Branch aligned to 4 bytes: PC = 0x1000, imm = 4 => target = 0x1004 (valid)
+        let res = translator_align4.translate_single_instruction(
+            0x1000,
+            RiscvInstr::BEQ,
+            RVInstrInfo::B {
+                rs1: 1,
+                rs2: 2,
+                imm: 4,
+            },
+        );
+        assert!(res.is_some());
     }
 }

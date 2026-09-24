@@ -55,7 +55,10 @@ fn run_test(elf_path: &Path) -> bool {
             // Handle tohost
             let instr_cnt = board.cycles();
             if (instr_cnt & (0xFFF)) == 0 {
-                let msg = board.cpu.read_memory::<u64>(Address::Phys(tohost)).unwrap();
+                let msg = board
+                    .cpu_mut()
+                    .read_memory::<u64>(Address::Phys(tohost))
+                    .unwrap();
 
                 if msg != 0 {
                     run_result = msg == 1;

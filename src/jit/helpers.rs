@@ -1,29 +1,4 @@
-use crate::{
-    config::arch_config::WordType,
-    isa::riscv::{executor::RVCPU, trap::Exception},
-    jit::runtime::JitContext,
-};
-
-unsafe extern "C" fn helper_check_instruction_alignment(
-    target: WordType,
-    context: *mut JitContext,
-    guest_pc: WordType,
-    consumed_cycles: u64,
-) -> WordType {
-    if (target & 0x3) == 0 {
-        target
-    } else {
-        unsafe {
-            JitContext::raise(
-                context,
-                guest_pc,
-                consumed_cycles,
-                Exception::InstructionMisaligned,
-                target,
-            )
-        }
-    }
-}
+use crate::{config::arch_config::WordType, isa::riscv::executor::RVCPU, jit::runtime::JitContext};
 
 macro_rules! define_load_helper {
     ($helper:ident, $ty:ty) => {
@@ -143,8 +118,4 @@ impl StoreKind {
         };
         helper as u64
     }
-}
-
-pub(super) fn check_instruction_alignment_helper() -> u64 {
-    helper_check_instruction_alignment as *const () as u64
 }

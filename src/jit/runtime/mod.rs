@@ -35,6 +35,7 @@ use std::fs::File;
 use std::io::BufWriter;
 
 pub struct JitRuntime {
+    pub cpu: Box<RVCPU>,
     frontend: Translator,
     backend: NativeCodeGen,
     context: Box<JitContext>,
@@ -58,13 +59,15 @@ impl JitRuntime {
     }
 
     // TODO: Error instead of Option
-    pub fn try_new() -> Option<Self> {
+    pub fn try_new(mut cpu: Box<RVCPU>) -> Option<Self> {
         let mut jit_ctx = Box::new(JitContext::default());
         let trans_ctx = translator::TranslatorContext {
             jit_context: jit_ctx.as_mut(),
+            ialign: cpu.instruction_alignment(),
         };
 
         Some(Self {
+            cpu,
             frontend: Translator::new(trans_ctx),
             backend: NativeCodeGen::try_new()?,
             context: jit_ctx,
@@ -104,13 +107,13 @@ impl JitRuntime {
         self.dump_file = None;
     }
 
-    fn compile(&mut self, cpu: &mut RVCPU, pc: WordType) -> Option<BasicBlock> {
+    fn compile(&mut self, pc: WordType) -> Option<BasicBlock> {
         let TranslateResult {
             ir_block,
             instr_cnt,
             guest_bytes,
             stop_reason,
-        } = match self.frontend.translate(cpu, pc) {
+        } = match self.frontend.translate(&mut self.cpu, pc) {
             Ok(res) => res,
             Err(stop_reason) => {
                 self.stats.record_unsupported_first_instr(stop_reason);
@@ -200,28 +203,28 @@ impl JitRuntime {
         Some(BasicBlock { func })
     }
 
-    fn get_or_compile(&mut self, cpu: &mut RVCPU, pc: WordType) -> BBCacheEntry {
-        self.basic_blocks.try_get(pc).unwrap_or_else(|| {
-            let entry = match self.compile(cpu, pc) {
-                Some(bb) => BBCacheEntry::Compiled(bb),
-                None => BBCacheEntry::InterpreterOnly,
-            };
-            self.basic_blocks.put(pc, entry);
-            entry
-        })
+    fn get_or_compile(&mut self, pc: WordType) -> BBCacheEntry {
+        if let Some(entry) = self.basic_blocks.try_get(pc) {
+            return entry;
+        }
+        let entry = match self.compile(pc) {
+            Some(bb) => BBCacheEntry::Compiled(bb),
+            None => BBCacheEntry::InterpreterOnly,
+        };
+        self.basic_blocks.put(pc, entry);
+        entry
     }
 
     #[cfg(test)]
     #[inline(never)]
     pub fn try_execute_instruction_for_test(
         &mut self,
-        cpu: &mut RVCPU,
         instr: crate::isa::riscv::instruction::instr_table::RiscvInstr,
         info: crate::isa::riscv::instruction::RVInstrInfo,
     ) -> bool {
         let Some(ir_block) = self
             .frontend
-            .translate_single_instruction(cpu.pc, instr, info)
+            .translate_single_instruction(self.cpu.pc, instr, info)
         else {
             return false;
         };
@@ -236,7 +239,7 @@ impl JitRuntime {
             let _ = writeln!(
                 file,
                 "; === Test Instruction guest PC: {:#018x} ===",
-                cpu.pc
+                self.cpu.pc
             );
             let _ = writeln!(
                 file,
@@ -257,7 +260,7 @@ impl JitRuntime {
         let func = unsafe { self.basic_blocks.emit_code(cb.buf) };
         let bb = BasicBlock { func };
         self.context.budget = 1;
-        self.run_jit_block(cpu, bb);
+        self.run_jit_block(bb);
         true
     }
 }
@@ -319,8 +322,8 @@ impl BasicBlockManager {
 }
 
 impl JitRuntime {
-    fn sync_icache_epoch(&mut self, cpu: &RVCPU) {
-        let epoch = cpu.icache_epoch();
+    fn sync_icache_epoch(&mut self) {
+        let epoch = self.cpu.icache_epoch();
         if epoch == self.icache_epoch {
             return;
         }
@@ -336,32 +339,33 @@ impl JitRuntime {
         self.context.budget -= cycles;
     }
 
-    fn run_interpreter(&mut self, cpu: &mut RVCPU, cycles: u64) {
+    fn run_interpreter(&mut self, cycles: u64) {
         self.stats.record_interpreter_cycles(cycles);
-        cpu.step_batch_no_interrupt(cycles);
+        self.cpu.step_batch_no_interrupt(cycles);
         self.consume_cycles(cycles);
     }
 
-    fn run_jit_block(&mut self, cpu: &mut RVCPU, mut bb: BasicBlock) {
+    fn run_jit_block(&mut self, mut bb: BasicBlock) {
         self.stats.record_jit_invocation();
         let initial_budget = self.context.budget;
-        let (next_pc, has_exception) = unsafe { bb.func.call(cpu, self.context.as_mut()) };
+        let (next_pc, has_exception) =
+            unsafe { bb.func.call(self.cpu.as_mut(), self.context.as_mut()) };
         if has_exception {
-            self.handle_exception_exit(cpu, initial_budget);
+            self.handle_exception_exit(initial_budget);
             return;
         }
         let consumed = initial_budget - self.context.budget;
         if consumed == 0 {
             self.stats.record_out_of_budget();
             let remaining = self.context.budget;
-            self.run_interpreter(cpu, remaining);
+            self.run_interpreter(remaining);
             return;
         }
         self.stats.record_jit_cycles(consumed);
-        cpu.finish_jit_block(next_pc, consumed, None);
+        self.cpu.finish_jit_block(next_pc, consumed, None);
     }
 
-    fn handle_exception_exit(&mut self, cpu: &mut RVCPU, initial_budget: u64) {
+    fn handle_exception_exit(&mut self, initial_budget: u64) {
         self.stats.record_exception_exit();
         let (exception, tval) = self
             .context
@@ -371,7 +375,36 @@ impl JitRuntime {
         let consumed = initial_budget - self.context.budget;
         let instr_count = consumed - 1;
         self.stats.record_jit_cycles(instr_count);
-        cpu.finish_jit_block(self.context.guest_pc, instr_count, Some((exception, tval)));
+        self.cpu
+            .finish_jit_block(self.context.guest_pc, instr_count, Some((exception, tval)));
+    }
+
+    pub fn step_batch(&mut self, cycles: u64) {
+        if cycles == 0 {
+            return;
+        }
+
+        debug_assert_eq!(self.context.exception, None);
+        self.context.budget = cycles;
+
+        if self.cpu.try_take_pending_interrupt() {
+            self.stats.record_interpreter_cycles(1);
+            self.consume_cycles(1);
+        }
+
+        while self.context.budget > 0 {
+            self.sync_icache_epoch();
+
+            match self.get_or_compile(self.cpu.pc) {
+                BBCacheEntry::Compiled(bb) => {
+                    self.run_jit_block(bb);
+                }
+                BBCacheEntry::InterpreterOnly => {
+                    self.run_interpreter(1);
+                    continue;
+                }
+            }
+        }
     }
 }
 
@@ -396,32 +429,16 @@ impl Drop for JitRuntime {
 }
 
 impl ExecutorBackend for JitRuntime {
-    fn step_batch(&mut self, cpu: &mut RVCPU, cycles: u64) {
-        if cycles == 0 {
-            return;
-        }
+    fn cpu(&self) -> &RVCPU {
+        &self.cpu
+    }
 
-        debug_assert_eq!(self.context.exception, None);
-        self.context.budget = cycles;
+    fn cpu_mut(&mut self) -> &mut RVCPU {
+        &mut self.cpu
+    }
 
-        if cpu.try_take_pending_interrupt() {
-            self.stats.record_interpreter_cycles(1);
-            self.consume_cycles(1);
-        }
-
-        while self.context.budget > 0 {
-            self.sync_icache_epoch(cpu);
-
-            match self.get_or_compile(cpu, cpu.pc) {
-                BBCacheEntry::Compiled(bb) => {
-                    self.run_jit_block(cpu, bb);
-                }
-                BBCacheEntry::InterpreterOnly => {
-                    self.run_interpreter(cpu, 1);
-                    continue;
-                }
-            }
-        }
+    fn step_batch(&mut self, cycles: u64) {
+        self.step_batch(cycles);
     }
 }
 
@@ -453,7 +470,7 @@ mod tests {
         // Block 3 (BASE_ADDR + 16):
         //   addi x3, x3, 30 (0x01e18193)
         //   jal x0, 0       (0x0000006f) -> self-loop
-        let mut cpu = TestCPUBuilder::new()
+        let cpu = TestCPUBuilder::new()
             .pc(BASE_ADDR)
             .mem_base(0, 0x00a0_8093_u32)
             .mem_base(4, 0x0040_006f_u32)
@@ -463,28 +480,28 @@ mod tests {
             .mem_base(20, 0x0000_006f_u32)
             .build();
 
-        let mut jit = JitRuntime::try_new().unwrap();
+        let mut jit = JitRuntime::try_new(cpu).unwrap();
 
         // Run 4 cycles: executes Block 1 (2 insts) and Block 2 (2 insts).
         // During compilation of Block 2, Block 1's forward jump is patched (resolved).
-        jit.step_batch(&mut cpu, 4);
-        assert_eq!(cpu.pc, BASE_ADDR + 16);
-        assert_eq!(cpu.read_reg(1), 10);
-        assert_eq!(cpu.read_reg(2), 20);
-        assert_eq!(cpu.read_reg(3), 0);
-        assert_eq!(cpu.debug_csr(Mcycle::get_index(), None), Some(4));
-        assert_eq!(cpu.debug_csr(Minstret::get_index(), None), Some(4));
+        jit.step_batch(4);
+        assert_eq!(jit.cpu.pc, BASE_ADDR + 16);
+        assert_eq!(jit.cpu.read_reg(1), 10);
+        assert_eq!(jit.cpu.read_reg(2), 20);
+        assert_eq!(jit.cpu.read_reg(3), 0);
+        assert_eq!(jit.cpu.debug_csr(Mcycle::get_index(), None), Some(4));
+        assert_eq!(jit.cpu.debug_csr(Minstret::get_index(), None), Some(4));
 
         // Reset PC back to Block 1. Both blocks are now compiled and chained!
-        cpu.pc = BASE_ADDR;
+        jit.cpu.pc = BASE_ADDR;
         // Running 4 cycles will jump directly from Block 1 into Block 2 in host machine code.
-        jit.step_batch(&mut cpu, 4);
-        assert_eq!(cpu.pc, BASE_ADDR + 16);
-        assert_eq!(cpu.read_reg(1), 20);
-        assert_eq!(cpu.read_reg(2), 40);
-        assert_eq!(cpu.read_reg(3), 0);
-        assert_eq!(cpu.debug_csr(Mcycle::get_index(), None), Some(8));
-        assert_eq!(cpu.debug_csr(Minstret::get_index(), None), Some(8));
+        jit.step_batch(4);
+        assert_eq!(jit.cpu.pc, BASE_ADDR + 16);
+        assert_eq!(jit.cpu.read_reg(1), 20);
+        assert_eq!(jit.cpu.read_reg(2), 40);
+        assert_eq!(jit.cpu.read_reg(3), 0);
+        assert_eq!(jit.cpu.debug_csr(Mcycle::get_index(), None), Some(8));
+        assert_eq!(jit.cpu.debug_csr(Minstret::get_index(), None), Some(8));
     }
 
     #[test]
@@ -499,7 +516,7 @@ mod tests {
         // Block 2 (BASE_ADDR + 8):
         //   addi x2, x2, 20 (0x01410113)
         //   jal x0, 0       (0x0000006f) -> self-loop
-        let mut cpu = TestCPUBuilder::new()
+        let cpu = TestCPUBuilder::new()
             .pc(BASE_ADDR + 8)
             .mem_base(0, 0x00a0_8093_u32)
             .mem_base(4, 0x0040_006f_u32)
@@ -507,18 +524,18 @@ mod tests {
             .mem_base(12, 0x0000_006f_u32)
             .build();
 
-        let mut jit = JitRuntime::try_new().unwrap();
+        let mut jit = JitRuntime::try_new(cpu).unwrap();
 
         // Compile and run Block 2 first:
-        jit.step_batch(&mut cpu, 2);
-        assert_eq!(cpu.read_reg(2), 20);
+        jit.step_batch(2);
+        assert_eq!(jit.cpu.read_reg(2), 20);
 
         // Now point PC to Block 1. When Block 1 compiles, Block 2 is ALREADY in the BB cache.
         // Block 1 will immediately patch its target to Block 2.
-        cpu.pc = BASE_ADDR;
-        jit.step_batch(&mut cpu, 4);
-        assert_eq!(cpu.read_reg(1), 10);
-        assert_eq!(cpu.read_reg(2), 40);
+        jit.cpu.pc = BASE_ADDR;
+        jit.step_batch(4);
+        assert_eq!(jit.cpu.read_reg(1), 10);
+        assert_eq!(jit.cpu.read_reg(2), 40);
     }
 
     #[test]
@@ -534,7 +551,7 @@ mod tests {
         // BASE_ADDR + 8:
         //   addi x2, x2, 100 (0x06400113)
         //   jal  x0, 0       (0x0000006f)
-        let mut cpu = TestCPUBuilder::new()
+        let cpu = TestCPUBuilder::new()
             .pc(BASE_ADDR)
             .reg(1, 50)
             .mem_base(0, 0xfff0_8093_u32)
@@ -543,16 +560,16 @@ mod tests {
             .mem_base(12, 0x0000_006f_u32)
             .build();
 
-        let mut jit = JitRuntime::try_new().unwrap();
+        let mut jit = JitRuntime::try_new(cpu).unwrap();
 
         // 50 iterations * 2 insts + 1 fallthrough inst (addi x2) + 1 (jal x0, 0) = 102 cycles
-        jit.step_batch(&mut cpu, 102);
+        jit.step_batch(102);
 
-        assert_eq!(cpu.read_reg(1), 0);
-        assert_eq!(cpu.read_reg(2), 100);
-        assert_eq!(cpu.pc, BASE_ADDR + 12);
-        assert_eq!(cpu.debug_csr(Mcycle::get_index(), None), Some(102));
-        assert_eq!(cpu.debug_csr(Minstret::get_index(), None), Some(102));
+        assert_eq!(jit.cpu.read_reg(1), 0);
+        assert_eq!(jit.cpu.read_reg(2), 100);
+        assert_eq!(jit.cpu.pc, BASE_ADDR + 12);
+        assert_eq!(jit.cpu.debug_csr(Mcycle::get_index(), None), Some(102));
+        assert_eq!(jit.cpu.debug_csr(Minstret::get_index(), None), Some(102));
     }
 
     #[test]
@@ -565,28 +582,28 @@ mod tests {
         // BASE_ADDR:
         //   addi x1, x1, -1 (0xfff08093)
         //   bne  x1, x0, -4 (0xfe009ee3)
-        let mut cpu = TestCPUBuilder::new()
+        let cpu = TestCPUBuilder::new()
             .pc(BASE_ADDR)
             .reg(1, 50)
             .mem_base(0, 0xfff0_8093_u32)
             .mem_base(4, 0xfe00_9ee3_u32)
             .build();
 
-        let mut jit = JitRuntime::try_new().unwrap();
+        let mut jit = JitRuntime::try_new(cpu).unwrap();
 
         // Run with budget = 25 cycles (odd number of cycles).
         // 12 iterations in JIT = 24 instructions.
         // Remaining budget = 1, insufficient for 2-inst block.
         // Out-of-budget exit triggers, consumed = 0, falls back to interpreter for 1 cycle.
         // Total instructions executed = 25 (12 * 2 + 1 = 25).
-        jit.step_batch(&mut cpu, 25);
+        jit.step_batch(25);
 
         // x1 decremented 13 times (12 times in JIT, 1 time in interpreter): 50 - 13 = 37.
-        assert_eq!(cpu.read_reg(1), 37);
+        assert_eq!(jit.cpu.read_reg(1), 37);
         // PC after interpreter runs addi at BASE_ADDR is BASE_ADDR + 4.
-        assert_eq!(cpu.pc, BASE_ADDR + 4);
-        assert_eq!(cpu.debug_csr(Mcycle::get_index(), None), Some(25));
-        assert_eq!(cpu.debug_csr(Minstret::get_index(), None), Some(25));
+        assert_eq!(jit.cpu.pc, BASE_ADDR + 4);
+        assert_eq!(jit.cpu.debug_csr(Mcycle::get_index(), None), Some(25));
+        assert_eq!(jit.cpu.debug_csr(Minstret::get_index(), None), Some(25));
     }
 
     #[test]
@@ -598,7 +615,7 @@ mod tests {
         // Initial program:
         // Block 1: addi x1, x1, 10; jal x0, 4
         // Block 2: addi x2, x2, 20; jal x0, 0
-        let mut cpu = TestCPUBuilder::new()
+        let cpu = TestCPUBuilder::new()
             .pc(BASE_ADDR)
             .mem_base(0, 0x00a0_8093_u32)
             .mem_base(4, 0x0040_006f_u32)
@@ -606,26 +623,27 @@ mod tests {
             .mem_base(12, 0x0000_006f_u32)
             .build();
 
-        let mut jit = JitRuntime::try_new().unwrap();
+        let mut jit = JitRuntime::try_new(cpu).unwrap();
 
         // Compile and chain Block 1 -> Block 2:
-        jit.step_batch(&mut cpu, 4);
-        assert_eq!(cpu.read_reg(1), 10);
-        assert_eq!(cpu.read_reg(2), 20);
+        jit.step_batch(4);
+        assert_eq!(jit.cpu.read_reg(1), 10);
+        assert_eq!(jit.cpu.read_reg(2), 20);
 
         // Modify Block 2 in memory: change addi x2, x2, 20 to addi x2, x2, 100
-        cpu.write_memory(Address::Virt(BASE_ADDR + 8), 0x0641_0113_u32)
+        jit.cpu
+            .write_memory(Address::Virt(BASE_ADDR + 8), 0x0641_0113_u32)
             .unwrap();
         // Invalidate icache epoch:
-        cpu.write_csr(Satp::get_index(), 1).unwrap();
+        jit.cpu.write_csr(Satp::get_index(), 1).unwrap();
 
         // Reset PC back to Block 1 and run again:
-        cpu.pc = BASE_ADDR;
-        jit.step_batch(&mut cpu, 4);
+        jit.cpu.pc = BASE_ADDR;
+        jit.step_batch(4);
 
-        assert_eq!(cpu.read_reg(1), 20);
+        assert_eq!(jit.cpu.read_reg(1), 20);
         // Must reflect modified Block 2 instruction (+100 instead of +20)
-        assert_eq!(cpu.read_reg(2), 120);
+        assert_eq!(jit.cpu.read_reg(2), 120);
     }
 
     #[test]
@@ -634,15 +652,15 @@ mod tests {
             return;
         }
 
-        let mut cpu = TestCPUBuilder::new()
+        let cpu = TestCPUBuilder::new()
             .pc(BASE_ADDR)
             .mem_base(0, 0x00a0_8093_u32) // addi x1, x1, 10
             .mem_base(4, 0x0040_006f_u32) // jal x0, 4 (to BASE_ADDR + 8)
             .mem_base(8, 0x0000_006f_u32) // jal x0, 0
             .build();
 
-        let mut jit = JitRuntime::try_new().unwrap();
-        jit.step_batch(&mut cpu, 2);
+        let mut jit = JitRuntime::try_new(cpu).unwrap();
+        jit.step_batch(2);
 
         #[cfg(feature = "jit-stats")]
         {

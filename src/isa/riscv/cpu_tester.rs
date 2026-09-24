@@ -246,15 +246,15 @@ fn run_codegen_if_supported<F>(instr: RiscvInstr, info: RVInstrInfo, build: &F, 
 where
     F: Fn(TestCPUBuilder) -> TestCPUBuilder,
 {
-    let Some(mut jit) = crate::jit::JitRuntime::try_new() else {
+    let jit_cpu = build(TestCPUBuilder::new()).build();
+    let Some(mut jit) = crate::jit::JitRuntime::try_new(jit_cpu) else {
         return;
     };
-    let mut jit_cpu = build(TestCPUBuilder::new()).build();
-    if !jit.try_execute_instruction_for_test(&mut jit_cpu, instr, info) {
+    if !jit.try_execute_instruction_for_test(instr, info) {
         return;
     }
 
-    assert_register_state_eq("jit/interpreter", interpreter, &jit_cpu);
+    assert_register_state_eq("jit/interpreter", interpreter, &jit.cpu);
 }
 
 pub fn run_test_exec<F, G>(instr: RiscvInstr, info: RVInstrInfo, build: F, check: G)
@@ -306,13 +306,11 @@ where
     }
     check(CPUChecker::new(&mut cpu));
 
-    if let Some(mut jit) = crate::jit::JitRuntime::try_new() {
-        use crate::isa::riscv::executor::ExecutorBackend;
-
-        let mut jit_cpu = make_cpu();
-        jit.step_batch(&mut jit_cpu, raw_instrs.len() as u64);
-        check(CPUChecker::new(&mut jit_cpu));
-        assert_execution_state_eq("JIT executor/interpreter", &mut cpu, &mut jit_cpu);
+    let jit_cpu = make_cpu();
+    if let Some(mut jit) = crate::jit::JitRuntime::try_new(jit_cpu) {
+        jit.step_batch(raw_instrs.len() as u64);
+        check(CPUChecker::new(&mut jit.cpu));
+        assert_execution_state_eq("JIT executor/interpreter", &mut cpu, &mut jit.cpu);
     }
 }
 
