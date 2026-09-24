@@ -27,6 +27,7 @@ enum BBCacheEntry {
     InterpreterOnly,
 }
 
+use super::stats::JitStats;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufWriter;
@@ -47,6 +48,7 @@ pub struct JitRuntime {
     // TODO: remove with a local variable when longjmp/setjmp is replaced
     block_initial_budget: u64,
     dump_file: Option<BufWriter<File>>,
+    pub stats: JitStats,
 }
 
 impl JitRuntime {
@@ -71,6 +73,7 @@ impl JitRuntime {
             unresolved_chains: HashMap::new(),
             block_initial_budget: 0,
             dump_file: None,
+            stats: JitStats::default(),
         })
     }
 
@@ -106,9 +109,19 @@ impl JitRuntime {
         let TranslateResult {
             ir_block,
             instr_cnt,
-        } = self.frontend.translate(cpu, pc)?;
+            guest_bytes,
+            stop_reason,
+        } = match self.frontend.translate(cpu, pc) {
+            Ok(res) => res,
+            Err(stop_reason) => {
+                self.stats.record_unsupported_first_instr(stop_reason);
+                return None;
+            }
+        };
 
         let cb = self.backend.compile(&ir_block);
+        self.stats
+            .record_compile(instr_cnt, guest_bytes, cb.buf.len(), stop_reason);
 
         if let Some(ref mut file) = self.dump_file {
             use std::io::Write;
@@ -142,6 +155,7 @@ impl JitRuntime {
 
         // 1. Resolve any previous blocks waiting to chain into this pc:
         if let Some(waiting) = self.unresolved_chains.remove(&pc) {
+            self.stats.record_chain_forward_resolved(waiting.len());
             for (src_func, patch) in waiting {
                 unsafe {
                     NativeCodeGen::patch(
@@ -156,6 +170,7 @@ impl JitRuntime {
         // 2. Chain exits from this block:
         for patch in cb.patches {
             if patch.target_pc == pc {
+                self.stats.record_chain_immediate();
                 unsafe {
                     NativeCodeGen::patch(
                         func.as_mut_ptr(),
@@ -166,6 +181,7 @@ impl JitRuntime {
             } else if let Some(BBCacheEntry::Compiled(target_bb)) =
                 self.basic_blocks.try_get(patch.target_pc)
             {
+                self.stats.record_chain_immediate();
                 unsafe {
                     NativeCodeGen::patch(
                         func.as_mut_ptr(),
@@ -174,6 +190,7 @@ impl JitRuntime {
                     );
                 }
             } else {
+                self.stats.record_chain_forward_queued();
                 self.unresolved_chains
                     .entry(patch.target_pc)
                     .or_default()
@@ -293,6 +310,18 @@ impl BasicBlockManager {
     fn access_count(&self) -> u64 {
         self.cache.access_count()
     }
+
+    fn buffer_allocated_bytes(&self) -> usize {
+        self.jit_buffer.latest_allocated_bytes()
+    }
+
+    fn buffer_used_bytes(&self) -> usize {
+        self.jit_buffer.latest_used_bytes()
+    }
+
+    fn buffer_peak_bytes(&self) -> usize {
+        self.jit_buffer.peak_used_bytes()
+    }
 }
 
 // TODO: migrate from legacy code, can be re-written
@@ -322,6 +351,7 @@ impl JitRuntime {
         }
 
         cold_path();
+        self.stats.record_epoch_invalidation();
         self.basic_blocks.clear();
         self.unresolved_chains.clear();
         self.icache_epoch = epoch;
@@ -332,25 +362,30 @@ impl JitRuntime {
     }
 
     fn run_interpreter(&mut self, cpu: &mut RVCPU, cycles: u64) {
+        self.stats.record_interpreter_cycles(cycles);
         cpu.step_batch_no_interrupt(cycles);
         self.consume_cycles(cycles);
     }
 
     fn run_jit_block(&mut self, cpu: &mut RVCPU, bb: BasicBlock) {
+        self.stats.record_jit_invocation();
         let next_pc = unsafe {
             bb.func
                 .call(cpu as *mut RVCPU, self.context.as_mut() as *mut JitContext)
         };
         let consumed = self.block_initial_budget - self.context.budget;
         if consumed == 0 {
+            self.stats.record_out_of_budget();
             let remaining = self.context.budget;
             self.run_interpreter(cpu, remaining);
             return;
         }
+        self.stats.record_jit_cycles(consumed);
         cpu.finish_jit_block(next_pc, consumed, None);
     }
 
     fn handle_exception_exit(&mut self, cpu: &mut RVCPU) {
+        self.stats.record_exception_exit();
         let (exception, tval) = self
             .context
             .exception
@@ -358,7 +393,28 @@ impl JitRuntime {
             .expect("a JIT longjmp must record an exception");
         let consumed = self.block_initial_budget - self.context.budget;
         let instr_count = consumed - 1;
+        self.stats.record_jit_cycles(instr_count);
         cpu.finish_jit_block(self.context.guest_pc, instr_count, Some((exception, tval)));
+    }
+}
+
+impl Drop for JitRuntime {
+    fn drop(&mut self) {
+        #[cfg(feature = "jit-stats")]
+        if self.stats.has_activity() {
+            let report = self.stats.format_report(
+                self.basic_blocks.hit_count(),
+                self.basic_blocks.access_count(),
+                self.basic_blocks.buffer_allocated_bytes(),
+                self.basic_blocks.buffer_used_bytes(),
+                self.basic_blocks.buffer_peak_bytes(),
+            );
+            log::info!("\r\n{}", report);
+            #[cfg(feature = "native-cli")]
+            if !cfg!(test) {
+                println!("\r\n{}", report);
+            }
+        }
     }
 }
 
@@ -377,6 +433,7 @@ impl ExecutorBackend for JitRuntime {
         let cycles = "DO NOT USE";
 
         if cpu.try_take_pending_interrupt() {
+            self.stats.record_interpreter_cycles(1);
             self.consume_cycles(1);
         }
 
@@ -600,5 +657,40 @@ mod tests {
         assert_eq!(cpu.read_reg(1), 20);
         // Must reflect modified Block 2 instruction (+100 instead of +20)
         assert_eq!(cpu.read_reg(2), 120);
+    }
+
+    #[test]
+    fn test_jit_stats_execution() {
+        if !JitRuntime::is_supported() {
+            return;
+        }
+
+        let mut cpu = TestCPUBuilder::new()
+            .pc(BASE_ADDR)
+            .mem_base(0, 0x00a0_8093_u32) // addi x1, x1, 10
+            .mem_base(4, 0x0040_006f_u32) // jal x0, 4 (to BASE_ADDR + 8)
+            .mem_base(8, 0x0000_006f_u32) // jal x0, 0
+            .build();
+
+        let mut jit = JitRuntime::try_new().unwrap();
+        jit.step_batch(&mut cpu, 2);
+
+        #[cfg(feature = "jit-stats")]
+        {
+            assert!(jit.stats.compiled_blocks >= 1);
+            assert!(jit.stats.compiled_guest_insts >= 2);
+            assert!(jit.stats.compiled_guest_bytes >= 8);
+            assert_eq!(jit.stats.jit_cycles, 2);
+            assert_eq!(jit.stats.jit_block_invocations, 1);
+            assert!(jit.stats.has_activity());
+            let report = jit.stats.format_report(1, 1, 2 * 1024 * 1024, 64, 64);
+            assert!(report.contains("JIT Executed Cycles"));
+            assert!(report.contains("Compiled Basic Blocks"));
+        }
+
+        #[cfg(not(feature = "jit-stats"))]
+        {
+            assert!(!jit.stats.has_activity());
+        }
     }
 }

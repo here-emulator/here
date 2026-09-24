@@ -497,8 +497,8 @@ fn main() {
             }
         }
 
-        drop(board);
         drop(raw_mode_guard);
+        drop(board);
 
         println!("Used time: {}s", now.elapsed().as_secs_f32());
     }

@@ -5,6 +5,8 @@ mod jit_buffer;
 mod new_translator;
 pub mod runtime;
 pub use runtime::JitRuntime;
+pub mod stats;
+pub use stats::BlockStopReason;
 
 mod pass;
 

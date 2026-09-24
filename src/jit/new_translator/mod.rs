@@ -20,9 +20,13 @@ use crate::{
 
 use super::*;
 
+pub const MAX_BLOCK_INSTRUCTIONS: u64 = 1024;
+
 pub struct TranslateResult {
     pub ir_block: IRBlock,
     pub instr_cnt: u64,
+    pub guest_bytes: u64,
+    pub stop_reason: BlockStopReason,
 }
 
 /// Info needed by translator for every instruction.
@@ -319,50 +323,79 @@ impl Translator {
             || self.translate_mov(inst, meta)
     }
 
-    pub fn translate(&mut self, cpu: &mut RVCPU, pc: WordType) -> Option<TranslateResult> {
+    pub fn translate(
+        &mut self,
+        cpu: &mut RVCPU,
+        pc: WordType,
+    ) -> Result<TranslateResult, BlockStopReason> {
         self.ir_builder = IRBuilder::new(pc);
         let mut meta = InstrMeta {
             instr_pc: pc,
             instr_cnt: 0,
         };
+        let mut guest_bytes: u64 = 0;
 
         let fallback_build =
             |t: &mut Self, instr_pc| t.take_builder().build_jmp((instr_pc as u64).into());
 
-        let mut ir_block = loop {
+        let (mut ir_block, stop_reason) = loop {
             let Some(DecodeInstr { instr, info, .. }) = cpu.decode_at(meta.instr_pc) else {
-                break fallback_build(self, meta.instr_pc);
+                break (
+                    fallback_build(self, meta.instr_pc),
+                    BlockStopReason::DecodeFault,
+                );
             };
 
             let inst_info = (instr, info);
-            if let Some(block) = None
-                .or_else(|| self.translate_jmp(&inst_info, &meta))
-                .or_else(|| self.translate_branch(&inst_info, &meta))
-            {
+            let ilen = instr.len() as u64;
+
+            if let Some(block) = self.translate_jmp(&inst_info, &meta) {
                 meta.instr_cnt += 1;
-                break block;
+                guest_bytes += ilen;
+                let reason = match block.insts.last() {
+                    Some(IRInst::Terminator(Terminator::DynamicJmp { .. })) => {
+                        BlockStopReason::DynamicJump(instr)
+                    }
+                    _ => BlockStopReason::DirectJump(instr),
+                };
+                break (block, reason);
+            }
+
+            if let Some(block) = self.translate_branch(&inst_info, &meta) {
+                meta.instr_cnt += 1;
+                guest_bytes += ilen;
+                break (block, BlockStopReason::Branch(instr));
             }
 
             if !self.translate_common(&inst_info, &meta) {
-                break fallback_build(self, meta.instr_pc);
+                break (
+                    fallback_build(self, meta.instr_pc),
+                    BlockStopReason::Unsupported(instr),
+                );
             }
 
             meta.instr_pc += instr.len();
             meta.instr_cnt += 1;
+            guest_bytes += ilen;
 
-            if meta.instr_cnt >= 1024 {
-                break fallback_build(self, meta.instr_pc);
+            if meta.instr_cnt >= MAX_BLOCK_INSTRUCTIONS {
+                break (
+                    fallback_build(self, meta.instr_pc),
+                    BlockStopReason::BlockLimit,
+                );
             }
         };
 
         if meta.instr_cnt == 0 {
-            None
+            Err(stop_reason)
         } else {
             ir_block.start_pc = pc;
             ir_block.instr_cnt = meta.instr_cnt as u32;
-            Some(TranslateResult {
+            Ok(TranslateResult {
                 ir_block,
                 instr_cnt: meta.instr_cnt,
+                guest_bytes,
+                stop_reason,
             })
         }
     }
