@@ -2,28 +2,89 @@ use region::{Allocation, Protection};
 
 use super::runtime::JitFunction;
 
-const JIT_BUFFER_SIZE: usize = 2 * 1024 * 1024;
+pub const JIT_BUFFER_SIZE: usize = 2 * 1024 * 1024 * 1024; // 2 GiB
 
-struct JitChunk {
+/// Storage for generated code in a single 2 GiB virtual address space allocation.
+pub(super) struct JitBuffer {
     alloc: Allocation,
     cursor: usize,
+    peak_used_bytes: usize,
+    #[cfg(target_os = "linux")]
+    perf_map: Option<PerfMap>,
 }
 
-impl JitChunk {
-    fn with_capacity(capacity: usize) -> Self {
+impl JitBuffer {
+    pub fn new() -> Self {
+        let alloc = region::alloc(JIT_BUFFER_SIZE, Protection::READ_WRITE_EXECUTE)
+            .expect("failed to allocate 2 GiB JIT code buffer");
+
+        #[cfg(target_os = "linux")]
+        let mut perf_map = PerfMap::new();
+        #[cfg(target_os = "linux")]
+        if let Some(ref mut map) = perf_map {
+            map.register_chunk(alloc.as_ptr::<u8>() as usize, alloc.len());
+        }
+
         Self {
-            alloc: region::alloc(capacity, Protection::READ_WRITE_EXECUTE)
-                .expect("failed to allocate JIT code buffer"),
+            alloc,
             cursor: 0,
+            peak_used_bytes: 0,
+            #[cfg(target_os = "linux")]
+            perf_map,
         }
     }
 
-    fn capacity(&self) -> usize {
+    #[inline]
+    pub fn capacity(&self) -> usize {
         self.alloc.len()
     }
 
-    fn remaining(&self) -> usize {
+    #[inline]
+    pub fn remaining(&self) -> usize {
         self.capacity() - self.cursor
+    }
+
+    pub unsafe fn emit_code(&mut self, code: &[u8]) -> JitFunction {
+        let len = code.len();
+        assert!(len != 0, "cannot emit an empty JIT function");
+        assert!(
+            self.remaining() >= len,
+            "JIT buffer exhausted (exceeded 2 GiB limit)"
+        );
+
+        let offset = self.cursor;
+        self.cursor += len;
+
+        let function = unsafe {
+            let dst = self.alloc.as_mut_ptr::<u8>().add(offset);
+            std::ptr::copy_nonoverlapping(code.as_ptr(), dst, len);
+            JitFunction::from_ptr(dst)
+        };
+        self.peak_used_bytes = self.peak_used_bytes.max(self.cursor);
+
+        // FIXME: call clear cache here
+
+        function
+    }
+
+    #[inline]
+    pub fn reset(&mut self) {
+        self.cursor = 0;
+    }
+
+    #[inline]
+    pub fn latest_allocated_bytes(&self) -> usize {
+        self.alloc.len()
+    }
+
+    #[inline]
+    pub fn latest_used_bytes(&self) -> usize {
+        self.cursor
+    }
+
+    #[inline]
+    pub fn peak_used_bytes(&self) -> usize {
+        self.peak_used_bytes
     }
 }
 
@@ -47,118 +108,9 @@ impl PerfMap {
 
     fn register_chunk(&mut self, start: usize, size: usize) {
         use std::io::Write;
-        let _ = writeln!(self.file, "{:x} {:x} {}", start, size, "jit_code");
+        let _ = writeln!(self.file, "{:x} {:x} jit_code", start, size);
         let _ = self.file.flush();
     }
-}
-
-/// Storage for generated code.
-pub(super) struct JitBuffer {
-    chunks: Vec<JitChunk>,
-    current_chunk: usize,
-    used_bytes: usize,
-    peak_used_bytes: usize,
-    #[cfg(target_os = "linux")]
-    perf_map: Option<PerfMap>,
-}
-
-impl Drop for JitBuffer {
-    fn drop(&mut self) {
-        log::info!("JIT buffer statistics:");
-        log::info!("  chunks: {}", self.chunk_count());
-        log::info!(
-            "  allocated: {:.2} MB",
-            megabytes(self.latest_allocated_bytes())
-        );
-        log::info!("  used: {:.2} MB", megabytes(self.latest_used_bytes()));
-        log::info!("  peak used: {:.2} MB", megabytes(self.peak_used_bytes()));
-    }
-}
-
-impl JitBuffer {
-    pub fn new() -> Self {
-        let mut buffer = Self {
-            chunks: Vec::new(),
-            current_chunk: 0,
-            used_bytes: 0,
-            peak_used_bytes: 0,
-            #[cfg(target_os = "linux")]
-            perf_map: PerfMap::new(),
-        };
-        buffer.allocate_chunk();
-        buffer
-    }
-
-    fn allocate_chunk(&mut self) {
-        let chunk = JitChunk::with_capacity(JIT_BUFFER_SIZE);
-        #[cfg(target_os = "linux")]
-        if let Some(perf_map) = &mut self.perf_map {
-            let start = chunk.alloc.as_ptr::<u8>() as usize;
-            let size = chunk.capacity();
-            perf_map.register_chunk(start, size);
-        }
-        self.chunks.push(chunk);
-    }
-
-    pub unsafe fn emit_code(&mut self, code: &[u8]) -> JitFunction {
-        let len = code.len();
-        assert!(len != 0, "cannot emit an empty JIT function");
-        assert!(
-            len <= JIT_BUFFER_SIZE,
-            "JIT function exceeds the fixed 2 MiB code buffer"
-        );
-
-        while self.chunks[self.current_chunk].remaining() < len {
-            self.current_chunk += 1;
-            if self.current_chunk == self.chunks.len() {
-                self.allocate_chunk();
-            }
-        }
-
-        let chunk = &mut self.chunks[self.current_chunk];
-        let offset = chunk.cursor;
-        chunk.cursor += len;
-
-        let function = unsafe {
-            let dst = chunk.alloc.as_mut_ptr::<u8>().add(offset);
-            std::ptr::copy_nonoverlapping(code.as_ptr(), dst, len);
-            JitFunction::from_ptr(dst)
-        };
-        self.used_bytes += len;
-        self.peak_used_bytes = self.peak_used_bytes.max(self.latest_used_bytes());
-
-        // FIXME: call clear cache here
-
-        function
-    }
-
-    pub fn reset(&mut self) {
-        self.current_chunk = 0;
-        self.used_bytes = 0;
-        for chunk in &mut self.chunks {
-            chunk.cursor = 0;
-        }
-    }
-
-    pub fn latest_allocated_bytes(&self) -> usize {
-        self.chunks.iter().map(JitChunk::capacity).sum()
-    }
-
-    pub fn latest_used_bytes(&self) -> usize {
-        self.used_bytes
-    }
-
-    pub fn peak_used_bytes(&self) -> usize {
-        self.peak_used_bytes
-    }
-
-    pub fn chunk_count(&self) -> usize {
-        self.chunks.len()
-    }
-}
-
-fn megabytes(bytes: usize) -> f64 {
-    bytes as f64 / (1024.0 * 1024.0)
 }
 
 #[cfg(test)]
@@ -166,10 +118,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn allocates_the_initial_fixed_size_chunk() {
+    fn allocates_the_initial_fixed_size_buffer() {
         let buffer = JitBuffer::new();
 
-        assert_eq!(buffer.chunk_count(), 1);
         assert_eq!(buffer.latest_allocated_bytes(), JIT_BUFFER_SIZE);
         assert_eq!(buffer.latest_used_bytes(), 0);
     }
@@ -186,30 +137,15 @@ mod tests {
     }
 
     #[test]
-    fn allocates_additional_chunks_when_the_current_chunk_is_full() {
-        let mut buffer = JitBuffer::new();
-        let first = vec![0xcc; JIT_BUFFER_SIZE];
-        let second = [0xc3];
-
-        let first_address = unsafe { buffer.emit_code(&first) }.address();
-        let second_address = unsafe { buffer.emit_code(&second) }.address();
-
-        assert_eq!(buffer.chunk_count(), 2);
-        assert_eq!(buffer.latest_used_bytes(), JIT_BUFFER_SIZE + second.len());
-        assert_eq!(buffer.latest_allocated_bytes(), JIT_BUFFER_SIZE * 2);
-        assert_ne!(second_address, first_address);
-    }
-
-    #[test]
     fn keeps_the_peak_after_reset() {
         let mut buffer = JitBuffer::new();
-        let code = vec![0xcc; JIT_BUFFER_SIZE];
+        let code = [0xcc; 1024];
 
         unsafe { buffer.emit_code(&code) };
         buffer.reset();
         unsafe { buffer.emit_code(&[0xcc]) };
 
         assert_eq!(buffer.latest_used_bytes(), 1);
-        assert_eq!(buffer.peak_used_bytes(), JIT_BUFFER_SIZE);
+        assert_eq!(buffer.peak_used_bytes(), 1024);
     }
 }
