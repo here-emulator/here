@@ -53,7 +53,6 @@ macro_rules! make_ir {
         $name:ident = compute $kind:expr, $lhs:expr, $rhs:expr;
         $($rest:tt)*) => {
         {
-            #[allow(unused)]
             use $crate::jit::ir::ComputeKind::*;
             let $name = $builder.compute(
                 $kind,

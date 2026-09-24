@@ -45,8 +45,6 @@ pub struct JitRuntime {
             PatchLoc<<NativeCodeGen as CodeGenTrait>::PatchKind>,
         )>,
     >,
-    // TODO: remove with a local variable when longjmp/setjmp is replaced
-    block_initial_budget: u64,
     dump_file: Option<BufWriter<File>>,
     pub stats: JitStats,
 }
@@ -71,7 +69,6 @@ impl JitRuntime {
             icache_epoch: 0,
             basic_blocks: BasicBlockManager::new(),
             unresolved_chains: HashMap::new(),
-            block_initial_budget: 0,
             dump_file: None,
             stats: JitStats::default(),
         })
@@ -258,12 +255,7 @@ impl JitRuntime {
         let func = unsafe { self.basic_blocks.emit_code(cb.buf) };
         let bb = BasicBlock { func };
         self.context.budget = 1;
-        self.block_initial_budget = 1;
-        if unsafe { setjmp(self.context.jmp_buf_ptr()) } != 0 {
-            self.handle_exception_exit(cpu);
-        } else {
-            self.run_jit_block(cpu, bb);
-        }
+        self.run_jit_block(cpu, bb);
         true
     }
 }
@@ -328,21 +320,6 @@ impl BasicBlockManager {
 
 use std::hint::cold_path;
 
-use libc::{c_int, c_void};
-
-unsafe extern "C" {
-    /// XXX: Make sure you know what you're doing.
-    ///
-    /// rustc doesn't support wired function that "return twice",
-    /// so calling this is actually an UB, and llvm cannot recognize this hidden control flow,
-    /// handle it carefully:
-    ///
-    /// - Use `#[inline(never)]` for every function that calls `setjmp`.
-    /// - After `setjmp`, do not use local mutable variable that defined before.
-    /// - Check the local variable lifetime so that stack-slot reuse won't break anything.
-    fn setjmp(env: *mut c_void) -> c_int;
-}
-
 impl JitRuntime {
     fn sync_icache_epoch(&mut self, cpu: &RVCPU) {
         let epoch = cpu.icache_epoch();
@@ -367,13 +344,15 @@ impl JitRuntime {
         self.consume_cycles(cycles);
     }
 
-    fn run_jit_block(&mut self, cpu: &mut RVCPU, bb: BasicBlock) {
+    fn run_jit_block(&mut self, cpu: &mut RVCPU, mut bb: BasicBlock) {
         self.stats.record_jit_invocation();
-        let next_pc = unsafe {
-            bb.func
-                .call(cpu as *mut RVCPU, self.context.as_mut() as *mut JitContext)
-        };
-        let consumed = self.block_initial_budget - self.context.budget;
+        let initial_budget = self.context.budget;
+        let (next_pc, has_exception) = unsafe { bb.func.call(cpu, self.context.as_mut()) };
+        if has_exception {
+            self.handle_exception_exit(cpu, initial_budget);
+            return;
+        }
+        let consumed = initial_budget - self.context.budget;
         if consumed == 0 {
             self.stats.record_out_of_budget();
             let remaining = self.context.budget;
@@ -384,14 +363,14 @@ impl JitRuntime {
         cpu.finish_jit_block(next_pc, consumed, None);
     }
 
-    fn handle_exception_exit(&mut self, cpu: &mut RVCPU) {
+    fn handle_exception_exit(&mut self, cpu: &mut RVCPU, initial_budget: u64) {
         self.stats.record_exception_exit();
         let (exception, tval) = self
             .context
             .exception
             .take()
-            .expect("a JIT longjmp must record an exception");
-        let consumed = self.block_initial_budget - self.context.budget;
+            .expect("a JIT abort must record an exception");
+        let consumed = initial_budget - self.context.budget;
         let instr_count = consumed - 1;
         self.stats.record_jit_cycles(instr_count);
         cpu.finish_jit_block(self.context.guest_pc, instr_count, Some((exception, tval)));
@@ -419,7 +398,6 @@ impl Drop for JitRuntime {
 }
 
 impl ExecutorBackend for JitRuntime {
-    #[inline(never)] // See `setjmp`
     fn step_batch(&mut self, cpu: &mut RVCPU, cycles: u64) {
         if cycles == 0 {
             return;
@@ -428,18 +406,9 @@ impl ExecutorBackend for JitRuntime {
         debug_assert_eq!(self.context.exception, None);
         self.context.budget = cycles;
 
-        // Don't use `cycles` directly after this because longjmp may break the value.
-        #[allow(unused)]
-        let cycles = "DO NOT USE";
-
         if cpu.try_take_pending_interrupt() {
             self.stats.record_interpreter_cycles(1);
             self.consume_cycles(1);
-        }
-
-        if unsafe { setjmp(self.context.jmp_buf_ptr()) != 0 } {
-            self.handle_exception_exit(cpu);
-            // fall through, run remaining cycles.
         }
 
         while self.context.budget > 0 {
@@ -447,7 +416,6 @@ impl ExecutorBackend for JitRuntime {
 
             match self.get_or_compile(cpu, cpu.pc) {
                 BBCacheEntry::Compiled(bb) => {
-                    self.block_initial_budget = self.context.budget;
                     self.run_jit_block(cpu, bb);
                 }
                 BBCacheEntry::InterpreterOnly => {
@@ -467,6 +435,9 @@ mod tests {
     use crate::isa::riscv::csr_reg::NamedCsrReg;
     use crate::isa::riscv::csr_reg::csr_macro::{Mcycle, Minstret, Satp};
     use crate::isa::riscv::debugger::Address;
+    use crate::isa::riscv::trap::Exception;
+    use crate::jit::ir::IRBuilder;
+    use crate::make_ir;
     use crate::ram_config::BASE_ADDR;
 
     #[test]
@@ -692,5 +663,74 @@ mod tests {
         {
             assert!(!jit.stats.has_activity());
         }
+    }
+
+    #[test]
+    fn test_jit_exception_trampoline_abort() {
+        if !JitRuntime::is_supported() {
+            return;
+        }
+
+        use std::sync::atomic::{AtomicPtr, Ordering};
+        static TEST_CTX: AtomicPtr<JitContext> = AtomicPtr::new(std::ptr::null_mut());
+
+        unsafe extern "C" fn helper_abort() {
+            let ctx = TEST_CTX.load(Ordering::SeqCst);
+            unsafe {
+                JitContext::raise(
+                    ctx,
+                    0x1234_5678,
+                    5,
+                    Exception::InstructionMisaligned,
+                    0x1234_5679,
+                );
+            }
+        }
+
+        let mut cpu = TestCPUBuilder::new().build();
+        let mut ctx = JitContext::default();
+        ctx.budget = 10;
+        TEST_CTX.store(&mut ctx as *mut JitContext, Ordering::SeqCst);
+
+        let mut builder = IRBuilder::default();
+        make_ir!(builder, [
+            v0 = const 100;
+            set_reg 1, v0;
+            call [trap] (helper_abort as *const () as usize), [];
+            v1 = const 200;
+            set_reg 1, v1;
+        ], []);
+        let block = builder.build_jmp(0x2000u64.into());
+
+        let mut codegen = NativeCodeGen::try_new().expect("Native CodeGen must be supported");
+        let code_block = codegen.compile(&block);
+        let mut jit_buf = JitBuffer::new();
+        let mut func = unsafe { jit_buf.emit_code(code_block.buf) };
+
+        let (next_pc, has_exception) = unsafe { func.call(cpu.as_mut(), &mut ctx) };
+
+        assert!(has_exception);
+        assert_eq!(next_pc, 0);
+        assert_eq!(ctx.guest_pc, 0x1234_5678);
+        assert_eq!(ctx.budget, 5);
+        assert_eq!(
+            ctx.exception,
+            Some((Exception::InstructionMisaligned, 0x1234_5679))
+        );
+        assert_eq!(cpu.read_reg(1), 100);
+
+        // Verify subsequent JIT execution continues cleanly:
+        let mut builder2 = IRBuilder::default();
+        make_ir!(builder2, [
+            v2 = const 300;
+            set_reg 2, v2;
+        ], []);
+        let block2 = builder2.build_jmp(0x3000u64.into());
+        let code_block2 = codegen.compile(&block2);
+        let mut func2 = unsafe { jit_buf.emit_code(code_block2.buf) };
+        let (next_pc2, has_exception2) = unsafe { func2.call(cpu.as_mut(), &mut ctx) };
+        assert!(!has_exception2);
+        assert_eq!(next_pc2, 0x3000);
+        assert_eq!(cpu.read_reg(2), 300);
     }
 }

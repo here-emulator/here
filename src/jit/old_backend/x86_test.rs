@@ -12,8 +12,11 @@ fn emitted_bytes(emit: impl FnOnce(&mut X86Assembler)) -> Vec<u8> {
 unsafe fn execute_returning_u64(mut asm: X86Assembler) -> u64 {
     asm.ret();
     let mut buffer = JitBuffer::new();
-    let function = unsafe { buffer.emit_code(&asm.build()) };
-    unsafe { function.call(std::ptr::null_mut(), std::ptr::null_mut()) }
+    let mut function = unsafe { buffer.emit_code(&asm.build()) };
+    let mut cpu = crate::isa::riscv::cpu_tester::TestCPUBuilder::new().build();
+    let mut ctx = crate::jit::runtime::JitContext::default();
+    let (res, _) = unsafe { function.call(&mut cpu, &mut ctx) };
+    res
 }
 
 unsafe extern "C" fn mixed_helper_args(
@@ -233,8 +236,9 @@ fn executes_disp8_and_disp32_memory_operands() {
     asm.ret();
 
     let mut buffer = JitBuffer::new();
-    let function = unsafe { buffer.emit_code(&asm.build()) };
-    let _ = unsafe { function.call(base.cast(), std::ptr::null_mut()) };
+    let mut function = unsafe { buffer.emit_code(&asm.build()) };
+    let mut ctx = crate::jit::runtime::JitContext::default();
+    let _ = unsafe { function.call(&mut *base.cast::<crate::isa::riscv::executor::RVCPU>(), &mut ctx) };
 
     assert_eq!(words[48], 977);
 }

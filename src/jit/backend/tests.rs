@@ -19,8 +19,10 @@ fn compile_and_run_with_ctx(block: &IRBlock, cpu: &mut RVCPU, ctx: &mut JitConte
     let mut codegen = NativeCodeGen::try_new().expect("Native CodeGen must be supported");
     let code_block = codegen.compile(block);
     let mut jit_buf = JitBuffer::new();
-    let func = unsafe { jit_buf.emit_code(code_block.buf) };
-    unsafe { func.call(cpu as *mut RVCPU, ctx as *mut JitContext) }
+    let mut func = unsafe { jit_buf.emit_code(code_block.buf) };
+    let (next_pc, has_exception) = unsafe { func.call(cpu, ctx) };
+    assert!(!has_exception, "unexpected exception in test block");
+    next_pc
 }
 
 #[test]
