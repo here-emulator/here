@@ -5,15 +5,21 @@ macro_rules! define_load_helper {
         unsafe extern "C" fn $helper(
             cpu: *mut RVCPU,
             addr: WordType,
-            context: *mut JitContext,
+            context: usize,
             guest_pc: WordType,
             consumed_cycles: u64,
-        ) -> u64 {
+        ) -> WordType {
             let cpu = unsafe { &mut *cpu };
             match cpu.read::<$ty>(addr) {
-                Ok(loaded) => loaded as u64,
+                Ok(loaded) => loaded as WordType,
                 Err(exception) => unsafe {
-                    JitContext::raise(context, guest_pc, consumed_cycles, exception, addr)
+                    JitContext::raise(
+                        context as *mut JitContext,
+                        guest_pc,
+                        consumed_cycles,
+                        exception,
+                        addr,
+                    )
                 },
             }
         }
@@ -25,15 +31,21 @@ macro_rules! define_signed_load_helper {
         unsafe extern "C" fn $helper(
             cpu: *mut RVCPU,
             addr: WordType,
-            context: *mut JitContext,
+            context: usize,
             guest_pc: WordType,
             consumed_cycles: u64,
-        ) -> u64 {
+        ) -> WordType {
             let cpu = unsafe { &mut *cpu };
             match cpu.read::<$ty>(addr) {
-                Ok(loaded) => loaded as $signed_ty as i64 as u64,
+                Ok(loaded) => loaded as $signed_ty as i64 as WordType,
                 Err(exception) => unsafe {
-                    JitContext::raise(context, guest_pc, consumed_cycles, exception, addr)
+                    JitContext::raise(
+                        context as *mut JitContext,
+                        guest_pc,
+                        consumed_cycles,
+                        exception,
+                        addr,
+                    )
                 },
             }
         }
@@ -46,13 +58,21 @@ macro_rules! define_store_helper {
             cpu: *mut RVCPU,
             addr: WordType,
             value: WordType,
-            context: *mut JitContext,
+            context: usize,
             guest_pc: WordType,
             consumed_cycles: u64,
         ) {
             let cpu = unsafe { &mut *cpu };
             if let Err(exception) = cpu.write::<$ty>(addr, value as $ty) {
-                unsafe { JitContext::raise(context, guest_pc, consumed_cycles, exception, addr) }
+                unsafe {
+                    JitContext::raise(
+                        context as *mut JitContext,
+                        guest_pc,
+                        consumed_cycles,
+                        exception,
+                        addr,
+                    )
+                }
             }
         }
     };
@@ -84,8 +104,7 @@ pub(super) enum LoadKind {
 }
 
 impl LoadKind {
-    // TODO: return usize
-    pub(super) fn helper(self) -> u64 {
+    pub(super) fn helper(self) -> usize {
         let helper = match self {
             Self::SignedByte => helper_load_i8 as *const (),
             Self::UnsignedByte => helper_load_u8 as *const (),
@@ -95,7 +114,7 @@ impl LoadKind {
             Self::UnsignedWord => helper_load_u32 as *const (),
             Self::DoubleWord => helper_load_u64 as *const (),
         };
-        helper as u64
+        helper as usize
     }
 }
 
@@ -108,14 +127,13 @@ pub(super) enum StoreKind {
 }
 
 impl StoreKind {
-    // TODO: why not return usize or *const u8
-    pub(super) fn helper(self) -> u64 {
+    pub(super) fn helper(self) -> usize {
         let helper = match self {
             Self::Byte => helper_store_u8 as *const (),
             Self::Half => helper_store_u16 as *const (),
             Self::Word => helper_store_u32 as *const (),
             Self::DoubleWord => helper_store_u64 as *const (),
         };
-        helper as u64
+        helper as usize
     }
 }

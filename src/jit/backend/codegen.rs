@@ -197,7 +197,7 @@ impl<I: ISA> CodeGen<I> {
                 // mark vreg unused if its last use is reached in or before this batch
                 ir.for_each_use(|vreg| {
                     let last_use = liveness[vreg.index()].last_use();
-                    if last_use.is_none_or(|val| (val as usize) < curr + cnt) {
+                    if last_use.is_none_or(|val| val < curr + cnt) {
                         ctx.unuse_vreg(vreg);
                     }
                 });

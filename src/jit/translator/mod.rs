@@ -133,10 +133,10 @@ impl Translator {
             _ => debug_unreachable!(),
         };
 
-        let target = meta.instr_pc.wrapping_add(offset) as u64;
-        let fallthrough = meta.instr_pc.wrapping_add(inst.len()) as u64;
+        let target = meta.instr_pc.wrapping_add(offset);
+        let fallthrough = meta.instr_pc.wrapping_add(inst.len());
 
-        if (target & (self.trans_context.ialign as u64 - 1)) != 0 {
+        if (target & (self.trans_context.ialign - 1)) != 0 {
             return None;
         }
 
@@ -249,10 +249,10 @@ impl Translator {
             _ => debug_unreachable!(),
         };
 
-        let jit_ctx = self.trans_context.jit_context as u64;
+        let jit_ctx = self.trans_context.jit_context as usize;
 
         let value = make_ir!(self.ir_builder, [
-            value = call [cpu, trap] kind.helper() as usize,
+            value = call [cpu, trap] kind.helper(),
                 [v_addr, jit_ctx, meta.instr_pc, meta.instr_cnt + 1];
         ], [value]);
 
@@ -286,10 +286,10 @@ impl Translator {
         let v_rs1 = self.ir_builder.get_reg(rs1.into());
         let v_addr = self.ir_builder.compute(ComputeKind::Add, v_rs1, imm.into());
         let v_value = self.ir_builder.get_reg(rs2.into());
-        let jit_ctx = self.trans_context.jit_context as u64;
+        let jit_ctx = self.trans_context.jit_context as usize;
 
         make_ir!(self.ir_builder, [
-            call [cpu, trap] kind.helper() as usize,
+            call [cpu, trap] kind.helper(),
                 [v_addr, v_value, jit_ctx, meta.instr_pc, meta.instr_cnt + 1];
         ], []);
         true
@@ -344,7 +344,7 @@ impl Translator {
         let mut guest_bytes: u64 = 0;
 
         let fallback_build =
-            |t: &mut Self, instr_pc| t.take_builder().build_jmp((instr_pc as u64).into());
+            |t: &mut Self, instr_pc: WordType| t.take_builder().build_jmp(instr_pc.into());
 
         let (mut ir_block, stop_reason) = loop {
             let Some(DecodeInstr { instr, info, .. }) = cpu.decode_at(meta.instr_pc) else {
@@ -355,7 +355,7 @@ impl Translator {
             };
 
             let inst_info = (instr, info);
-            let ilen = instr.len() as u64;
+            let ilen = instr.len();
 
             if let Some(block) = self.translate_jmp(&inst_info, &meta) {
                 meta.instr_cnt += 1;
@@ -431,7 +431,7 @@ impl Translator {
         }
         if self.translate_common(&inst_info, &meta) {
             let next_pc = meta.instr_pc.wrapping_add(instr.len());
-            let mut block = self.take_builder().build_jmp((next_pc as u64).into());
+            let mut block = self.take_builder().build_jmp(next_pc.into());
             block.start_pc = pc;
             block.instr_cnt = 1;
             return Some(block);

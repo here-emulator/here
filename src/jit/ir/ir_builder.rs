@@ -23,6 +23,30 @@ impl From<u64> for Value {
     }
 }
 
+impl From<usize> for Value {
+    fn from(value: usize) -> Self {
+        Self::Imm(value as u64)
+    }
+}
+
+impl From<i32> for Value {
+    fn from(value: i32) -> Self {
+        Self::Imm(value as i64 as u64)
+    }
+}
+
+impl From<i64> for Value {
+    fn from(value: i64) -> Self {
+        Self::Imm(value as u64)
+    }
+}
+
+impl From<u32> for Value {
+    fn from(value: u32) -> Self {
+        Self::Imm(value as u64)
+    }
+}
+
 /// ABI properties of an IR helper call.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CallOptions {

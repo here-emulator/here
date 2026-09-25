@@ -12,19 +12,18 @@ pub enum VRegHint {
 
 #[derive(Default, Clone)]
 pub struct Liveness {
-    // TODO: wtf, it's inst index, not VReg.
-    def: VRegId,
-    last_use: Option<VRegId>,
+    def: usize,
+    last_use: Option<usize>,
     /// Whether there's a call between its def-use.
     across_call: bool,
 }
 
 impl Liveness {
-    pub fn def(&self) -> VRegId {
+    pub fn def(&self) -> usize {
         self.def
     }
 
-    pub fn last_use(&self) -> Option<VRegId> {
+    pub fn last_use(&self) -> Option<usize> {
         self.last_use
     }
 
@@ -46,11 +45,11 @@ pub fn analyze(block: &IRBlock, liveness: &mut Vec<Liveness>) {
     liveness.clear();
     liveness.resize(vreg_cnt, Liveness::default());
 
-    let mut last_call: Option<VRegId> = None;
+    let mut last_call: Option<usize> = None;
     for (idx, inst) in block.insts.iter().enumerate() {
         inst.for_each_use(|r| {
             let info = &mut liveness[r.index()];
-            info.last_use = Some(idx as VRegId);
+            info.last_use = Some(idx);
             if let Some(lst) = last_call {
                 if lst > info.def {
                     info.across_call = true;
@@ -59,11 +58,11 @@ pub fn analyze(block: &IRBlock, liveness: &mut Vec<Liveness>) {
         });
 
         if matches!(inst, IRInst::Call { .. }) {
-            last_call = Some(idx as VRegId);
+            last_call = Some(idx);
         }
 
         if let Some(vreg) = inst.def() {
-            liveness[vreg.index()].def = idx as VRegId;
+            liveness[vreg.index()].def = idx;
         }
     }
 }
