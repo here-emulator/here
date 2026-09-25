@@ -16,11 +16,6 @@ impl TargetInst for X64Inst {
     }
 
     #[inline]
-    fn put_asm_text(&self, w: &mut impl std::fmt::Write) -> std::fmt::Result {
-        self.put_asm_text(w)
-    }
-
-    #[inline]
     fn mov(dst: Self::Reg, src: Self::Reg) -> Self {
         X64Inst::Mov {
             size: OperandSize::Qword,

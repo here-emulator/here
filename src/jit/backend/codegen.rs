@@ -45,8 +45,8 @@ impl<'a, I: ISA> CodeGenContext<'a, I> {
     pub fn emit(&mut self, inst: &I::Inst) {
         inst.emit_to(self.buf);
         if let Some(asm) = &mut self.asm_buf {
-            let _ = inst.put_asm_text(*asm);
-            asm.push('\n');
+            use std::fmt::Write;
+            let _ = writeln!(asm, "{inst}");
         }
     }
 

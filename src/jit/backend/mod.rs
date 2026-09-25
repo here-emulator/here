@@ -51,12 +51,10 @@ pub trait TargetReg: Into<u8> + From<u8> + Copy {
     const CALLEE_SAVE_MASK: u32 = (!Self::CALLER_SAVE_MASK) & Self::REG_MASK;
 }
 
-pub trait TargetInst: Sized {
+pub trait TargetInst: std::fmt::Display + Sized {
     type Reg: TargetReg;
 
     fn emit_to(&self, buf: &mut CodeBuf);
-    // TODO: maybe it's better to impl Display?
-    fn put_asm_text(&self, w: &mut impl std::fmt::Write) -> std::fmt::Result;
 
     fn mov(dst: Self::Reg, src: Self::Reg) -> Self;
     fn mov_imm(dst: Self::Reg, imm: u64) -> Self;

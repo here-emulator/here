@@ -183,69 +183,69 @@ fn write_rm_sized(w: &mut impl Write, rm: RegMem, ptr_size: &str, reg_str: &str)
     }
 }
 
-impl X64Inst {
-    pub fn put_asm_text(&self, w: &mut impl Write) -> fmt::Result {
+impl fmt::Display for X64Inst {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Mov { size, dst, src } => {
-                w.write_str("mov ")?;
-                write_mov_operand(w, dst, size, true)?;
-                w.write_str(", ")?;
-                write_mov_operand(w, src, size, matches!(dst, RegMem::Reg(_)))
+                f.write_str("mov ")?;
+                write_mov_operand(f, dst, size, true)?;
+                f.write_str(", ")?;
+                write_mov_operand(f, src, size, matches!(dst, RegMem::Reg(_)))
             }
             Self::MovImm { size, dst, imm } => {
-                w.write_str("mov ")?;
-                write_mov_operand(w, dst, size, true)?;
-                write!(w, ", {:#x}", imm)
+                f.write_str("mov ")?;
+                write_mov_operand(f, dst, size, true)?;
+                write!(f, ", {:#x}", imm)
             }
             Self::Movsxd { dst, src } => {
-                write!(w, "movsxd {}, ", dst.name(OperandSize::Qword))?;
-                write_rm_sized(w, src, "dword", src.reg().name(OperandSize::Dword))
+                write!(f, "movsxd {}, ", dst.name(OperandSize::Qword))?;
+                write_rm_sized(f, src, "dword", src.reg().name(OperandSize::Dword))
             }
             Self::Movsx8 { dst, src } => {
-                write!(w, "movsx {}, ", dst.name(OperandSize::Qword))?;
-                write_rm_sized(w, src, "byte", src.reg().name_byte())
+                write!(f, "movsx {}, ", dst.name(OperandSize::Qword))?;
+                write_rm_sized(f, src, "byte", src.reg().name_byte())
             }
             Self::Movsx16 { dst, src } => {
-                write!(w, "movsx {}, ", dst.name(OperandSize::Qword))?;
-                write_rm_sized(w, src, "word", src.reg().name_word())
+                write!(f, "movsx {}, ", dst.name(OperandSize::Qword))?;
+                write_rm_sized(f, src, "word", src.reg().name_word())
             }
             Self::Movzx8 { dst, src } => {
-                write!(w, "movzx {}, ", dst.name(OperandSize::Dword))?;
-                write_rm_sized(w, src, "byte", src.reg().name_byte())
+                write!(f, "movzx {}, ", dst.name(OperandSize::Dword))?;
+                write_rm_sized(f, src, "byte", src.reg().name_byte())
             }
             Self::Movzx16 { dst, src } => {
-                write!(w, "movzx {}, ", dst.name(OperandSize::Dword))?;
-                write_rm_sized(w, src, "word", src.reg().name_word())
+                write!(f, "movzx {}, ", dst.name(OperandSize::Dword))?;
+                write_rm_sized(f, src, "word", src.reg().name_word())
             }
             Self::Alu { op, size, dst, src } => {
-                write!(w, "{} ", op.mnemonic())?;
-                write_rm(w, dst, size)?;
-                write!(w, ", {}", src.name(size))
+                write!(f, "{} ", op.mnemonic())?;
+                write_rm(f, dst, size)?;
+                write!(f, ", {}", src.name(size))
             }
             Self::AluImm { op, size, dst, imm } => {
-                write!(w, "{} ", op.mnemonic())?;
-                write_rm(w, dst, size)?;
-                write!(w, ", {:#x}", imm)
+                write!(f, "{} ", op.mnemonic())?;
+                write_rm(f, dst, size)?;
+                write!(f, ", {:#x}", imm)
             }
             Self::Test { size, dst, src } => {
-                w.write_str("test ")?;
-                write_rm(w, dst, size)?;
-                write!(w, ", {}", src.name(size))
+                f.write_str("test ")?;
+                write_rm(f, dst, size)?;
+                write!(f, ", {}", src.name(size))
             }
             Self::TestImm { size, dst, imm } => {
-                w.write_str("test ")?;
-                write_rm(w, dst, size)?;
-                write!(w, ", {:#x}", imm)
+                f.write_str("test ")?;
+                write_rm(f, dst, size)?;
+                write!(f, ", {:#x}", imm)
             }
             Self::ShiftCl { op, size, dst } => {
-                write!(w, "{} ", op.mnemonic())?;
-                write_rm(w, dst, size)?;
-                w.write_str(", cl")
+                write!(f, "{} ", op.mnemonic())?;
+                write_rm(f, dst, size)?;
+                f.write_str(", cl")
             }
             Self::ShiftImm { op, size, dst, imm } => {
-                write!(w, "{} ", op.mnemonic())?;
-                write_rm(w, dst, size)?;
-                write!(w, ", {}", imm)
+                write!(f, "{} ", op.mnemonic())?;
+                write_rm(f, dst, size)?;
+                write!(f, ", {}", imm)
             }
             Self::Cmovcc {
                 condition,
@@ -253,50 +253,38 @@ impl X64Inst {
                 src,
             } => {
                 write!(
-                    w,
+                    f,
                     "cmov{} {}, ",
                     condition.mnemonic(),
                     dst.name(OperandSize::Qword),
                 )?;
-                write_rm(w, src, OperandSize::Qword)
+                write_rm(f, src, OperandSize::Qword)
             }
             Self::Setcc { condition, dst } => {
-                write!(w, "set{} {}", condition.mnemonic(), dst.name_byte())
+                write!(f, "set{} {}", condition.mnemonic(), dst.name_byte())
             }
             Self::Call { target } => {
-                write!(w, "call {}", target.name(OperandSize::Qword))
+                write!(f, "call {}", target.name(OperandSize::Qword))
             }
             Self::Jmp { target } => {
-                write!(w, "jmp {}", target.name(OperandSize::Qword))
+                write!(f, "jmp {}", target.name(OperandSize::Qword))
             }
             Self::JmpRel { offset } => {
                 if offset >= 0 {
-                    write!(w, "jmp .+{:#x}", offset)
+                    write!(f, "jmp .+{:#x}", offset)
                 } else {
-                    write!(w, "jmp .-{:#x}", (-offset as i64))
+                    write!(f, "jmp .-{:#x}", (-offset as i64))
                 }
             }
             Self::Jcc { condition, offset } => {
                 if offset >= 0 {
-                    write!(w, "j{} .+{:#x}", condition.mnemonic(), offset)
+                    write!(f, "j{} .+{:#x}", condition.mnemonic(), offset)
                 } else {
-                    write!(w, "j{} .-{:#x}", condition.mnemonic(), (-offset as i64))
+                    write!(f, "j{} .-{:#x}", condition.mnemonic(), (-offset as i64))
                 }
             }
-            Self::Ret => w.write_str("ret"),
+            Self::Ret => f.write_str("ret"),
         }
-    }
-
-    pub fn to_asm_string(&self) -> String {
-        let mut s = String::new();
-        let _ = self.put_asm_text(&mut s);
-        s
-    }
-}
-
-impl fmt::Display for X64Inst {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.put_asm_text(f)
     }
 }
 
@@ -312,7 +300,7 @@ mod tests {
                 dst: X64Reg::RAX.into(),
                 src: X64Reg::RBX.into(),
             }
-            .to_asm_string(),
+            .to_string(),
             "mov rax, rbx"
         );
         assert_eq!(
@@ -321,7 +309,7 @@ mod tests {
                 dst: X64Reg::RAX.into(),
                 src: RegMem::from_disp(X64Reg::RBP, -8),
             }
-            .to_asm_string(),
+            .to_string(),
             "mov rax, qword ptr [rbp - 0x8]"
         );
         assert_eq!(
@@ -330,7 +318,7 @@ mod tests {
                 dst: X64Reg::RAX.into(),
                 src: RegMem::Mem(X64Reg::RBP),
             }
-            .to_asm_string(),
+            .to_string(),
             "mov rax, qword ptr [rbp]"
         );
         assert_eq!(
@@ -339,7 +327,7 @@ mod tests {
                 dst: X64Reg::RAX.into(),
                 imm: 0x1234,
             }
-            .to_asm_string(),
+            .to_string(),
             "mov rax, 0x1234"
         );
         assert_eq!(
@@ -348,7 +336,7 @@ mod tests {
                 dst: RegMem::from_disp(X64Reg::RBP, -8),
                 imm: 0,
             }
-            .to_asm_string(),
+            .to_string(),
             "mov qword ptr [rbp - 0x8], 0x0"
         );
         assert_eq!(
@@ -358,7 +346,7 @@ mod tests {
                 dst: X64Reg::RAX.into(),
                 src: X64Reg::RBX,
             }
-            .to_asm_string(),
+            .to_string(),
             "add rax, rbx"
         );
         assert_eq!(
@@ -368,7 +356,7 @@ mod tests {
                 dst: X64Reg::RAX.into(),
                 imm: 10,
             }
-            .to_asm_string(),
+            .to_string(),
             "sub rax, 0xa"
         );
         assert_eq!(
@@ -377,7 +365,7 @@ mod tests {
                 dst: X64Reg::RAX.into(),
                 src: X64Reg::RAX,
             }
-            .to_asm_string(),
+            .to_string(),
             "test rax, rax"
         );
         assert_eq!(
@@ -386,7 +374,7 @@ mod tests {
                 dst: X64Reg::RAX.into(),
                 imm: 1,
             }
-            .to_asm_string(),
+            .to_string(),
             "test rax, 0x1"
         );
         assert_eq!(
@@ -395,7 +383,7 @@ mod tests {
                 size: OperandSize::Qword,
                 dst: X64Reg::RAX.into(),
             }
-            .to_asm_string(),
+            .to_string(),
             "shl rax, cl"
         );
         assert_eq!(
@@ -403,24 +391,24 @@ mod tests {
                 condition: ConditionCode::Equal,
                 dst: X64Reg::RAX,
             }
-            .to_asm_string(),
+            .to_string(),
             "sete al"
         );
         assert_eq!(
             X64Inst::Call {
                 target: X64Reg::R11
             }
-            .to_asm_string(),
+            .to_string(),
             "call r11"
         );
-        assert_eq!(X64Inst::Ret.to_asm_string(), "ret");
+        assert_eq!(X64Inst::Ret.to_string(), "ret");
         assert_eq!(
             X64Inst::Mov {
                 size: OperandSize::Byte,
                 dst: RegMem::Mem(X64Reg::RDI),
                 src: X64Reg::RSI.into(),
             }
-            .to_asm_string(),
+            .to_string(),
             "mov byte ptr [rdi], sil"
         );
         assert_eq!(
@@ -429,7 +417,7 @@ mod tests {
                 dst: RegMem::Mem(X64Reg::RDI),
                 src: X64Reg::RSI.into(),
             }
-            .to_asm_string(),
+            .to_string(),
             "mov word ptr [rdi], si"
         );
         assert_eq!(
@@ -438,7 +426,7 @@ mod tests {
                 dst: RegMem::Mem(X64Reg::RDI),
                 imm: 0x42,
             }
-            .to_asm_string(),
+            .to_string(),
             "mov byte ptr [rdi], 0x42"
         );
         assert_eq!(
@@ -447,7 +435,7 @@ mod tests {
                 dst: RegMem::Mem(X64Reg::RDI),
                 imm: 0x1234,
             }
-            .to_asm_string(),
+            .to_string(),
             "mov word ptr [rdi], 0x1234"
         );
     }
