@@ -9,8 +9,6 @@ pub(super) struct JitBuffer {
     alloc: Allocation,
     cursor: usize,
     peak_used_bytes: usize,
-    #[cfg(target_os = "linux")]
-    perf_map: Option<PerfMap>,
 }
 
 impl JitBuffer {
@@ -19,9 +17,7 @@ impl JitBuffer {
             .expect("failed to allocate 2 GiB JIT code buffer");
 
         #[cfg(target_os = "linux")]
-        let mut perf_map = PerfMap::new();
-        #[cfg(target_os = "linux")]
-        if let Some(ref mut map) = perf_map {
+        if let Some(mut map) = PerfMap::new() {
             map.register_chunk(alloc.as_ptr::<u8>() as usize, alloc.len());
         }
 
@@ -29,8 +25,6 @@ impl JitBuffer {
             alloc,
             cursor: 0,
             peak_used_bytes: 0,
-            #[cfg(target_os = "linux")]
-            perf_map,
         }
     }
 

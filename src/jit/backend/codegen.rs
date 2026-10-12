@@ -9,6 +9,7 @@ pub trait CodeGenTrait: Sized {
     type PatchKind: Copy + std::fmt::Debug + 'static;
 
     fn try_new() -> Option<Self>;
+    // TODO: wtf
     fn reset(&mut self);
     fn compile<'a>(&'a mut self, block: &IRBlock) -> CodeBlockRef<'a, Self::PatchKind>;
     fn set_dump_asm(&mut self, enable: bool);
@@ -66,11 +67,6 @@ impl<'a, I: ISA> CodeGenContext<'a, I> {
     }
 
     #[inline]
-    pub fn asm_buf(&mut self) -> Option<&mut String> {
-        self.asm_buf.as_deref_mut()
-    }
-
-    #[inline]
     pub fn patch_jmp(&mut self, loc: PatchLoc<I::PatchKind>, target_offset: usize) {
         unsafe {
             let target_addr = self.buf.as_ptr().add(target_offset) as usize as i64;
@@ -116,17 +112,12 @@ impl<I: ISA> CodeGen<I> {
         }
     }
 
-    pub fn with_dump_asm(mut self, enable: bool) -> Self {
-        self.set_dump_asm(enable);
-        self
-    }
-
     fn emit_terminator(
         ctx: &mut CodeGenContext<I>,
         term: &Terminator,
         block_insts: u32,
     ) -> SmallVec<[ChainPatch<I::PatchKind>; 2]> {
-        let mut patches = SmallVec::new();
+        let mut chain_patches = SmallVec::new();
         match term {
             Terminator::DirectJmp { target } => {
                 I::Backend::emit_update_budget(ctx, block_insts);
@@ -134,7 +125,7 @@ impl<I: ISA> CodeGen<I> {
                 let patch = I::Backend::emit_static_jmp(ctx);
                 let exit_offset = I::Backend::emit_block_exit(ctx, *target as WordType);
                 ctx.patch_jmp(patch, exit_offset);
-                patches.push(ChainPatch::new(patch, *target as WordType));
+                chain_patches.push(ChainPatch::new(patch, *target as WordType));
             }
             Terminator::DynamicJmp { target } => {
                 let hreg = ctx.use_vreg(*target);
@@ -159,14 +150,14 @@ impl<I: ISA> CodeGen<I> {
 
                 let then_exit = I::Backend::emit_block_exit(ctx, *then_pc as WordType);
                 ctx.patch_jmp(then_patch, then_exit);
-                patches.push(ChainPatch::new(then_patch, *then_pc as WordType));
+                chain_patches.push(ChainPatch::new(then_patch, *then_pc as WordType));
 
                 let else_exit = I::Backend::emit_block_exit(ctx, *else_pc as WordType);
                 ctx.patch_jmp(else_patch, else_exit);
-                patches.push(ChainPatch::new(else_patch, *else_pc as WordType));
+                chain_patches.push(ChainPatch::new(else_patch, *else_pc as WordType));
             }
         }
-        patches
+        chain_patches
     }
 
     fn emit_insts(
@@ -292,6 +283,7 @@ pub type NativeCodeGen = cfg_select! {
     }
 };
 
+#[allow(unused)]
 struct DummyCodeGen {}
 
 impl CodeGenTrait for DummyCodeGen {

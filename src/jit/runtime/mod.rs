@@ -92,16 +92,6 @@ impl JitRuntime {
         Ok(())
     }
 
-    pub fn with_dump(mut self, path: impl AsRef<std::path::Path>) -> std::io::Result<Self> {
-        self.enable_dump(path)?;
-        Ok(self)
-    }
-
-    pub fn set_dump_writer(&mut self, writer: BufWriter<File>) {
-        self.backend.set_dump_asm(true);
-        self.dump_file = Some(writer);
-    }
-
     pub fn disable_dump(&mut self) {
         self.backend.set_dump_asm(false);
         self.dump_file = None;
