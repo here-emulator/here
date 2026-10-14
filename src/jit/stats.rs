@@ -97,7 +97,7 @@ impl ReportWriter {
     }
 
     fn section(&mut self, title: &str) {
-        self.buf.push_str("\r\n[");
+        self.buf.push_str("\n[");
         self.buf.push_str(title);
         self.buf.push_str("]\n");
     }
@@ -354,8 +354,9 @@ impl JitStats {
 
         if !self.unsupported_insts.is_empty() {
             w.line("    -------------------------------------------------------");
-            w.line("    * Top Unsupported Instructions (Priority for JIT impl):");
+            w.line("    * Top Unsupported Instructions:");
             let mut sorted: Vec<_> = self.unsupported_insts.iter().collect();
+            // TODO: just call sort by key (count)
             sorted.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
             for (idx, (instr, count)) in sorted.iter().take(10).enumerate() {
                 let name = instr.name();

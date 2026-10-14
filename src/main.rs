@@ -481,7 +481,7 @@ fn main() {
             board.run_cycles(cli_args.max_cycles);
             if board.status() != here::board::BoardStatus::Halt {
                 log::error!(
-                    "Max cycles reached: {} at pc {}",
+                    "Max cycles reached: {} at PC 0x{:x}",
                     cli_args.max_cycles,
                     board.cpu().read_pc()
                 );

@@ -2,9 +2,9 @@ use region::{Allocation, Protection};
 
 use super::runtime::JitFunction;
 
-pub const JIT_BUFFER_SIZE: usize = 2 * 1024 * 1024 * 1024; // 2 GiB
+pub const JIT_BUFFER_SIZE: usize = 2 * 1024 * 1024 * 1024;
 
-/// Storage for generated code in a single 2 GiB virtual address space allocation.
+/// Storage for generated code in a single virtual address space allocation.
 pub(super) struct JitBuffer {
     alloc: Allocation,
     cursor: usize,
@@ -14,7 +14,7 @@ pub(super) struct JitBuffer {
 impl JitBuffer {
     pub fn new() -> Self {
         let alloc = region::alloc(JIT_BUFFER_SIZE, Protection::READ_WRITE_EXECUTE)
-            .expect("failed to allocate 2 GiB JIT code buffer");
+            .expect("failed to allocate JIT buffer");
 
         #[cfg(target_os = "linux")]
         if let Some(mut map) = PerfMap::new() {
@@ -41,10 +41,7 @@ impl JitBuffer {
     pub unsafe fn emit_code(&mut self, code: &[u8]) -> JitFunction {
         let len = code.len();
         assert!(len != 0, "cannot emit an empty JIT function");
-        assert!(
-            self.remaining() >= len,
-            "JIT buffer exhausted (exceeded 2 GiB limit)"
-        );
+        assert!(self.remaining() >= len, "JIT buffer exhausted");
 
         let offset = self.cursor;
         self.cursor += len;
