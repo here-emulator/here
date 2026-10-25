@@ -1,6 +1,7 @@
 use std::{
     cell::{Cell, UnsafeCell},
     hint::cold_path,
+    path::PathBuf,
     rc::Rc,
     sync::atomic::Ordering,
 };
@@ -22,7 +23,7 @@ use crate::{
     },
     isa::riscv::{
         decoder::Decoder,
-        executor::{BatchResult, ExecutionHook, RVCPU},
+        executor::{BatchResult, ExecutionHook, ExecutorBackend, RVCPU},
         trap::Interrupt,
     },
     load::{ELFLoader, load_bin},
@@ -78,12 +79,22 @@ impl MemoryImage {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "native-cli", derive(clap::ValueEnum))]
+pub enum ExecutorBackendKind {
+    #[default]
+    Interpreter,
+    Jit,
+}
+
 pub struct VirtBoardConfig {
     decoder: Option<Decoder>,
     virtio_devices: Vec<DeviceConfig>,
     memory_images: Vec<MemoryImage>,
     initial_registers: Vec<(u8, WordType)>,
     uart_io: UartIoMode,
+    executor_backend: ExecutorBackendKind,
+    dump_jit: Option<PathBuf>,
 }
 
 impl Default for VirtBoardConfig {
@@ -94,6 +105,8 @@ impl Default for VirtBoardConfig {
             memory_images: Vec::new(),
             initial_registers: Vec::new(),
             uart_io: UartIoMode::External,
+            executor_backend: ExecutorBackendKind::Interpreter,
+            dump_jit: None,
         }
     }
 }
@@ -128,6 +141,16 @@ impl VirtBoardConfig {
         self.uart_io = mode;
         self
     }
+
+    pub fn with_executor_backend(mut self, backend: ExecutorBackendKind) -> Self {
+        self.executor_backend = backend;
+        self
+    }
+
+    pub fn with_dump_jit(mut self, path: impl Into<PathBuf>) -> Self {
+        self.dump_jit = Some(path.into());
+        self
+    }
 }
 
 /// NOTE: Only used in single-threaded contexts.
@@ -157,6 +180,7 @@ pub struct VirtBoard {
     pub loader: Option<ELFLoader>,
 
     pub cpu: Box<RVCPU>,
+    pub(crate) executor_backend: Box<dyn ExecutorBackend>,
     pub cycles: Rc<Cell<u64>>,
     pub clock: VirtualClock,
     pub timer: Rc<UnsafeCell<Timer<VirtualClock>>>,
@@ -209,6 +233,8 @@ impl VirtBoard {
             memory_images,
             initial_registers,
             uart_io,
+            executor_backend,
+            dump_jit,
         } = config;
 
         for image in memory_images {
@@ -239,6 +265,7 @@ impl VirtBoard {
 
         builder = builder
             .with_initial_registers(initial_registers)
+            .with_executor_backend(executor_backend)
             .add_power_manager(config::POWER_MANAGER_BASE, POWER_MANAGER_SIZE)
             .add_clint(config::CLINT_BASE, CLINT_SIZE)
             .add_plic(config::PLIC_BASE, PLIC_SIZE)
@@ -248,6 +275,10 @@ impl VirtBoard {
                 config::UART_IRQ,
                 uart_io,
             );
+
+        if let Some(path) = dump_jit {
+            builder = builder.with_dump_jit(path);
+        }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -315,6 +346,11 @@ impl VirtBoard {
         self.cycles.get()
     }
 
+    /// Prints executor statistics, if the backend has any.
+    pub fn report(&self) {
+        self.executor_backend.report();
+    }
+
     fn prepare_cpu_batch(&mut self) {
         unsafe { self.timer.as_mut_unchecked() }.tick();
         let plic = self.plic;
@@ -380,7 +416,9 @@ impl Board for VirtBoard {
 
     fn step_batch(&mut self, cycles: u64) -> BatchResult {
         self.execute_cpu_batch(|board| {
-            board.cpu.step_batch(cycles);
+            board
+                .executor_backend
+                .step_batch(board.cpu.as_mut(), cycles);
             BatchResult {
                 cycles,
                 hook_stopped: false,
@@ -396,8 +434,9 @@ mod tests {
     use crate::config::arch_config::XLEN;
     use crate::device::DeviceTrait;
     use crate::isa::DebugTarget;
-    use crate::isa::riscv::csr_reg::csr_macro::Mcause;
+    use crate::isa::riscv::csr_reg::csr_macro::{Mcause, Mcycle, Minstret, Satp};
     use crate::isa::riscv::csr_reg::{NamedCsrReg, csr_index};
+    use crate::isa::riscv::debugger::Address;
     use crate::ram_config;
 
     fn create_test_board() -> VirtBoard {
@@ -425,9 +464,146 @@ mod tests {
     }
 
     #[test]
-    fn test_memory_image_and_initial_register_config() {
-        use crate::isa::riscv::debugger::Address;
+    fn jit_backend_matches_interpreter_for_supported_block() {
+        let program = [
+            0x0010_8093_u32, // addi x1, x1, 1
+            0x0010_8093_u32, // addi x1, x1, 1
+            0x0020_80b3_u32, // add x1, x1, x2
+            0x0020_8133_u32, // add x2, x1, x2
+            0x0020_81b3_u32, // add x3, x1, x2
+            0x001f_8f93_u32, // addi x31, x31, 1
+        ];
+        let bytes = program
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>();
 
+        let mut interpreter = VirtBoard::from_binary_with(&bytes, VirtBoardConfig::new()).unwrap();
+        let Ok(mut jit) = VirtBoard::from_binary_with(
+            &bytes,
+            VirtBoardConfig::new().with_executor_backend(ExecutorBackendKind::Jit),
+        ) else {
+            return;
+        };
+        interpreter.cpu_mut().write_reg(2, 7);
+        jit.cpu_mut().write_reg(2, 7);
+
+        assert_eq!(interpreter.run_cycles(6), 6);
+        assert_eq!(jit.run_cycles(6), 6);
+
+        assert_eq!(jit.cpu.read_pc(), interpreter.cpu.read_pc());
+        assert_eq!(jit.cpu.read_reg(1), interpreter.cpu.read_reg(1));
+        assert_eq!(jit.cpu.read_reg(2), interpreter.cpu.read_reg(2));
+        assert_eq!(jit.cpu.read_reg(3), interpreter.cpu.read_reg(3));
+        assert_eq!(jit.cpu.read_reg(31), interpreter.cpu.read_reg(31));
+        assert_eq!(
+            jit.cpu_mut().debug_csr(Mcycle::get_index(), None),
+            interpreter.cpu_mut().debug_csr(Mcycle::get_index(), None)
+        );
+        assert_eq!(
+            jit.cpu_mut().debug_csr(Minstret::get_index(), None),
+            interpreter.cpu_mut().debug_csr(Minstret::get_index(), None)
+        );
+    }
+
+    #[test]
+    fn jit_fallback_executes_exactly_one_cycle_before_resuming_jit() {
+        let program = [
+            0x0220_80b3_u32, // mul x1, x1, x2
+            0x0010_8093_u32, // addi x1, x1, 1
+        ];
+        let bytes = program
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>();
+        let Ok(mut board) = VirtBoard::from_binary_with(
+            &bytes,
+            VirtBoardConfig::new().with_executor_backend(ExecutorBackendKind::Jit),
+        ) else {
+            return;
+        };
+        board.cpu_mut().write_reg(1, 3);
+        board.cpu_mut().write_reg(2, 4);
+
+        assert_eq!(board.run_cycles(2), 2);
+        assert_eq!(board.cpu.read_pc(), ram_config::BASE_ADDR + 8);
+        assert_eq!(board.cpu.read_reg(1), 13);
+        assert_eq!(
+            board.cpu_mut().debug_csr(Mcycle::get_index(), None),
+            Some(2)
+        );
+        assert_eq!(
+            board.cpu_mut().debug_csr(Minstret::get_index(), None),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn satp_write_invalidates_cached_jit_blocks() {
+        let bytes = 0x0010_8093_u32.to_le_bytes(); // addi x1, x1, 1
+        let Ok(mut board) = VirtBoard::from_binary_with(
+            &bytes,
+            VirtBoardConfig::new().with_executor_backend(ExecutorBackendKind::Jit),
+        ) else {
+            return;
+        };
+
+        assert_eq!(board.run_cycles(1), 1);
+        board
+            .cpu_mut()
+            .write_memory(Address::Virt(ram_config::BASE_ADDR), 0x0020_8093_u32)
+            .unwrap(); // addi x1, x1, 2
+        board.cpu_mut().write_csr(Satp::get_index(), 1).unwrap();
+        board.cpu_mut().write_pc(ram_config::BASE_ADDR);
+        assert_eq!(board.run_cycles(1), 1);
+
+        assert_eq!(board.cpu.read_reg(1), 3);
+    }
+
+    #[test]
+    fn hooked_execution_uses_per_instruction_interpreter_path_with_jit_configured() {
+        struct StopAfterTwo(Vec<WordType>);
+
+        impl ExecutionHook for StopAfterTwo {
+            type CycleContext = WordType;
+
+            fn before_step(&mut self, cpu: &mut RVCPU) -> Self::CycleContext {
+                cpu.read_pc()
+            }
+
+            fn on_interrupt_taken(&mut self, interrupted_pc: WordType) -> Self::CycleContext {
+                interrupted_pc
+            }
+
+            fn after_step(&mut self, pc: WordType, _cpu: &mut RVCPU) -> bool {
+                self.0.push(pc);
+                self.0.len() == 2
+            }
+        }
+
+        let bytes = [0x0010_8093_u32; 3]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>();
+        let Ok(mut board) = VirtBoard::from_binary_with(
+            &bytes,
+            VirtBoardConfig::new().with_executor_backend(ExecutorBackendKind::Jit),
+        ) else {
+            return;
+        };
+        let mut hook = StopAfterTwo(Vec::new());
+
+        let result = board.run_cycles_hooked(3, &mut hook);
+
+        assert_eq!(result.cycles, 2);
+        assert!(result.hook_stopped);
+        assert_eq!(hook.0, [ram_config::BASE_ADDR, ram_config::BASE_ADDR + 4]);
+        assert_eq!(board.cycles(), 2);
+        assert_eq!(board.cpu.read_reg(1), 2);
+    }
+
+    #[test]
+    fn test_memory_image_and_initial_register_config() {
         let image_address = ram_config::BASE_ADDR + 0x2000;
         let image_offset = image_address - ram_config::BASE_ADDR;
         let image = vec![0xd0, 0x0d, 0xfe, 0xed];

@@ -16,7 +16,7 @@ use here::isa::riscv::isa_builder::DEFAULT_ISA;
 use here::rvdb::{Printer, RvdbSession, SyncREPL};
 use here::{
     DeviceConfig,
-    board::virt::{MemoryImage, UartIoMode, VirtBoard, VirtBoardConfig},
+    board::virt::{ExecutorBackendKind, MemoryImage, UartIoMode, VirtBoard, VirtBoardConfig},
     config::arch_config::WordType,
 };
 
@@ -173,6 +173,23 @@ struct Args {
     #[arg(long = "max-cycles", value_name = "COUNT", default_value_t = 0)]
     max_cycles: u64,
 
+    /// Select the CPU executor backend.
+    #[arg(
+        long = "executor",
+        value_enum,
+        value_name = "BACKEND",
+        default_value_t = ExecutorBackendKind::Interpreter
+    )]
+    executor: ExecutorBackendKind,
+
+    /// Dump JIT IR and generated host assembly to a file before execution.
+    #[arg(long = "dump-jit", value_name = "FILE")]
+    dump_jit: Option<std::path::PathBuf>,
+
+    /// Print JIT execution and compilation performance statistics upon exit.
+    #[arg(long = "jit-stats")]
+    jit_stats: bool,
+
     /// Load a DTB and pass its guest address to OpenSBI in register a1.
     #[arg(long = "dtb", value_name = "FILE")]
     dtb: Option<std::path::PathBuf>,
@@ -299,15 +316,25 @@ fn dump_signature(
     Ok(())
 }
 
-fn build_board(args: &Args) -> VirtBoard {
+fn build_board(args: &Args) -> Result<VirtBoard, String> {
     let decoder = Decoder::from_isa_str(&args.isa).unwrap_or_else(|e| {
         eprintln!("Invalid ISA string {:?}: {}", args.isa, e);
         std::process::exit(2);
     });
+    if args.executor != ExecutorBackendKind::Jit && (args.dump_jit.is_some() || args.jit_stats) {
+        eprintln!("--dump-jit and --jit-stats require --executor jit");
+        std::process::exit(2);
+    }
+
     let mut board_config = VirtBoardConfig::new()
         .with_decoder(decoder)
         .with_virtio_devices(args.devices.clone())
-        .with_uart_io(UartIoMode::Stdio);
+        .with_uart_io(UartIoMode::Stdio)
+        .with_executor_backend(args.executor);
+
+    if let Some(dump_path) = &args.dump_jit {
+        board_config = board_config.with_dump_jit(dump_path);
+    }
 
     if let Some(dtb_path) = &args.dtb {
         let dtb_address = args.dtb_address.unwrap_or(DEFAULT_DTB_ADDRESS);
@@ -341,7 +368,7 @@ fn build_board(args: &Args) -> VirtBoard {
                 println!("ELF file detected\r");
             }
             let bytes = std::fs::read(args.path.clone()).expect("Failed to read target file");
-            VirtBoard::from_elf_with(bytes, board_config).expect("ELF load failed")
+            VirtBoard::from_elf_with(bytes, board_config)
         }
 
         (TargetFormat::Bin, _) | (TargetFormat::Auto, "bin") => {
@@ -349,17 +376,14 @@ fn build_board(args: &Args) -> VirtBoard {
                 println!("Binary file detected\r");
             }
             let bytes = std::fs::read(args.path.clone()).expect("Failed to read target file");
-            VirtBoard::from_binary_with(&bytes, board_config).expect("Binary load failed")
+            VirtBoard::from_binary_with(&bytes, board_config)
         }
 
-        _ => {
-            log::error!("Format is not supported at present.");
-            panic!();
-        }
+        _ => Err("Format is not supported at present.".to_string()),
     }
 }
 
-fn run_rvdb(board: VirtBoard, args: &Args, interactive: bool) {
+fn run_rvdb(board: &mut VirtBoard, args: &Args, interactive: bool) {
     let script_lines = args.script.as_ref().map(|script| {
         std::fs::read_to_string(script)
             .unwrap_or_else(|error| panic!("failed to read script {}: {error}", script.display()))
@@ -396,7 +420,7 @@ fn run_rvdb(board: VirtBoard, args: &Args, interactive: bool) {
     }
 }
 
-fn run_normal(mut board: VirtBoard, args: &Args) {
+fn run_normal(board: &mut VirtBoard, args: &Args) {
     if let Some(sig_path) = &args.signature {
         // Create the signature file first to ensure file exists even if the emulator crashes.
         fs::File::create(sig_path).expect("Failed to create signature file");
@@ -415,7 +439,7 @@ fn run_normal(mut board: VirtBoard, args: &Args) {
         }
     }
     if let Some(sig_path) = &args.signature {
-        if let Err(e) = dump_signature(&mut board, sig_path.as_path(), args.signature_granularity) {
+        if let Err(e) = dump_signature(board, sig_path.as_path(), args.signature_granularity) {
             log::error!("Failed to dump signature: {}", e);
         }
     }
@@ -440,20 +464,22 @@ fn main() {
     let stdout_terminal = std::io::stdout().is_terminal();
     let mode = resolve_mode(&cli_args, stdin_terminal, stdout_terminal);
 
-    let board = build_board(&cli_args);
+    let mut board = match build_board(&cli_args) {
+        Ok(board) => board,
+        Err(error) => {
+            eprintln!("error: {error}");
+            std::process::exit(2);
+        }
+    };
 
-    let raw_mode_guard = RawModeGuard::new();
     let now = Instant::now();
+    let raw_mode_guard = RawModeGuard::new();
 
     match mode {
-        Mode::Normal => {
-            run_normal(board, &cli_args);
-        }
-        Mode::Rvdb { interactive } => {
-            run_rvdb(board, &cli_args, interactive);
-        }
+        Mode::Normal => run_normal(&mut board, &cli_args),
+        Mode::Rvdb { interactive } => run_rvdb(&mut board, &cli_args, interactive),
         Mode::Gdb(config) => {
-            if let Err(e) = gdb::event_loop(board, config) {
+            if let Err(e) = gdb::event_loop(&mut board, config) {
                 log::error!("{:?}", e);
                 panic!();
             }
@@ -461,6 +487,10 @@ fn main() {
     }
 
     drop(raw_mode_guard);
+
+    if cli_args.jit_stats {
+        board.report();
+    }
     println!("Used time: {:.6}s", now.elapsed().as_secs_f32());
 }
 

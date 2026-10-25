@@ -27,6 +27,8 @@ pub mod byte_io;
 pub mod config;
 pub mod device;
 pub mod isa;
+#[cfg(not(target_arch = "wasm32"))]
+mod jit;
 pub mod load;
 pub mod ram;
 #[cfg(not(target_arch = "wasm32"))]

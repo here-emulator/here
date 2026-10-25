@@ -2,6 +2,7 @@ use std::{
     any::TypeId,
     cell::{Cell, UnsafeCell},
     collections::HashMap,
+    path::PathBuf,
     ptr::NonNull,
     rc::Rc,
 };
@@ -11,7 +12,9 @@ use crate::task_spawner::TaskSpawner;
 use crate::{
     board::{
         BoardStatus, VirtBoardPlicContextId,
-        virt::{IRQLine, RiscvIRQHandler, RiscvIRQSource, UartIoMode, VirtBoard},
+        virt::{
+            ExecutorBackendKind, IRQLine, RiscvIRQHandler, RiscvIRQSource, UartIoMode, VirtBoard,
+        },
     },
     clock::{Timer, VirtualClock},
     config::arch_config::WordType,
@@ -26,7 +29,12 @@ use crate::{
     },
     isa::{
         DebugTarget,
-        riscv::{decoder::Decoder, executor::RVCPU, mmu::VirtAddrManager, trap::Interrupt},
+        riscv::{
+            decoder::Decoder,
+            executor::{ExecutorBackend, InterpreterBackend, RVCPU},
+            mmu::VirtAddrManager,
+            trap::Interrupt,
+        },
     },
     ram::Ram,
 };
@@ -45,6 +53,10 @@ pub struct RVBoardBuilder {
     // UART
     uart_io: UartIoMode,
     uart_port: Option<UartBytePort>,
+
+    // executor
+    executor_backend: ExecutorBackendKind,
+    dump_jit: Option<PathBuf>,
 
     // mmio info
     clint_mmio: Option<(WordType, WordType)>,
@@ -75,6 +87,10 @@ impl RVBoardBuilder {
             uart_io: UartIoMode::External,
             uart_port: None,
 
+            // executor
+            executor_backend: ExecutorBackendKind::Interpreter,
+            dump_jit: None,
+
             #[cfg(not(target_arch = "wasm32"))]
             spawner: TaskSpawner::new(),
             clint_mmio: None,
@@ -89,6 +105,16 @@ impl RVBoardBuilder {
 
     pub fn with_initial_registers(mut self, registers: Vec<(u8, WordType)>) -> Self {
         self.initial_registers = registers;
+        self
+    }
+
+    pub fn with_executor_backend(mut self, backend: ExecutorBackendKind) -> Self {
+        self.executor_backend = backend;
+        self
+    }
+
+    pub fn with_dump_jit(mut self, path: impl Into<PathBuf>) -> Self {
+        self.dump_jit = Some(path.into());
         self
     }
 
@@ -271,6 +297,9 @@ impl RVBoardBuilder {
         // register rv interrupt.
         Self::register_rv_interrupt(&mut cpu, device_arena.as_mut(), &clint, &plic, clint_base);
 
+        let executor_backend =
+            create_executor_backend(self.executor_backend, self.dump_jit.take(), cpu.as_mut())?;
+
         #[cfg(not(target_arch = "wasm32"))]
         let task_handle = self.spawner.start();
 
@@ -279,6 +308,7 @@ impl RVBoardBuilder {
             task_handle,
             loader: None,
             cpu,
+            executor_backend,
             cycles,
             clock,
             timer,
@@ -293,6 +323,36 @@ impl RVBoardBuilder {
             status: BoardStatus::Running,
             device_arena,
         })
+    }
+}
+
+fn create_executor_backend(
+    kind: ExecutorBackendKind,
+    dump_jit: Option<PathBuf>,
+    cpu: &mut RVCPU,
+) -> Result<Box<dyn ExecutorBackend>, String> {
+    match kind {
+        ExecutorBackendKind::Interpreter => Ok(Box::new(InterpreterBackend)),
+        ExecutorBackendKind::Jit => {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let mut jit = crate::jit::JitRuntime::try_new(cpu).map_err(|e| e.to_string())?;
+                if let Some(path) = dump_jit {
+                    jit.enable_dump(&path).map_err(|error| {
+                        format!(
+                            "failed to initialize JIT dump to {}: {error}",
+                            path.display()
+                        )
+                    })?;
+                }
+                Ok(Box::new(jit))
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                let _ = (dump_jit, cpu);
+                Err("JIT executor backend is not supported on this platform".to_string())
+            }
+        }
     }
 }
 

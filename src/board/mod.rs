@@ -85,3 +85,31 @@ pub trait Board {
         self.run_cycles(u64::MAX);
     }
 }
+
+impl<B: Board> Board for &mut B {
+    const STEP_BATCH_CYCLES: u64 = B::STEP_BATCH_CYCLES;
+
+    fn status(&self) -> BoardStatus {
+        (**self).status()
+    }
+
+    fn cpu(&self) -> &RVCPU {
+        (**self).cpu()
+    }
+
+    fn cpu_mut(&mut self) -> &mut RVCPU {
+        (**self).cpu_mut()
+    }
+
+    fn loader(&self) -> Option<&crate::load::ELFLoader> {
+        (**self).loader()
+    }
+
+    fn step_batch_with_hook<H: ExecutionHook>(&mut self, cycles: u64, hook: &mut H) -> BatchResult {
+        (**self).step_batch_with_hook(cycles, hook)
+    }
+
+    fn step_batch(&mut self, cycles: u64) -> BatchResult {
+        (**self).step_batch(cycles)
+    }
+}

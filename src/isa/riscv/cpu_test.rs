@@ -5,8 +5,8 @@ use crate::{
     isa::riscv::{
         cpu_tester::*,
         csr_reg::{
-            NamedCsrReg, PrivilegeLevel, csr_index,
-            csr_macro::{Mcause, Mcycle, Mepc, Minstret, Mstatus, Mtvec, Satp, Sepc, Sstatus},
+            NamedCsrReg, csr_index,
+            csr_macro::{Mcause, Mcycle, Mepc, Minstret, Mtvec},
         },
         vector::VLEN,
     },
