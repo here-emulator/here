@@ -85,6 +85,8 @@ pub struct RVCPU {
     pub(crate) time_addr: Option<WordType>,
 
     /// The trap value pending to be written to `mtval`/`stval`.
+    ///
+    /// [`TrapController`] won't read this field, take that and pass by argument.
     pub(super) pending_tval: Option<WordType>,
 }
 
@@ -96,7 +98,7 @@ struct ExceptionInfo {
 
 impl Drop for RVCPU {
     fn drop(&mut self) {
-        log::info!("iCache hit rate {}", self.icache.hit_rate());
+        log::info!("iCache hit rate: {}", self.icache.hit_rate());
     }
 }
 
@@ -342,6 +344,7 @@ impl RVCPU {
                     cold_path();
                     log::warn!("Illegal instruction: {:#x} at {:#x}", err.tval, self.pc);
                 }
+
                 TrapController::take_exception(self, err.cause, err.tval);
                 return;
             }

@@ -43,10 +43,7 @@ pub(crate) struct VirtAddrManager {
     ram: Rc<UnsafeCell<Ram>>,
 }
 
-/// The main struct for determining how to access memory and performing address translation,
-/// according to the current CSR settings, the type of access, etc.
-///
-/// The logic of TLB and walking page tables is implemented in the [`PageTable`] struct.
+/// Performs address translation and physical memory access using policies prepared by the CPU.
 impl VirtAddrManager {
     pub(crate) fn from_ram_and_mmio(ram_ref: Rc<UnsafeCell<Ram>>, mmio: MemoryMapIO) -> Self {
         Self {
