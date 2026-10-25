@@ -5,13 +5,15 @@ use crate::{
     isa::riscv::{
         cpu_tester::*,
         csr_reg::{
-            NamedCsrReg, csr_index,
-            csr_macro::{Mcause, Mcycle, Mepc, Minstret, Mtvec},
+            NamedCsrReg, PrivilegeLevel, csr_index,
+            csr_macro::{Mcause, Mcycle, Mepc, Minstret, Mstatus, Mtvec, Satp, Sepc, Sstatus},
         },
         vector::VLEN,
     },
     ram_config,
-    utils::{UnsignedInteger, negative_of, sign_extend},
+    utils::{
+        UnsignedInteger, as_signed_i128, from_signed_i128, negative_of, shift_amount, sign_extend,
+    },
 };
 
 #[test]
@@ -134,6 +136,105 @@ fn test_exec_arith() {
         tester.test_rand_r(RiscvInstr::ADD, |lhs, rhs| lhs.wrapping_add(rhs));
         tester.test_rand_r(RiscvInstr::SUB, |lhs, rhs| lhs.wrapping_sub(rhs));
         tester.test_rand_i(RiscvInstr::ADDI, |lhs, imm| lhs.wrapping_add(imm));
+
+        tester.test_rand_r(RiscvInstr::AND, |lhs, rhs| lhs & rhs);
+        tester.test_rand_r(RiscvInstr::OR, |lhs, rhs| lhs | rhs);
+        tester.test_rand_r(RiscvInstr::XOR, |lhs, rhs| lhs ^ rhs);
+        tester.test_rand_i(RiscvInstr::ANDI, |lhs, imm| lhs & imm);
+        tester.test_rand_i(RiscvInstr::ORI, |lhs, imm| lhs | imm);
+        tester.test_rand_i(RiscvInstr::XORI, |lhs, imm| lhs ^ imm);
+
+        tester.test_rand_r(RiscvInstr::SLT, |lhs, rhs| {
+            (lhs.cast_signed() < rhs.cast_signed()) as WordType
+        });
+        tester.test_rand_r(RiscvInstr::SLTU, |lhs, rhs| (lhs < rhs) as WordType);
+
+        tester.test_rand_r(RiscvInstr::ADDW, |lhs, rhs| {
+            sign_extend(lhs.wrapping_add(rhs), 32)
+        });
+        tester.test_rand_r(RiscvInstr::SUBW, |lhs, rhs| {
+            sign_extend(lhs.wrapping_sub(rhs), 32)
+        });
+        tester.test_rand_i(RiscvInstr::ADDIW, |lhs, imm| {
+            sign_extend(lhs.wrapping_add(imm), 32)
+        });
+
+        tester.test_rand_r(RiscvInstr::SLL, |lhs, rhs| lhs << shift_amount(rhs));
+        tester.test_rand_r(RiscvInstr::SRL, |lhs, rhs| lhs >> shift_amount(rhs));
+        tester.test_rand_r(RiscvInstr::SRA, |lhs, rhs| {
+            from_signed_i128(as_signed_i128(lhs) >> shift_amount(rhs))
+        });
+
+        let value = tester.rand_word();
+        let shamt = tester.rand_word() & ((WordType::BITS - 1) as WordType);
+        tester.test_rand_i_with(RiscvInstr::SLLI, value, shamt, value << shift_amount(shamt));
+
+        let value = tester.rand_word();
+        let shamt = tester.rand_word() & ((WordType::BITS - 1) as WordType);
+        tester.test_rand_i_with(RiscvInstr::SRLI, value, shamt, value >> shift_amount(shamt));
+
+        let value = tester.rand_word();
+        let shamt = tester.rand_word() & ((WordType::BITS - 1) as WordType);
+        tester.test_rand_i_with(
+            RiscvInstr::SRAI,
+            value,
+            shamt,
+            from_signed_i128(as_signed_i128(value) >> shift_amount(shamt)),
+        );
+
+        let (value, shamt) = tester.rand_word2();
+        let shamt = (shamt & 31) as u32;
+        tester.test_rand_r_with(
+            RiscvInstr::SLLW,
+            value,
+            shamt as WordType,
+            sign_extend(((value as u32) << shamt) as WordType, 32),
+        );
+
+        let (value, shamt) = tester.rand_word2();
+        let shamt = (shamt & 31) as u32;
+        tester.test_rand_r_with(
+            RiscvInstr::SRLW,
+            value,
+            shamt as WordType,
+            sign_extend(((value as u32) >> shamt) as WordType, 32),
+        );
+
+        let (value, shamt) = tester.rand_word2();
+        let shamt = (shamt & 31) as u32;
+        tester.test_rand_r_with(
+            RiscvInstr::SRAW,
+            value,
+            shamt as WordType,
+            sign_extend(((value as u32 as i32) >> shamt) as u32 as WordType, 32),
+        );
+
+        let value = tester.rand_word();
+        let shamt = (tester.rand_word() & 31) as u32;
+        tester.test_rand_i_with(
+            RiscvInstr::SLLIW,
+            value,
+            shamt as WordType,
+            sign_extend(((value as u32) << shamt) as WordType, 32),
+        );
+
+        let value = tester.rand_word();
+        let shamt = (tester.rand_word() & 31) as u32;
+        tester.test_rand_i_with(
+            RiscvInstr::SRLIW,
+            value,
+            shamt as WordType,
+            sign_extend(((value as u32) >> shamt) as WordType, 32),
+        );
+
+        let value = tester.rand_word();
+        let shamt = (tester.rand_word() & 31) as u32;
+        tester.test_rand_i_with(
+            RiscvInstr::SRAIW,
+            value,
+            shamt as WordType,
+            sign_extend(((value as u32 as i32) >> shamt) as u32 as WordType, 32),
+        );
 
         tester.test_rand_i(RiscvInstr::SLTI, |lhs, imm| {
             ((lhs.cast_signed()) < (sign_extend(imm, 12).cast_signed())) as WordType
@@ -471,6 +572,12 @@ fn test_rv_c_arith() {
         |checker| checker.reg(8, 0xffff_ffff_8000_0000).pc(0x2002),
     );
     run_test_exec(
+        RiscvInstr::C_ADDIW,
+        RVInstrInfo::CI { rd_rs1: 8, imm: 1 },
+        |builder| builder.reg(8, 0x7fff_ffff).pc(0x2000),
+        |checker| checker.reg(8, 0xffff_ffff_8000_0000).pc(0x2002),
+    );
+    run_test_exec(
         RiscvInstr::C_SUBW,
         RVInstrInfo::CA { rd_rs1: 8, rs2: 9 },
         |builder| builder.reg(8, 20).reg(9, 5).pc(0x2000),
@@ -517,6 +624,13 @@ fn test_rv_c_arith() {
         },
         |builder| builder.reg(5, 0).pc(0x2000),
         |checker| checker.reg(5, 0x12345000).pc(0x2002),
+    );
+
+    run_test_exec(
+        RiscvInstr::C_NOP,
+        RVInstrInfo::None,
+        |builder| builder.reg(5, 0x1234).pc(0x2000),
+        |checker| checker.reg(5, 0x1234).pc(0x2002),
     );
 }
 
