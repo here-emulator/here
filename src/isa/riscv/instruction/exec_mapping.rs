@@ -109,9 +109,9 @@ pub(in crate::isa::riscv) fn get_exec_func(
             if let RVInstrInfo::I { rs1, rd, imm } = inst_info {
                 let t = cpu.pc + 4;
                 let val = cpu.reg_file.read(rs1, 0).0;
-                let target: WordType = val.wrapping_add(imm) & !1; // imm has been sign_extended
 
-                super::check_jump_alignment(cpu, target)?;
+                // as manual says, clear the LSB, so there is no need to check ialign.
+                let target: WordType = val.wrapping_add(imm) & !1;
 
                 cpu.pc = target;
                 cpu.reg_file.write(rd, t);
