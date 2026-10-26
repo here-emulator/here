@@ -151,8 +151,6 @@ impl VirtBoard {
 }
 
 impl Board for VirtBoard {
-    const STEP_BATCH_CYCLES: u64 = 1024;
-
     fn status(&self) -> BoardStatus {
         self.status
     }

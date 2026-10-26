@@ -60,7 +60,7 @@ impl Into<PlicContextId> for VirtBoardPlicContextId {
 }
 
 pub trait Board {
-    const STEP_BATCH_CYCLES: u64 = 1024;
+    const STEP_BATCH_CYCLES: u64 = 4096;
 
     fn status(&self) -> BoardStatus;
 
