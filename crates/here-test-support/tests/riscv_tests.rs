@@ -1,5 +1,8 @@
 //! Integration tests for the [`riscv-tests`] repo.
 //!
+//! Every test binary runs on the interpreter and, where the platform provides
+//! one, on the JIT executor as well.
+//!
 //! Build the `riscv-tests` submodule first; see the repository README.
 //!
 //! [`riscv-tests`]: https://github.com/riscv-software-src/riscv-tests
@@ -12,17 +15,44 @@ use crossterm::style::Stylize;
 use here_board::Board;
 use here_board::BoardStatus;
 use here_board::virt::UartIoMode;
+use here_board::virt::VirtBoard;
 use here_isa::DebugTarget;
 use here_isa::riscv::address::Address;
 use here_test_support::board_from_elf;
+use here_test_support::jit_board_from_elf;
+use here_test_support::jit_supported;
 use here_types::WordType;
+
+const RUN_LIMIT: u64 = 10_000_000;
+
+#[derive(Clone, Copy)]
+enum Backend {
+    Interpreter,
+    Jit,
+}
+
+enum Outcome {
+    Passed,
+    Failed,
+    TimedOut,
+}
+
+impl Backend {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Interpreter => "interpreter",
+            Self::Jit => "jit",
+        }
+    }
+}
 
 fn find_tests_exclude(prefix: &str, exclude_names: &[&str]) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     let isa_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../riscv-tests/isa");
     if let Ok(entries) = fs::read_dir(&isa_dir) {
         for e in entries.flatten() {
-            if e.path().is_dir() || e.path().extension() != None {
+            let path = e.path();
+            if !path.is_file() || path.extension().is_some() {
                 continue;
             }
 
@@ -32,7 +62,7 @@ fn find_tests_exclude(prefix: &str, exclude_names: &[&str]) -> Vec<PathBuf> {
                         .iter()
                         .all(|&n| (prefix.to_owned() + n) != fname)
                 {
-                    paths.push(e.path());
+                    paths.push(path);
                 }
             }
         }
@@ -42,70 +72,69 @@ fn find_tests_exclude(prefix: &str, exclude_names: &[&str]) -> Vec<PathBuf> {
     paths
 }
 
-#[must_use]
-fn run_test(elf_path: &Path) -> bool {
+fn run_test(elf_path: &Path, backend: Backend) -> bool {
     // Load the ELF file and run it
     let result = std::panic::catch_unwind(|| {
-        let mut timeout = false;
-        let mut run_result = false;
-        let mut board = board_from_elf(&fs::read(elf_path).unwrap(), UartIoMode::External)
-            .expect("invalid ELF file");
+        let bytes = fs::read(elf_path).unwrap();
+        let mut board = match backend {
+            Backend::Interpreter => board_from_elf(&bytes, UartIoMode::None),
+            Backend::Jit => jit_board_from_elf(&bytes, UartIoMode::None),
+        }
+        .unwrap();
         let tohost: WordType = board.loader().unwrap().get_section_addr(".tohost").unwrap();
 
+        let mut remaining = RUN_LIMIT;
         while board.status() != BoardStatus::Halt {
-            board.step();
-
-            // Handle tohost
-            let instr_cnt = board.cycles();
-            if (instr_cnt & (0xFFF)) == 0 {
-                let msg = board.cpu.read_memory::<u64>(Address::Phys(tohost)).unwrap();
-
-                if msg != 0 {
-                    run_result = msg == 1;
-                    break;
-                }
+            if remaining == 0 {
+                return Outcome::TimedOut;
             }
 
-            if instr_cnt > 10_000_000 {
-                timeout = true;
-                break;
+            let executed = board
+                .step_batch(remaining.min(VirtBoard::STEP_BATCH_CYCLES))
+                .cycles;
+            remaining -= executed;
+
+            let msg = board.cpu.read_memory::<u64>(Address::Phys(tohost)).unwrap();
+            if msg != 0 {
+                return if msg == 1 {
+                    Outcome::Passed
+                } else {
+                    Outcome::Failed
+                };
             }
         }
 
-        return (run_result, timeout);
+        Outcome::Failed
     });
 
     let width = 48;
+    let name = format!("{} [{}]", elf_path.display(), backend.label());
 
     match result {
         Err(e) => {
-            eprintln!(
-                "Test {:<width$}{}: {:?}",
-                elf_path.display(),
-                "panicked".red(),
-                e
-            );
+            eprintln!("Test {:<width$}{}: {:?}", name, "panicked".red(), e);
             false
         }
 
-        Ok((false, timeout)) => {
-            if timeout {
-                eprintln!("Test {:<width$}{}", elf_path.display(), "timedout".red());
-            } else {
-                eprintln!("Test {:<width$}{}", elf_path.display(), "failed".red());
-            }
-            false
-        }
-
-        Ok((true, _)) => {
-            eprintln!("Test {:<width$}{}", elf_path.display(), "passed".green());
+        Ok(Outcome::Passed) => {
+            eprintln!("Test {:<width$}{}", name, "passed".green());
             true
+        }
+
+        Ok(Outcome::Failed) => {
+            eprintln!("Test {:<width$}{}", name, "failed".red());
+            false
+        }
+
+        Ok(Outcome::TimedOut) => {
+            eprintln!("Test {:<width$}{}", name, "timedout".red());
+            false
         }
     }
 }
 
 fn run_test_group(name: &str) {
-    run_test_group_exclude(name, &[])
+    run_test_group_exclude(name, &[]);
 }
 
 fn run_test_group_exclude(name: &str, exclude_names: &[&str]) {
@@ -116,15 +145,22 @@ fn run_test_group_exclude(name: &str, exclude_names: &[&str]) {
         name
     );
 
-    let tot = tests.len();
+    let mut backends = vec![Backend::Interpreter];
+    if jit_supported() {
+        backends.push(Backend::Jit);
+    }
+
+    let tot = tests.len() * backends.len();
 
     let mut fail_cnt = 0;
-    for elf in tests {
-        fail_cnt += !run_test(&elf) as u32;
+    for elf in &tests {
+        for &backend in &backends {
+            fail_cnt += !run_test(elf, backend) as u32;
+        }
     }
 
     if fail_cnt > 0 {
-        println!("Totally {}/{} tests failed in {}.", fail_cnt, tot, name);
+        println!("Totally {}/{} runs failed in {}.", fail_cnt, tot, name);
     } else {
         println!("All tests passed in {}.", name);
     }

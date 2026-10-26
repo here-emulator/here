@@ -4,6 +4,8 @@
 //! test-only wiring (JIT backends, program loading, standard device sets)
 //! stays out of every shipped dependency graph.
 
+use std::sync::LazyLock;
+
 use here_board::builder::RVBoardBuilder;
 use here_board::load::ELFLoader;
 use here_board::load::load_bin;
@@ -42,19 +44,49 @@ pub fn board_from_binary(bytes: &[u8], uart_io: UartIoMode) -> VirtBoard {
     board_from_ram(ram, uart_io)
 }
 
-/// Loads an ELF image and keeps its loader attached for symbol lookups.
-pub fn board_from_elf(bytes: &[u8], uart_io: UartIoMode) -> Option<VirtBoard> {
+fn jit_backend() -> Option<Box<dyn ExecutorBackend>> {
+    Some(Box::new(here_jit::JitRuntime::try_new().ok()?))
+}
+
+static JIT_SUPPORTED: LazyLock<bool> = LazyLock::new(|| here_jit::JitRuntime::try_new().is_ok());
+
+/// Whether this platform provides the JIT executor backend.
+pub fn jit_supported() -> bool {
+    *JIT_SUPPORTED
+}
+
+fn load_elf(
+    bytes: &[u8],
+    uart_io: UartIoMode,
+    backend: Option<Box<dyn ExecutorBackend>>,
+) -> Option<VirtBoard> {
     let loader = ELFLoader::try_new(bytes.to_vec())?;
     let mut ram = Ram::new();
     loader.load_to_ram(&mut ram);
-    let mut board = board_from_ram(ram, uart_io);
+
+    let mut builder = standard_builder(ram, uart_io);
+    if let Some(backend) = backend {
+        builder = builder.with_executor_backend(backend);
+    }
+
+    let mut board = builder.build();
     board.loader = Some(loader);
     Some(board)
 }
 
+/// Loads an ELF image and keeps its loader attached for symbol lookups.
+pub fn board_from_elf(bytes: &[u8], uart_io: UartIoMode) -> Option<VirtBoard> {
+    load_elf(bytes, uart_io, None)
+}
+
+/// ELF board running on the JIT backend; `None` where JIT is unsupported.
+pub fn jit_board_from_elf(bytes: &[u8], uart_io: UartIoMode) -> Option<VirtBoard> {
+    load_elf(bytes, uart_io, Some(jit_backend()?))
+}
+
 /// Binary board running on the JIT backend; `None` where JIT is unsupported.
 pub fn jit_board_from_binary(bytes: &[u8]) -> Option<VirtBoard> {
-    let backend: Box<dyn ExecutorBackend> = Box::new(here_jit::JitRuntime::try_new().ok()?);
+    let backend = jit_backend()?;
     let mut ram = Ram::new();
     load_bin(&mut ram, bytes);
     Some(
