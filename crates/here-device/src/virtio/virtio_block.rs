@@ -1,36 +1,39 @@
 use core::slice;
-use std::{
-    fs::OpenOptions,
-    io::SeekFrom,
-    sync::{
-        Arc,
-        atomic::{AtomicU8, Ordering},
-    },
-};
+use std::fs::OpenOptions;
+use std::io::SeekFrom;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU8;
+use std::sync::atomic::Ordering;
 
+#[cfg(any(test, feature = "test-support"))]
+use std::fs::File as StdFile;
 #[cfg(test)]
-use std::{
-    fs::File as StdFile,
-    io::{Read, Seek, Write},
-};
+use std::io::Read;
+#[cfg(test)]
+use std::io::Seek;
+#[cfg(any(test, feature = "test-support"))]
+use std::io::Write;
 
-use log::{error, info};
+use log::error;
+use log::info;
 use num_enum::TryFromPrimitive;
-use tokio::{
-    fs::File,
-    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
-    sync::{mpsc, watch},
-};
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncSeekExt;
+use tokio::io::AsyncWriteExt;
+use tokio::sync::mpsc;
+use tokio::sync::watch;
 
-use crate::device::{
-    task::DeviceTask,
-    virtio::{
-        config::{VIRTQUEUE_MAX_SIZE, VirtIOFeatureSet, virtio_reserved_feature},
-        virtio_device::VirtIODeviceTrait,
-        virtio_mmio::{VIRTIO_DEVICE_ID_BLOCK, VirtIODeviceStatus},
-        virtio_queue::{VirtQueue, VirtQueueCompletion, VirtQueueDesc},
-    },
-};
+use crate::task::DeviceTask;
+use crate::virtio::config::VIRTQUEUE_MAX_SIZE;
+use crate::virtio::config::VirtIOFeatureSet;
+use crate::virtio::config::virtio_reserved_feature;
+use crate::virtio::virtio_device::VirtIODeviceTrait;
+use crate::virtio::virtio_mmio::VIRTIO_DEVICE_ID_BLOCK;
+use crate::virtio::virtio_mmio::VirtIODeviceStatus;
+use crate::virtio::virtio_queue::VirtQueue;
+use crate::virtio::virtio_queue::VirtQueueCompletion;
+use crate::virtio::virtio_queue::VirtQueueDesc;
 
 pub(super) const SECTOR_SIZE: usize = 512;
 const VIRTIO_BLOCK_TASK_CAPACITY: usize = VIRTQUEUE_MAX_SIZE as usize;
@@ -785,12 +788,13 @@ impl VirtIOBlkDeviceBuilder {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn init_block_file<'a, F>(path: &str, blk_num: u64, mut f: F) -> StdFile
 where
     F: FnMut(usize) -> &'a [u8],
 {
-    use std::{fs::create_dir_all, path::Path};
+    use std::fs::create_dir_all;
+    use std::path::Path;
     let parent_dir = Path::new(path).parent().unwrap();
     create_dir_all(parent_dir).unwrap();
 
@@ -813,22 +817,18 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::{
-        thread,
-        time::{Duration, Instant},
-    };
+    use std::thread;
+    use std::time::Duration;
+    use std::time::Instant;
 
-    use crate::{
-        device::{
-            task::DeviceTask,
-            virtio::virtio_queue::{
-                VirtQueueAvail, VirtQueueAvailFlag, VirtQueueDescFlag, VirtQueueUsed,
-                VirtQueueUsedFlag,
-            },
-        },
-        ram::Ram,
-        ram_config,
-    };
+    use crate::ram::Ram;
+    use crate::task::DeviceTask;
+    use crate::virtio::virtio_queue::VirtQueueAvail;
+    use crate::virtio::virtio_queue::VirtQueueAvailFlag;
+    use crate::virtio::virtio_queue::VirtQueueDescFlag;
+    use crate::virtio::virtio_queue::VirtQueueUsed;
+    use crate::virtio::virtio_queue::VirtQueueUsedFlag;
+    use here_types::ram_config;
     use tokio::sync::watch;
 
     use super::*;
@@ -846,7 +846,8 @@ mod test {
     #[test]
     #[should_panic(expected = "size must be a multiple of 512 bytes")]
     fn rejects_unaligned_backing_file_size() {
-        use std::{fs::create_dir_all, path::Path};
+        use std::fs::create_dir_all;
+        use std::path::Path;
 
         let file_name = "./tmp/test_unaligned_virtio_blk.img";
         create_dir_all(Path::new(file_name).parent().unwrap()).unwrap();

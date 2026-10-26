@@ -1,9 +1,10 @@
-use crate::{
-    config::arch_config::WordType,
-    fpu::FloatPoint,
-    isa::riscv::{executor::RVCPU, trap::Exception},
-    utils::{TruncateTo, UnsignedInteger, sign_extend},
-};
+use crate::fpu::FloatPoint;
+use crate::riscv::executor::RVCPU;
+use crate::riscv::trap::Exception;
+use here_types::TruncateTo;
+use here_types::UnsignedInteger;
+use here_types::WordType;
+use here_types::sign_extend;
 
 #[inline(always)]
 pub(super) fn handle_load<T, const EXTEND: bool>(

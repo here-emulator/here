@@ -1,9 +1,10 @@
 use gdbstub::target;
 use gdbstub::target::ext;
 
-use crate::board::Board;
+use here_board::Board;
 
-use crate::isa::riscv::debugger::{DebugEvent, Debugger};
+use here_dbg::debugger::DebugEvent;
+use here_dbg::debugger::Debugger;
 
 mod basic;
 mod breakpoints;

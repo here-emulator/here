@@ -1,15 +1,19 @@
-use std::{cell::UnsafeCell, cmp::Ordering, ptr::NonNull, rc::Rc};
+use std::cell::UnsafeCell;
+use std::cmp::Ordering;
+use std::ptr::NonNull;
+use std::rc::Rc;
 
-use crate::{
-    config::arch_config::WordType,
-    device::{
-        DeviceTrait, MemError,
-        device_manager::{DeviceArena, DeviceHandle, ErasedDeviceHandle},
-    },
-    ram::Ram,
-    ram_config,
-    utils::{TruncateTo, UnsignedInteger, check_align},
-};
+use crate::DeviceTrait;
+use crate::MemError;
+use crate::device_manager::DeviceArena;
+use crate::device_manager::DeviceHandle;
+use crate::device_manager::ErasedDeviceHandle;
+use crate::ram::Ram;
+use here_types::TruncateTo;
+use here_types::UnsignedInteger;
+use here_types::WordType;
+use here_types::check_align;
+use here_types::ram_config;
 
 pub struct MemoryMapItem {
     pub(crate) start: WordType,
@@ -44,16 +48,6 @@ impl MemoryMapItem {
     }
 }
 
-/// # mmio
-/// ## Usage
-/// make sure the address was aligned.
-/// ```
-/// let mut mmio = MemoryMapIO::new();
-/// let a = mmio.read::<WordType>(ram_config::BASE_ADDR + 0x08);
-/// let b = mmio.read::<u8>(UART1_ADDR + 0x00);
-/// mmio.write::<u8>(UART1_ADDR + 0x06);
-/// mmio.write::<u32>(ram_config::BASE_ADDR + 0x03); // ILLIGAL! unaligned accesses
-/// ```
 pub struct MemoryMapIO {
     map: Vec<MemoryMapItem>,
     ram: Rc<UnsafeCell<Ram>>,
@@ -61,7 +55,6 @@ pub struct MemoryMapIO {
 }
 
 impl MemoryMapIO {
-    #[cfg(any(test, feature = "test-support"))]
     pub fn from_ram(ram: Rc<UnsafeCell<Ram>>) -> Self {
         Self {
             map: Vec::new(),
@@ -89,7 +82,7 @@ impl MemoryMapIO {
 
     pub fn read_by_type<T>(&mut self, p_addr: WordType) -> Result<T, MemError>
     where
-        T: crate::utils::UnsignedInteger,
+        T: here_types::UnsignedInteger,
     {
         if p_addr >= ram_config::BASE_ADDR {
             return unsafe {
@@ -122,7 +115,7 @@ impl MemoryMapIO {
 
     pub fn write_by_type<T>(&mut self, p_addr: WordType, data: T) -> Result<(), MemError>
     where
-        T: crate::utils::UnsignedInteger,
+        T: here_types::UnsignedInteger,
     {
         // let _guard = self.lock();
         if p_addr >= ram_config::BASE_ADDR {
@@ -155,9 +148,10 @@ impl MemoryMapIO {
 
     pub fn load_reserved<T>(&mut self, p_addr: WordType) -> Result<T, MemError>
     where
-        T: crate::utils::UnsignedInteger,
+        T: here_types::UnsignedInteger,
     {
-        use ram_config::{BASE_ADDR, SIZE};
+        use ram_config::BASE_ADDR;
+        use ram_config::SIZE;
         const RAM_END: WordType = BASE_ADDR + SIZE as WordType as WordType;
         match p_addr {
             BASE_ADDR..RAM_END => {
@@ -177,9 +171,10 @@ impl MemoryMapIO {
 
     pub fn store_conditional<T>(&mut self, p_addr: WordType, data: T) -> Result<bool, MemError>
     where
-        T: crate::utils::UnsignedInteger,
+        T: here_types::UnsignedInteger,
     {
-        use ram_config::{BASE_ADDR, SIZE};
+        use ram_config::BASE_ADDR;
+        use ram_config::SIZE;
         const RAM_END: WordType = BASE_ADDR + SIZE as WordType as WordType;
         match p_addr {
             BASE_ADDR..RAM_END => {
@@ -275,13 +270,12 @@ impl DeviceTrait for MemoryMapIO {
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        board::virt::config,
-        device::{
-            power_manager::{POWER_MANAGER_SIZE, PowerManager},
-            uart16550a::Uart16550A,
-        },
-    };
+    const UART_BASE: WordType = 0x1000_0000;
+    const UART_SIZE: WordType = 8;
+    const POWER_MANAGER_BASE: WordType = 0x10_0000;
+    use crate::power_manager::POWER_MANAGER_SIZE;
+    use crate::power_manager::PowerManager;
+    use crate::uart16550a::Uart16550A;
 
     use super::*;
 
@@ -291,16 +285,12 @@ mod test {
 
         let (uart1, _port) = Uart16550A::new();
         let power_manager = PowerManager::new();
-        let mut arena_builder = crate::device::device_manager::DeviceArenaBuilder::new();
+        let mut arena_builder = crate::device_manager::DeviceArenaBuilder::new();
         let power_manager = arena_builder.register(Box::new(power_manager));
         let uart1 = arena_builder.register(Box::new(uart1));
         let table = vec![
-            MemoryMapItem::new(
-                config::POWER_MANAGER_BASE,
-                POWER_MANAGER_SIZE,
-                power_manager,
-            ),
-            MemoryMapItem::new(config::UART_BASE, config::UART_SIZE, uart1),
+            MemoryMapItem::new(POWER_MANAGER_BASE, POWER_MANAGER_SIZE, power_manager),
+            MemoryMapItem::new(UART_BASE, UART_SIZE, uart1),
         ];
         let mut devices = Box::new(arena_builder.build());
         let devices_ptr = NonNull::from(devices.as_mut());
@@ -325,28 +315,20 @@ mod test {
         let ram = Rc::new(UnsafeCell::new(Ram::new()));
         let (uart1, mut port1) = Uart16550A::new();
         let power_manager = PowerManager::new();
-        let mut arena_builder = crate::device::device_manager::DeviceArenaBuilder::new();
+        let mut arena_builder = crate::device_manager::DeviceArenaBuilder::new();
         let power_manager = arena_builder.register(Box::new(power_manager));
         let uart1 = arena_builder.register(Box::new(uart1));
         let table = vec![
-            MemoryMapItem::new(
-                config::POWER_MANAGER_BASE,
-                POWER_MANAGER_SIZE,
-                power_manager,
-            ),
-            MemoryMapItem::new(config::UART_BASE, config::UART_SIZE, uart1),
+            MemoryMapItem::new(POWER_MANAGER_BASE, POWER_MANAGER_SIZE, power_manager),
+            MemoryMapItem::new(UART_BASE, UART_SIZE, uart1),
         ];
         let mut devices = Box::new(arena_builder.build());
         let devices_ptr = NonNull::from(devices.as_mut());
 
         let mut mmio = unsafe { MemoryMapIO::from_mmio_items(ram, devices_ptr, table) };
 
-        mmio.write_by_type(config::UART_BASE + 0x00, 'a' as u8)
-            .unwrap();
-        assert_ne!(
-            (mmio.read_by_type::<u8>(config::UART_BASE + 5).unwrap() & 0x20),
-            0
-        );
+        mmio.write_by_type(UART_BASE + 0x00, 'a' as u8).unwrap();
+        assert_ne!((mmio.read_by_type::<u8>(UART_BASE + 5).unwrap() & 0x20), 0);
         let data = port1.take_output();
         assert_eq!(data.len(), 1);
         assert_eq!(data[0], 'a' as u8);
@@ -369,7 +351,7 @@ mod test {
     #[test]
     fn mmio_rejects_accesses_crossing_device_end() {
         let ram = Rc::new(UnsafeCell::new(Ram::new()));
-        let mut arena_builder = crate::device::device_manager::DeviceArenaBuilder::new();
+        let mut arena_builder = crate::device_manager::DeviceArenaBuilder::new();
         let mock_device = arena_builder.register(Box::new(MockDevice));
         let table = vec![MemoryMapItem::new(0x1000, 4, mock_device)];
         let mut devices = Box::new(arena_builder.build());

@@ -1,15 +1,23 @@
-use rustc_apfloat::{FloatConvert, Status};
+use rustc_apfloat::FloatConvert;
+use rustc_apfloat::Status;
 
 use super::normal_float_exec;
-use crate::{
-    config::arch_config::WordType,
-    debug_unreachable,
-    fpu::{BinaryOp, CmpOp, FloatPoint, Round, soft_float::*},
-    isa::riscv::{
-        csr_reg::csr_macro::Fcsr, executor::RVCPU, instruction::RVInstrInfo, trap::Exception,
-    },
-    utils::{TruncateTo, TruncateToBits, WordTrait, sign_extend, wrapping_add_as_signed},
-};
+use crate::fpu::BinaryOp;
+use crate::fpu::CmpOp;
+use crate::fpu::FloatPoint;
+use crate::fpu::Round;
+use crate::fpu::soft_float::*;
+use crate::riscv::csr_reg::csr_macro::Fcsr;
+use crate::riscv::executor::RVCPU;
+use crate::riscv::instruction::RVInstrInfo;
+use crate::riscv::trap::Exception;
+use here_types::TruncateTo;
+use here_types::TruncateToBits;
+use here_types::WordTrait;
+use here_types::WordType;
+use here_types::debug_unreachable;
+use here_types::sign_extend;
+use here_types::wrapping_add_as_signed;
 
 fn rm_to_round(cpu: &mut RVCPU, rm: u8) -> Round {
     match rm {

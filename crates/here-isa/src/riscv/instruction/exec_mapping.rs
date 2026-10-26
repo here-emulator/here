@@ -1,25 +1,21 @@
-use crate::{
-    config::arch_config::WordType,
-    fpu::soft_float::*,
-    isa::{
-        DebugTarget,
-        riscv::{
-            csr_reg::{
-                PrivilegeLevel,
-                csr_macro::{Minstret, Mstatus},
-            },
-            executor::RVCPU,
-            instruction::{
-                RVInstrInfo, exec_atomic_function::*, exec_compress_function::*, exec_function::*,
-                exec_vector_function::*, instr_table::RiscvInstr,
-            },
-            trap::{Exception, trap_controller::TrapController},
-            vector::arithmetic::*,
-        },
-    },
-};
+use crate::DebugTarget;
+use crate::fpu::soft_float::*;
+use crate::riscv::csr_reg::PrivilegeLevel;
+use crate::riscv::csr_reg::csr_macro::Minstret;
+use crate::riscv::csr_reg::csr_macro::Mstatus;
+use crate::riscv::executor::RVCPU;
+use crate::riscv::instruction::RVInstrInfo;
+use crate::riscv::instruction::exec_atomic_function::*;
+use crate::riscv::instruction::exec_compress_function::*;
+use crate::riscv::instruction::exec_function::*;
+use crate::riscv::instruction::exec_vector_function::*;
+use crate::riscv::instruction::instr_table::RiscvInstr;
+use crate::riscv::trap::Exception;
+use crate::riscv::trap::trap_controller::TrapController;
+use crate::riscv::vector::arithmetic::*;
+use here_types::WordType;
 
-pub(in crate::isa::riscv) fn get_exec_func(
+pub(in crate::riscv) fn get_exec_func(
     instr: RiscvInstr,
 ) -> fn(RVInstrInfo, &mut RVCPU) -> Result<(), Exception> {
     match instr {

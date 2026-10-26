@@ -1,6 +1,7 @@
-use std::slice::{from_raw_parts, from_raw_parts_mut};
+use std::slice::from_raw_parts;
+use std::slice::from_raw_parts_mut;
 
-use crate::isa::riscv::vector::VLEN_BYTE;
+use crate::riscv::vector::VLEN_BYTE;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

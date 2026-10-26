@@ -1,9 +1,9 @@
 use super::*;
-use crate::isa::riscv::vector::{
-    VLEN_BYTE,
-    tester::{VectorBuilder, VectorChecker},
-    types::{Vlmul, Vsew},
-};
+use crate::riscv::vector::VLEN_BYTE;
+use crate::riscv::vector::tester::VectorBuilder;
+use crate::riscv::vector::tester::VectorChecker;
+use crate::riscv::vector::types::Vlmul;
+use crate::riscv::vector::types::Vsew;
 
 fn run_test_integer_vv<OpIVV, F, G>(param: TestOpParameter, build: F, check: G)
 where

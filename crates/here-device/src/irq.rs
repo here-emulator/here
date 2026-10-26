@@ -4,7 +4,7 @@
 //! [`RiscvIRQHandler`]. Keeping these types here avoids devices depending on
 //! the board layer.
 
-use crate::types::Interrupt;
+use here_types::Interrupt;
 
 pub trait RiscvIRQHandler {
     fn handle_irq(&mut self, interrupt: Interrupt, level: bool);

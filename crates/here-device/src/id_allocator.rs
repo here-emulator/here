@@ -1,4 +1,5 @@
-use crate::{config::arch_config::WordType, device::plic::PeriphIrqId};
+use crate::plic::PeriphIrqId;
+use here_types::WordType;
 
 #[derive(Debug, Clone)]
 pub struct MemMapInfo {

@@ -1,15 +1,25 @@
-use std::{cell::RefCell, panic, rc::Rc};
+#![allow(dead_code)]
+
+mod nostd_repl;
+
+use std::cell::RefCell;
+use std::panic;
+use std::rc::Rc;
 
 use wasm_bindgen::prelude::*;
 
-use crate::{
-    board::{Board, BoardStatus, virt::VirtBoard},
-    config::arch_config::REGFILE_CNT,
-    device::uart16550a::UartBytePort,
-    isa::DebugTarget,
-    load::{ELFLoader, SymTab},
-    rvdb::{AsyncREPL, REPLResponse, RvdbChannelTx, RvdbChannels},
-};
+use crate::nostd_repl::AsyncREPL;
+use crate::nostd_repl::REPLResponse;
+use crate::nostd_repl::RvdbChannelTx;
+use crate::nostd_repl::RvdbChannels;
+use here_board::Board;
+use here_board::BoardStatus;
+use here_board::load::ELFLoader;
+use here_board::load::SymTab;
+use here_board::virt::VirtBoard;
+use here_device::uart16550a::UartBytePort;
+use here_isa::DebugTarget;
+use here_types::REGFILE_CNT;
 
 #[wasm_bindgen(start)]
 fn init_on_wasm() {
@@ -128,13 +138,13 @@ impl RvdbSharedState {
         }
     }
 
-    fn apply_pending(&mut self, session: &mut crate::rvdb::RvdbSession<VirtBoard>) {
+    fn apply_pending(&mut self, session: &mut here_dbg::RvdbSession<VirtBoard>) {
         if let Some(symtab) = self.pending_symbol_table.take() {
             session.set_symbol_table(symtab);
         }
     }
 
-    fn sync_from(&mut self, session: &mut crate::rvdb::RvdbSession<VirtBoard>) {
+    fn sync_from(&mut self, session: &mut here_dbg::RvdbSession<VirtBoard>) {
         self.apply_pending(session);
         let board = session.board();
 

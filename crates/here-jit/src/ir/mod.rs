@@ -13,7 +13,7 @@ mod vreg_allocator;
 pub use ir_builder::*;
 pub use vreg_allocator::*;
 
-use crate::config::arch_config::WordType;
+use here_types::WordType;
 
 pub type VRegId = u32;
 

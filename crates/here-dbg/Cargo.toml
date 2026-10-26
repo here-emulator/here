@@ -1,0 +1,34 @@
+[package]
+name = "here-dbg"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["riscv64", "native"]
+riscv32 = [
+    "here-types/riscv32",
+    "here-device/riscv32",
+    "here-isa/riscv32",
+    "here-board/riscv32",
+]
+native = []
+riscv64 = [
+    "here-types/riscv64",
+    "here-device/riscv64",
+    "here-isa/riscv64",
+    "here-board/riscv64",
+]
+
+[dependencies]
+here-board = { workspace = true }
+here-device = { workspace = true }
+here-isa = { workspace = true }
+here-types = { workspace = true }
+clap.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+here-board = { workspace = true, features = ["native", "test-device"] }
+here-isa = { workspace = true, features = ["test-support"] }
+

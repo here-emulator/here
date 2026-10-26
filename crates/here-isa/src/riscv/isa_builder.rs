@@ -10,10 +10,9 @@
 
 use std::str::FromStr;
 
-use crate::{
-    config::arch_config::{WordType, XLEN},
-    isa::riscv::instruction::instr_table::*,
-};
+use crate::riscv::instruction::instr_table::*;
+use here_types::WordType;
+use here_types::XLEN;
 
 /// Stable default ISA exposed to users. Keep vector out until the V extension
 /// support is stable enough to enable by default.
@@ -119,7 +118,8 @@ fn misa_bit(letter: char) -> WordType {
 
 /// Builds the decoder's instruction set from a collection of [`Extension`]s.
 ///
-/// ```ignore
+/// ```
+/// # use here_isa::riscv::isa_builder::{Extension, ISABuilder};
 /// // Equivalent ways to describe RV64GC:
 /// let a = ISABuilder::new().add(Extension::M).add(Extension::A).add(Extension::D).add(Extension::C);
 /// let b: ISABuilder = "RV64IMAFDC_Zicsr_Zifencei".parse().unwrap();
@@ -296,7 +296,7 @@ fn multi_letter_extension(token: &str) -> Result<Extension, IsaParseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::isa::riscv::instruction::instr_table::RiscvInstr;
+    use crate::riscv::instruction::instr_table::RiscvInstr;
 
     fn has_instr(instrs: &[RVInstrDesc], instr: RiscvInstr) -> bool {
         instrs.iter().any(|d| d.instr == instr)

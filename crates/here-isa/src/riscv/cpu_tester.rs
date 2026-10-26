@@ -1,38 +1,40 @@
 #![cfg(any(test, feature = "test-support"))]
 
-use std::{cell::UnsafeCell, fmt::Debug, rc::Rc};
+use std::cell::UnsafeCell;
+use std::fmt::Debug;
+use std::rc::Rc;
 
 #[cfg(test)]
-use rand::{Rng, SeedableRng};
+use rand::Rng;
+#[cfg(test)]
+use rand::SeedableRng;
 #[cfg(test)]
 use rand_chacha::ChaCha12Rng;
 
-use crate::{
-    config::arch_config::{REGFILE_CNT, WordType},
-    device::mmio::MemoryMapIO,
-    isa::riscv::{
-        csr_reg::{
-            NamedCsrReg,
-            csr_macro::{Mstatus, Vl, Vtype},
-        },
-        decoder::Decoder,
-        executor::RVCPU,
-        isa_builder::TEST_ISA,
-        mmu::VirtAddrManager,
-        vector::types::{Vlmul, Vsew},
-    },
-    ram::Ram,
-    ram_config::BASE_ADDR,
-    utils::UnsignedInteger,
-};
+use crate::riscv::csr_reg::NamedCsrReg;
+use crate::riscv::csr_reg::csr_macro::Mstatus;
+use crate::riscv::csr_reg::csr_macro::Vl;
+use crate::riscv::csr_reg::csr_macro::Vtype;
+use crate::riscv::decoder::Decoder;
+use crate::riscv::executor::RVCPU;
+use crate::riscv::isa_builder::TEST_ISA;
+use crate::riscv::mmu::VirtAddrManager;
+use crate::riscv::vector::types::Vlmul;
+use crate::riscv::vector::types::Vsew;
+use here_device::mmio::MemoryMapIO;
+use here_device::ram::Ram;
+use here_types::REGFILE_CNT;
+use here_types::UnsignedInteger;
+use here_types::WordType;
+use here_types::ram_config::BASE_ADDR;
 
 #[cfg(test)]
-use crate::isa::riscv::{
-    decoder::DecodeInstr,
-    instruction::{RVInstrInfo, instr_table::RiscvInstr},
-};
 #[cfg(test)]
-use crate::utils::sign_extend;
+use crate::riscv::instruction::RVInstrInfo;
+#[cfg(test)]
+use crate::riscv::instruction::instr_table::RiscvInstr;
+#[cfg(test)]
+use here_types::sign_extend;
 
 pub struct TestCPUBuilder {
     cpu: Box<RVCPU>,
@@ -247,30 +249,6 @@ fn assert_register_state_eq(label: &str, expected: &RVCPU, actual: &RVCPU) {
 }
 
 #[cfg(test)]
-fn assert_execution_state_eq(label: &str, expected: &RVCPU, actual: &RVCPU) {
-    assert_eq!(actual.pc, expected.pc, "{label}: PC differs");
-    assert_register_state_eq(label, expected, actual);
-}
-
-#[cfg(test)]
-fn run_codegen_if_supported<F>(decoded: DecodeInstr, build: &F, interpreter: &RVCPU)
-where
-    F: Fn(TestCPUBuilder) -> TestCPUBuilder,
-{
-    let label = format!("{:?}", decoded.instr);
-    let mut jit_cpu = build(TestCPUBuilder::new()).build();
-    let mut jit = match crate::jit::JitRuntime::try_new(&mut jit_cpu) {
-        Ok(jit) => jit,
-        Err(crate::jit::runtime::JitError::Unsupported) => return,
-    };
-    if !jit.try_execute_instruction_for_test(jit_cpu.as_mut(), decoded) {
-        return;
-    }
-
-    assert_execution_state_eq(&label, interpreter, &jit_cpu);
-}
-
-#[cfg(test)]
 pub fn run_test_exec<F, G>(instr: RiscvInstr, info: RVInstrInfo, build: F, check: G)
 where
     F: Fn(TestCPUBuilder) -> TestCPUBuilder,
@@ -279,16 +257,6 @@ where
     let mut cpu = build(TestCPUBuilder::new()).build();
     cpu.execute(instr, info).unwrap();
     check(CPUChecker::new(&mut cpu));
-
-    run_codegen_if_supported(
-        DecodeInstr {
-            instr,
-            info,
-            len: instr.len(),
-        },
-        &build,
-        &cpu,
-    );
 }
 
 #[cfg(test)]
@@ -302,8 +270,6 @@ where
     // FIXME: [`RVCPU::execute`] don't handle the raised exception
     cpu.execute(decoded.instr, decoded.info).unwrap();
     check(CPUChecker::new(&mut cpu));
-
-    run_codegen_if_supported(decoded, &build, &cpu);
 }
 
 #[cfg(test)]
@@ -325,15 +291,6 @@ where
         cpu.step();
     }
     check(CPUChecker::new(&mut cpu));
-
-    let mut jit_cpu = make_cpu();
-    let mut jit = match crate::jit::JitRuntime::try_new(&mut jit_cpu) {
-        Ok(jit) => jit,
-        Err(crate::jit::runtime::JitError::Unsupported) => return,
-    };
-    jit.step_batch(jit_cpu.as_mut(), raw_instrs.len() as u64);
-    check(CPUChecker::new(&mut jit_cpu));
-    assert_execution_state_eq("JIT executor/interpreter", &cpu, &jit_cpu);
 }
 
 #[cfg(test)]

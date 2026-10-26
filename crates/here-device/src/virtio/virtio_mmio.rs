@@ -1,19 +1,17 @@
 use std::cell::UnsafeCell;
 
 use bitflags::bitflags;
-use log::{error, info};
+use log::error;
+use log::info;
 use num_enum::TryFromPrimitive;
 
-use crate::{
-    device::{
-        DeviceTrait, MemError, PlicDevice,
-        virtio::{
-            config::*,
-            virtio_device::{VirtIODeviceEnum, VirtIODeviceTrait},
-        },
-    },
-    utils::check_align,
-};
+use crate::DeviceTrait;
+use crate::MemError;
+use crate::PlicDevice;
+use crate::virtio::config::*;
+use crate::virtio::virtio_device::VirtIODeviceEnum;
+use crate::virtio::virtio_device::VirtIODeviceTrait;
+use here_types::check_align;
 
 pub const VIRTIO_DEVICE_ID_BLOCK: u16 = VirtIODeviceEnum::VirtIOBlock as u16;
 const VIRTIO_MMIO_CONFIG_OFFSET: u64 = VirtIO_MMIO_Offset::Config as u64;
@@ -165,7 +163,7 @@ impl VirtIOMMIO {
 
     fn read_config<T>(&mut self, offset: u64) -> Result<T, MemError>
     where
-        T: crate::utils::UnsignedInteger,
+        T: here_types::UnsignedInteger,
     {
         if !check_align::<T>(offset) {
             return Err(MemError::LoadMisaligned);
@@ -180,7 +178,7 @@ impl VirtIOMMIO {
 
     fn write_config<T>(&mut self, offset: u64, data: T) -> Result<(), MemError>
     where
-        T: crate::utils::UnsignedInteger,
+        T: here_types::UnsignedInteger,
     {
         if !check_align::<T>(offset) {
             return Err(MemError::StoreMisaligned);
@@ -456,12 +454,9 @@ impl VirtIOMMIO {
         };
     }
 
-    fn read_impl<T>(
-        &mut self,
-        addr: crate::config::arch_config::WordType,
-    ) -> Result<T, crate::device::MemError>
+    fn read_impl<T>(&mut self, addr: here_types::WordType) -> Result<T, crate::MemError>
     where
-        T: crate::utils::UnsignedInteger,
+        T: here_types::UnsignedInteger,
     {
         if addr >= VIRTIO_MMIO_CONFIG_OFFSET {
             return self.read_config(addr);
@@ -477,13 +472,9 @@ impl VirtIOMMIO {
         Ok(val)
     }
 
-    fn write_impl<T>(
-        &mut self,
-        addr: crate::config::arch_config::WordType,
-        data: T,
-    ) -> Result<(), crate::device::MemError>
+    fn write_impl<T>(&mut self, addr: here_types::WordType, data: T) -> Result<(), crate::MemError>
     where
-        T: crate::utils::UnsignedInteger,
+        T: here_types::UnsignedInteger,
     {
         if addr >= VIRTIO_MMIO_CONFIG_OFFSET {
             return self.write_config(addr, data);
@@ -583,26 +574,27 @@ impl GuestFeatureBuilder {
 #[cfg(test)]
 mod test {
     use core::slice;
-    use std::io::{Read, Seek};
+    use std::io::Read;
+    use std::io::Seek;
 
     use super::*;
-    use crate::{
-        device::{
-            DeviceTrait, PlicDevice,
-            virtio::{
-                virtio_block::{
-                    VirtIOBlkDeviceBuilder, VirtIOBlkReqStatus, VirtIOBlockFeature, VirtioBlkReq,
-                    VirtioBlkReqType, VirtioBlkStatus, init_block_file,
-                },
-                virtio_queue::{
-                    VirtQueueAvail, VirtQueueAvailFlag, VirtQueueDesc, VirtQueueDescFlag,
-                    VirtQueueUsed, VirtQueueUsedFlag,
-                },
-            },
-        },
-        ram::Ram,
-        ram_config,
-    };
+    use crate::DeviceTrait;
+    use crate::PlicDevice;
+    use crate::ram::Ram;
+    use crate::virtio::virtio_block::VirtIOBlkDeviceBuilder;
+    use crate::virtio::virtio_block::VirtIOBlkReqStatus;
+    use crate::virtio::virtio_block::VirtIOBlockFeature;
+    use crate::virtio::virtio_block::VirtioBlkReq;
+    use crate::virtio::virtio_block::VirtioBlkReqType;
+    use crate::virtio::virtio_block::VirtioBlkStatus;
+    use crate::virtio::virtio_block::init_block_file;
+    use crate::virtio::virtio_queue::VirtQueueAvail;
+    use crate::virtio::virtio_queue::VirtQueueAvailFlag;
+    use crate::virtio::virtio_queue::VirtQueueDesc;
+    use crate::virtio::virtio_queue::VirtQueueDescFlag;
+    use crate::virtio::virtio_queue::VirtQueueUsed;
+    use crate::virtio::virtio_queue::VirtQueueUsedFlag;
+    use here_types::ram_config;
 
     const QUEUE_NUM: usize = 8;
     const DESC_NUM: usize = 16;

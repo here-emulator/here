@@ -1,9 +1,10 @@
-use std::{
-    fmt::{Debug, Display},
-    ops::*,
-};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::ops::*;
 
-use crate::config::arch_config::{SignedWordType, WordType, XLEN};
+use crate::config::arch_config::SignedWordType;
+use crate::config::arch_config::WordType;
+use crate::config::arch_config::XLEN;
 
 // TODO: Too many things here. Do some cleanup.
 
@@ -70,7 +71,7 @@ where
 }
 
 #[inline(always)]
-pub(crate) fn shift_amount<T>(value: T) -> u32
+pub fn shift_amount<T>(value: T) -> u32
 where
     T: UnsignedInteger,
 {
@@ -79,7 +80,7 @@ where
 }
 
 #[inline(always)]
-pub(crate) fn as_signed_i128<T>(value: T) -> i128
+pub fn as_signed_i128<T>(value: T) -> i128
 where
     T: UnsignedInteger + Into<u128>,
 {
@@ -95,7 +96,7 @@ where
 }
 
 #[inline(always)]
-pub(crate) fn from_signed_i128<T>(value: i128) -> T
+pub fn from_signed_i128<T>(value: i128) -> T
 where
     T: UnsignedInteger,
 {
@@ -200,12 +201,13 @@ pub fn check_align<T>(addr: WordType) -> bool {
 
 /// # Examples
 /// ```
-/// assert_eq!(gen_name_list("a"; 0, 5), ["a0", "a1", "a2", "a3", "a4", "a5"])
+/// # use here_types::{gen_name_list, gen_reg_name_list};
+/// assert_eq!(gen_name_list!("a"; 0, 5), ["a0", "a1", "a2", "a3", "a4", "a5"])
 /// ```
 #[macro_export]
 macro_rules! gen_name_list {
     ($base:literal; $begin: literal, $end: literal) => {
-        seq_macro::seq!(N in $begin..= $end {
+        $crate::seq_macro::seq!(N in $begin..= $end {
             [ #(concat!($base, stringify!(N)),) *]
         })
     }
@@ -236,20 +238,21 @@ pub const fn concat_arrays<const SIZE1: usize, const SIZE2: usize>(
 /// make sure you have use [`crate::utils::gen_name_list`] in the same namespace.
 /// # Examples
 /// ```
-/// assert_eq!(gen_reg_name_list("s"; 0, 2; "t"; 1, 3), ["s0", "s1", "s2", "t1", "t2", "t3"])
+/// # use here_types::{gen_name_list, gen_reg_name_list};
+/// assert_eq!(gen_reg_name_list!("s", 0, 2; "t", 1, 3), ["s0", "s1", "s2", "t1", "t2", "t3"])
 /// ```
 #[macro_export]
 macro_rules! gen_reg_name_list {
     ($base:literal, $begin: literal, $end: literal; $($rest:tt)*) => {
-        crate::utils::concat_arrays(gen_name_list!($base; $begin, $end), gen_reg_name_list!($($rest)*))
+        $crate::utils::concat_arrays($crate::gen_name_list!($base; $begin, $end), $crate::gen_reg_name_list!($($rest)*))
     };
 
     ($base:literal, $begin: literal, $end: literal) => {
-        gen_name_list!($base; $begin, $end)
+        $crate::gen_name_list!($base; $begin, $end)
     };
 
     ($name:literal; $($rest:tt)*) => {
-        crate::utils::concat_arrays([$name], gen_reg_name_list!($($rest)*))
+        $crate::utils::concat_arrays([$name], $crate::gen_reg_name_list!($($rest)*))
     };
 
     ($name:literal) => {
@@ -576,7 +579,7 @@ const fn gen_ones_array<const LEN: usize>() -> [WordType; LEN + 1] {
 pub const BIT_ONES_ARRAY: [WordType; XLEN + 1] = gen_ones_array::<XLEN>();
 
 #[inline]
-pub(crate) const fn make_mask(left: usize, right: usize) -> WordType {
+pub const fn make_mask(left: usize, right: usize) -> WordType {
     let width = right - left + 1;
     BIT_ONES_ARRAY[width] << left
 }
@@ -585,7 +588,7 @@ pub(crate) const fn make_mask(left: usize, right: usize) -> WordType {
 /// Concatenates bit fields into a `u64` from high to low bits.
 ///
 /// ```
-/// # use here::pack_bits;
+/// # use here_types::pack_bits;
 /// assert_eq!(
 ///     pack_bits! {
 ///         0b101, 3;

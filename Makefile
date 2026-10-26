@@ -46,10 +46,10 @@ linux-qemu-gdb: build-opensbi
 	qemu-system-riscv64 -M virt -m 8G -nographic -bios "$(FW_BIN)" -s -S
 
 linux: build-opensbi
-	cargo run --release -- "$(FW_BIN)" --dtb "$(DTB_FILE)" --dtb-address "$(FW_PAYLOAD_FDT_ADDR)" $(RVEMU_ARGS)
+	cargo run -p here-bin --release -- "$(FW_BIN)" --dtb "$(DTB_FILE)" --dtb-address "$(FW_PAYLOAD_FDT_ADDR)" $(RVEMU_ARGS)
 
 linux-debug: build-opensbi
-	cargo run --release -- "$(FW_BIN)" --dtb "$(DTB_FILE)" --dtb-address "$(FW_PAYLOAD_FDT_ADDR)" -g $(RVEMU_ARGS)
+	cargo run -p here-bin --release -- "$(FW_BIN)" --dtb "$(DTB_FILE)" --dtb-address "$(FW_PAYLOAD_FDT_ADDR)" -g $(RVEMU_ARGS)
 
 linux-gdb: build-opensbi
-	cargo run --release -- "$(FW_BIN)" --dtb "$(DTB_FILE)" --dtb-address "$(FW_PAYLOAD_FDT_ADDR)" -G $(RVEMU_ARGS)
+	cargo run -p here-bin --release -- "$(FW_BIN)" --dtb "$(DTB_FILE)" --dtb-address "$(FW_PAYLOAD_FDT_ADDR)" -G $(RVEMU_ARGS)

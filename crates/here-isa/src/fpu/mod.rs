@@ -1,7 +1,10 @@
 pub mod soft_float;
 pub mod utils;
 
-pub use utils::{BinaryOp, CmpOp, FloatPoint, InFloat};
+pub use utils::BinaryOp;
+pub use utils::CmpOp;
+pub use utils::FloatPoint;
+pub use utils::InFloat;
 
 #[repr(C)]
 pub enum Classification {

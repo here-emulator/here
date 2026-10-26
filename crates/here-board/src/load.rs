@@ -1,6 +1,11 @@
-use xmas_elf::symbol_table::{Entry, Entry32, Entry64};
+use xmas_elf::symbol_table::Entry;
+use xmas_elf::symbol_table::Entry32;
+use xmas_elf::symbol_table::Entry64;
 
-use crate::{config::arch_config::WordType, ram::Ram, ram_config::BASE_ADDR, utils::BiMap};
+use here_device::ram::Ram;
+use here_types::BiMap;
+use here_types::WordType;
+use here_types::ram_config::BASE_ADDR;
 
 pub struct SymTab {
     pub symbols: BiMap<String, u64>,

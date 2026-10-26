@@ -8,20 +8,17 @@ pub(super) mod exec_function;
 pub mod exec_mapping;
 pub mod instr_table;
 
-use crate::{
-    config::arch_config::WordType,
-    isa::riscv::{
-        self,
-        csr_reg::{
-            NamedCsrReg,
-            csr_macro::{Minstret, Misa, Mstatus, Vstart},
-        },
-        executor::RVCPU,
-        instruction::exec_function::save_fflags_to_cpu,
-        trap::Exception,
-        vector::VectorMemException,
-    },
-};
+use crate::riscv;
+use crate::riscv::csr_reg::NamedCsrReg;
+use crate::riscv::csr_reg::csr_macro::Minstret;
+use crate::riscv::csr_reg::csr_macro::Misa;
+use crate::riscv::csr_reg::csr_macro::Mstatus;
+use crate::riscv::csr_reg::csr_macro::Vstart;
+use crate::riscv::executor::RVCPU;
+use crate::riscv::instruction::exec_function::save_fflags_to_cpu;
+use crate::riscv::trap::Exception;
+use crate::riscv::vector::VectorMemException;
+use here_types::WordType;
 
 #[inline]
 pub(super) fn check_jump_alignment(cpu: &mut RVCPU, target: WordType) -> Result<(), Exception> {
@@ -335,7 +332,7 @@ macro_rules! define_riscv_isa {
         impl $tot_instr_name {
             /// Returns the encoded instruction length in bytes.
             #[allow(clippy::len_without_is_empty)]
-            pub const fn len(&self) -> $crate::config::arch_config::WordType {
+            pub const fn len(&self) -> here_types::WordType {
                 match self {
                     $(
                         $(

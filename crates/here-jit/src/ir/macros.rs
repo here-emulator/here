@@ -1,8 +1,11 @@
-/// Helper for writing a sequence of [`IRBuilder`] operations.
+/// Helper for writing a sequence of [`ir::IRBuilder`] operations.
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
+/// # use here_jit::make_ir;
+/// # use here_jit::ir::IRBuilder;
+/// # let mut builder = IRBuilder::new();
 /// let (v1, v2) = make_ir!(builder, [
 ///     v0 = const 1024 * 2;
 ///     v1 = get_reg 1;
@@ -53,7 +56,7 @@ macro_rules! make_ir {
         $name:ident = compute $kind:expr, $lhs:expr, $rhs:expr;
         $($rest:tt)*) => {
         {
-            use $crate::jit::ir::ComputeKind::*;
+            use $crate::ir::ComputeKind::*;
             let $name = $builder.compute(
                 $kind,
                 ($lhs).into(),
@@ -107,7 +110,7 @@ macro_rules! make_ir {
     };
 
     (@call_options [$($option:ident),* $(,)?]) => {{
-        let options = $crate::jit::ir::CallOptions::default();
+        let options = $crate::ir::CallOptions::default();
         $(
             let options = $crate::make_ir!(@call_option options, $option);
         )*
@@ -128,7 +131,9 @@ macro_rules! make_ir {
 
 #[cfg(test)]
 mod tests {
-    use crate::jit::ir::{IRBuilder, IRInst, Value};
+    use crate::ir::IRBuilder;
+    use crate::ir::IRInst;
+    use crate::ir::Value;
 
     #[test]
     fn call_attributes_and_return_binding() {

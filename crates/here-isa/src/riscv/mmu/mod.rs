@@ -5,19 +5,21 @@ mod page_table;
 
 pub use page_table::PageTableError;
 
-use std::{cell::UnsafeCell, rc::Rc};
+use std::cell::UnsafeCell;
+use std::rc::Rc;
 
 use self::config::*;
 use self::page_table::*;
 
-use crate::{
-    config::arch_config::WordType,
-    device::{DeviceTrait, MemError, mmio::MemoryMapIO},
-    isa::riscv::{address::Address, trap::Exception},
-    ram::Ram,
-    ram_config,
-    utils::UnsignedInteger,
-};
+use crate::riscv::address::Address;
+use crate::riscv::trap::Exception;
+use here_device::DeviceTrait;
+use here_device::MemError;
+use here_device::mmio::MemoryMapIO;
+use here_device::ram::Ram;
+use here_types::UnsignedInteger;
+use here_types::WordType;
+use here_types::ram_config;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum AccessType {
@@ -104,7 +106,7 @@ impl VirtAddrManager {
     where
         T: UnsignedInteger,
     {
-        if !crate::utils::check_align::<T>(addr) {
+        if !here_types::check_align::<T>(addr) {
             return Err(MemError::LoadMisaligned);
         }
 
@@ -122,7 +124,7 @@ impl VirtAddrManager {
     where
         T: UnsignedInteger,
     {
-        if !crate::utils::check_align::<T>(addr) {
+        if !here_types::check_align::<T>(addr) {
             // Every SC attempt invalidates the hart's previous reservation, even
             // when the target address is not normal RAM.
             self.mmio.clear_reservation();
@@ -153,7 +155,7 @@ impl VirtAddrManager {
             Err(_) => return Err(Exception::StorePageFault),
         };
 
-        if !crate::utils::check_align::<T>(paddr) {
+        if !here_types::check_align::<T>(paddr) {
             return Err(Exception::StoreMisaligned);
         }
 
@@ -319,10 +321,12 @@ impl VirtAddrManager {
 
 #[cfg(test)]
 mod tests {
-    use std::{ptr::NonNull, sync::atomic::Ordering};
+    use std::ptr::NonNull;
+    use std::sync::atomic::Ordering;
 
     use super::*;
-    use crate::device::{device_manager::DeviceArenaBuilder, mmio::MemoryMapItem};
+    use here_device::device_manager::DeviceArenaBuilder;
+    use here_device::mmio::MemoryMapItem;
 
     struct MockDevice;
 

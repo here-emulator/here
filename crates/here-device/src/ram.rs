@@ -1,12 +1,12 @@
 use core::panic;
-use std::ops::{Index, IndexMut};
+use std::ops::Index;
+use std::ops::IndexMut;
 
-use crate::{
-    config::arch_config::WordType,
-    device::MemError,
-    ram_config,
-    utils::{read_raw_ptr, write_raw_ptr},
-};
+use crate::MemError;
+use here_types::WordType;
+use here_types::ram_config;
+use here_types::read_raw_ptr;
+use here_types::write_raw_ptr;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum RamImageError {

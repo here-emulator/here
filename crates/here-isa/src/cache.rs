@@ -3,7 +3,7 @@
 use rustc_hash::FxHashMap;
 use std::cell::Cell;
 
-use crate::config::arch_config::WordType;
+use here_types::WordType;
 
 pub trait Cacheable: Clone + Copy {
     /// Log2 of the cached object's minimum size in bytes (e.g., `1` for 2-byte RISC-V instructions),
@@ -19,7 +19,7 @@ pub trait Cacheable: Clone + Copy {
 }
 
 /// A thin warpper that provide hit rate statistics.
-pub(crate) struct Cache<P: CachePolicy> {
+pub struct Cache<P: CachePolicy> {
     policy: P,
     hit_count: Cell<u64>,
     access_count: Cell<u64>,
@@ -77,7 +77,7 @@ impl<P: CachePolicy> CachePolicy for Cache<P> {
     }
 }
 
-pub(crate) trait CachePolicy {
+pub trait CachePolicy {
     type T: Cacheable;
 
     fn new() -> Self;
@@ -87,7 +87,7 @@ pub(crate) trait CachePolicy {
     fn clear(&mut self);
 }
 
-pub(crate) struct DirectCache<T, const N: usize> {
+pub struct DirectCache<T, const N: usize> {
     cache: Box<[(WordType, Option<T>); N]>,
 }
 
@@ -170,10 +170,10 @@ impl<T: Cacheable, const W: usize> CacheSet<T, W> {
 /// TODO: Current replacement policy is FIFO, which is not optimal.
 ///
 /// Example:
-/// ```
+/// ```text
 /// SetCache<DecodeInstr, 4, 2> // 4 sets, 2 ways per set
 /// ```
-pub(crate) struct SetCache<T: Cacheable, const S: usize, const W: usize> {
+pub struct SetCache<T: Cacheable, const S: usize, const W: usize> {
     cache: Box<[CacheSet<T, W>]>,
 }
 
@@ -223,7 +223,7 @@ impl<T: Cacheable, const S: usize, const W: usize> CachePolicy for SetCache<T, S
 }
 
 /// Used to test the performance of other cache implementations.
-pub(crate) struct NullCache<T: Cacheable> {
+pub struct NullCache<T: Cacheable> {
     _phantom: std::marker::PhantomData<T>,
 }
 
@@ -278,7 +278,7 @@ impl<T: Cacheable> CachePolicy for FxHashMap<WordType, T> {
 }
 
 /// Chained two-level cache policy.
-pub(crate) struct ChainedCache<L1: CachePolicy, L2: CachePolicy<T = L1::T>> {
+pub struct ChainedCache<L1: CachePolicy, L2: CachePolicy<T = L1::T>> {
     l1: L1,
     l2: L2,
 }

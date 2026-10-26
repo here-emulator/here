@@ -1,32 +1,23 @@
 mod commands;
+pub mod debugger;
 mod printer;
 mod session;
 
-#[cfg(target_arch = "wasm32")]
-mod nostd_repl;
-
-#[cfg(feature = "native-cli")]
-mod sync_repl;
-
-use crate::config::arch_config::REGFILE_CNT;
-use crate::config::arch_config::WordType;
-use crate::isa::riscv::RawInstr;
-use crate::isa::riscv::csr_reg::PrivilegeLevel;
-use crate::isa::riscv::debugger;
-use crate::isa::riscv::mmu::AccessType;
-use crate::isa::riscv::{address::Address, decoder::DecodeInstr};
+use clap::Parser;
+use clap::Subcommand;
 use clap::error::ErrorKind;
-use clap::{Parser, Subcommand};
+use here_isa::riscv::RawInstr;
+use here_isa::riscv::address::Address;
+use here_isa::riscv::csr_reg::PrivilegeLevel;
+use here_isa::riscv::decoder::DecodeInstr;
+use here_isa::riscv::mmu::AccessType;
+use here_types::REGFILE_CNT;
+use here_types::WordType;
 use std::fmt;
 
 pub use printer::Printer;
-pub use session::{RvdbCommandResponse, RvdbSession};
-
-#[cfg(target_arch = "wasm32")]
-pub use nostd_repl::{AsyncREPL, REPLResponse, RvdbChannelRx, RvdbChannelTx, RvdbChannels};
-
-#[cfg(feature = "native-cli")]
-pub use sync_repl::SyncREPL;
+pub use session::RvdbCommandResponse;
+pub use session::RvdbSession;
 
 pub const PROMPT: &str = "(rvdb) ";
 

@@ -1,11 +1,10 @@
-use std::sync::{
-    Mutex,
-    atomic::{AtomicU8, AtomicU16},
-};
+use std::sync::Mutex;
+use std::sync::atomic::AtomicU8;
+use std::sync::atomic::AtomicU16;
 
 use lazy_static::lazy_static;
 
-use crate::device::virtio::config::VirtIOFeatureSet;
+use crate::virtio::config::VirtIOFeatureSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]

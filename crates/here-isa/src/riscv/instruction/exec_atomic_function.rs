@@ -1,14 +1,15 @@
 use std::cmp;
-use std::sync::atomic::{self, Ordering};
+use std::sync::atomic;
+use std::sync::atomic::Ordering;
 
-use crate::utils::WordTrait;
-use crate::{
-    config::arch_config::WordType,
-    isa::riscv::{
-        csr_reg::csr_macro::Minstret, executor::RVCPU, instruction::RVInstrInfo, trap::Exception,
-    },
-    utils::{TruncateFrom, UnsignedInteger},
-};
+use crate::riscv::csr_reg::csr_macro::Minstret;
+use crate::riscv::executor::RVCPU;
+use crate::riscv::instruction::RVInstrInfo;
+use crate::riscv::trap::Exception;
+use here_types::TruncateFrom;
+use here_types::UnsignedInteger;
+use here_types::WordTrait;
+use here_types::WordType;
 
 // ----------------------------------
 // Atomic Memory Operation Traits

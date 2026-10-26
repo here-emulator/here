@@ -14,9 +14,9 @@ pub mod x64;
 #[cfg(all(test, target_arch = "x86_64"))]
 pub(crate) mod tests;
 
-use crate::config::arch_config::WordType;
 pub use asm::*;
 pub use codegen::*;
+use here_types::WordType;
 use pass::*;
 pub use reg_alloc::RegAllocConfig;
 

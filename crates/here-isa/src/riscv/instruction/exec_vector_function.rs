@@ -1,36 +1,60 @@
-use crate::{
-    config::arch_config::WordType,
-    isa::{
-        DebugTarget,
-        riscv::{
-            csr_reg::{
-                NamedCsrReg,
-                csr_macro::{Vcsr, Vl, Vtype},
-            },
-            executor::RVCPU,
-            instruction::{RVInstrInfo, exec_function::ExecMove, normal_vector_exec},
-            trap::Exception::{self, IllegalInstruction},
-            vector::{
-                arithmetic::{
-                    VectorOpAdc, VectorOpBitVV, VectorOpCompressVm, VectorOpCpopM, VectorOpFirstM,
-                    VectorOpFixedPointNarrowingVX, VectorOpFixedPointNarrowingWV,
-                    VectorOpFixedPointVV, VectorOpFixedPointVX, VectorOpIdV, VectorOpIntegerMaskVV,
-                    VectorOpIntegerMaskVX, VectorOpIntegerV, VectorOpIntegerVV, VectorOpIntegerVVM,
-                    VectorOpIntegerVVV, VectorOpIntegerVX, VectorOpIntegerVXM, VectorOpIntegerVXV,
-                    VectorOpIotaM, VectorOpMadc, VectorOpMerge, VectorOpMsbc, VectorOpMsbfM,
-                    VectorOpMsifM, VectorOpMsofM, VectorOpNsra, VectorOpNsrl,
-                    VectorOpRGatherEI16VV, VectorOpRGatherVI, VectorOpRGatherVV, VectorOpRGatherVX,
-                    VectorOpSlide1Down, VectorOpSlide1Up, VectorOpSlideDown, VectorOpSlideUp,
-                    VectorOpWideningIntegerVV, VectorOpWideningIntegerVVV,
-                    VectorOpWideningIntegerVX, VectorOpWideningIntegerVXV,
-                    VectorOpWideningIntegerWV, VectorOpWideningIntegerWX,
-                },
-                types::{FixedPointRoundingMode, Vsew},
-            },
-        },
-    },
-    utils::sign_extend,
-};
+use crate::DebugTarget;
+use crate::riscv::csr_reg::NamedCsrReg;
+use crate::riscv::csr_reg::csr_macro::Vcsr;
+use crate::riscv::csr_reg::csr_macro::Vl;
+use crate::riscv::csr_reg::csr_macro::Vtype;
+use crate::riscv::executor::RVCPU;
+use crate::riscv::instruction::RVInstrInfo;
+use crate::riscv::instruction::exec_function::ExecMove;
+use crate::riscv::instruction::normal_vector_exec;
+use crate::riscv::trap::Exception;
+use crate::riscv::trap::Exception::IllegalInstruction;
+use crate::riscv::vector::arithmetic::VectorOpAdc;
+use crate::riscv::vector::arithmetic::VectorOpBitVV;
+use crate::riscv::vector::arithmetic::VectorOpCompressVm;
+use crate::riscv::vector::arithmetic::VectorOpCpopM;
+use crate::riscv::vector::arithmetic::VectorOpFirstM;
+use crate::riscv::vector::arithmetic::VectorOpFixedPointNarrowingVX;
+use crate::riscv::vector::arithmetic::VectorOpFixedPointNarrowingWV;
+use crate::riscv::vector::arithmetic::VectorOpFixedPointVV;
+use crate::riscv::vector::arithmetic::VectorOpFixedPointVX;
+use crate::riscv::vector::arithmetic::VectorOpIdV;
+use crate::riscv::vector::arithmetic::VectorOpIntegerMaskVV;
+use crate::riscv::vector::arithmetic::VectorOpIntegerMaskVX;
+use crate::riscv::vector::arithmetic::VectorOpIntegerV;
+use crate::riscv::vector::arithmetic::VectorOpIntegerVV;
+use crate::riscv::vector::arithmetic::VectorOpIntegerVVM;
+use crate::riscv::vector::arithmetic::VectorOpIntegerVVV;
+use crate::riscv::vector::arithmetic::VectorOpIntegerVX;
+use crate::riscv::vector::arithmetic::VectorOpIntegerVXM;
+use crate::riscv::vector::arithmetic::VectorOpIntegerVXV;
+use crate::riscv::vector::arithmetic::VectorOpIotaM;
+use crate::riscv::vector::arithmetic::VectorOpMadc;
+use crate::riscv::vector::arithmetic::VectorOpMerge;
+use crate::riscv::vector::arithmetic::VectorOpMsbc;
+use crate::riscv::vector::arithmetic::VectorOpMsbfM;
+use crate::riscv::vector::arithmetic::VectorOpMsifM;
+use crate::riscv::vector::arithmetic::VectorOpMsofM;
+use crate::riscv::vector::arithmetic::VectorOpNsra;
+use crate::riscv::vector::arithmetic::VectorOpNsrl;
+use crate::riscv::vector::arithmetic::VectorOpRGatherEI16VV;
+use crate::riscv::vector::arithmetic::VectorOpRGatherVI;
+use crate::riscv::vector::arithmetic::VectorOpRGatherVV;
+use crate::riscv::vector::arithmetic::VectorOpRGatherVX;
+use crate::riscv::vector::arithmetic::VectorOpSlide1Down;
+use crate::riscv::vector::arithmetic::VectorOpSlide1Up;
+use crate::riscv::vector::arithmetic::VectorOpSlideDown;
+use crate::riscv::vector::arithmetic::VectorOpSlideUp;
+use crate::riscv::vector::arithmetic::VectorOpWideningIntegerVV;
+use crate::riscv::vector::arithmetic::VectorOpWideningIntegerVVV;
+use crate::riscv::vector::arithmetic::VectorOpWideningIntegerVX;
+use crate::riscv::vector::arithmetic::VectorOpWideningIntegerVXV;
+use crate::riscv::vector::arithmetic::VectorOpWideningIntegerWV;
+use crate::riscv::vector::arithmetic::VectorOpWideningIntegerWX;
+use crate::riscv::vector::types::FixedPointRoundingMode;
+use crate::riscv::vector::types::Vsew;
+use here_types::WordType;
+use here_types::sign_extend;
 
 pub(super) struct VectorConfigField {
     vtype: WordType,
@@ -1486,26 +1510,24 @@ pub(super) fn vec_integer_spec_op<const VINSTR: usize>(
 
 #[cfg(test)]
 mod test {
-    use std::{cell::UnsafeCell, rc::Rc};
+    use std::cell::UnsafeCell;
+    use std::rc::Rc;
 
-    use crate::{
-        device::mmio::MemoryMapIO,
-        isa::riscv::{
-            cpu_tester::{CPUChecker, TestCPUBuilder, run_test_exec, run_test_exec_decode},
-            csr_reg::{
-                NamedCsrReg,
-                csr_macro::{Mstatus, Vstart},
-            },
-            instruction::instr_table::RiscvInstr,
-            mmu::VirtAddrManager,
-            vector::{
-                VLEN_BYTE,
-                types::{Vlmul, Vsew},
-            },
-        },
-        ram::Ram,
-        ram_config::BASE_ADDR,
-    };
+    use crate::riscv::cpu_tester::CPUChecker;
+    use crate::riscv::cpu_tester::TestCPUBuilder;
+    use crate::riscv::cpu_tester::run_test_exec;
+    use crate::riscv::cpu_tester::run_test_exec_decode;
+    use crate::riscv::csr_reg::NamedCsrReg;
+    use crate::riscv::csr_reg::csr_macro::Mstatus;
+    use crate::riscv::csr_reg::csr_macro::Vstart;
+    use crate::riscv::instruction::instr_table::RiscvInstr;
+    use crate::riscv::mmu::VirtAddrManager;
+    use crate::riscv::vector::VLEN_BYTE;
+    use crate::riscv::vector::types::Vlmul;
+    use crate::riscv::vector::types::Vsew;
+    use here_device::mmio::MemoryMapIO;
+    use here_device::ram::Ram;
+    use here_types::ram_config::BASE_ADDR;
 
     use super::*;
 

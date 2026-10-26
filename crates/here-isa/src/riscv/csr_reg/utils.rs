@@ -1,10 +1,8 @@
-use crate::{
-    config::arch_config::{WordType, XLEN},
-    isa::riscv::{
-        csr_reg::{NamedCsrReg, csr_macro::*},
-        vector::VLEN_BYTE,
-    },
-};
+use crate::riscv::csr_reg::NamedCsrReg;
+use crate::riscv::csr_reg::csr_macro::*;
+use crate::riscv::vector::VLEN_BYTE;
+use here_types::WordType;
+use here_types::XLEN;
 
 impl Minstret {
     pub fn wrapping_add(&self, rhs: WordType) {

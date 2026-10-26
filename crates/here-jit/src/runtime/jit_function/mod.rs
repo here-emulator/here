@@ -1,7 +1,6 @@
-use crate::{
-    config::arch_config::WordType,
-    isa::riscv::{executor::RVCPU, trap::Exception},
-};
+use here_isa::riscv::executor::RVCPU;
+use here_isa::riscv::trap::Exception;
+use here_types::WordType;
 
 cfg_select! {
     target_arch = "x86_64" => {

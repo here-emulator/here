@@ -1,4 +1,5 @@
-use crate::{config::arch_config::WordType, utils::make_mask};
+use here_types::WordType;
+use here_types::make_mask;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ReadValidator {

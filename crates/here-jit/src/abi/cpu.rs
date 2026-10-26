@@ -1,5 +1,5 @@
-use crate::config::arch_config::WordType;
-use crate::isa::riscv::executor::RVCPU;
+use here_isa::riscv::executor::RVCPU;
+use here_types::WordType;
 
 #[inline]
 pub fn guest_reg_offset(guest_reg: u8) -> u32 {

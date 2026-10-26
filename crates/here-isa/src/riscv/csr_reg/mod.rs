@@ -7,12 +7,15 @@ mod cpu;
 pub mod csr_macro;
 pub mod utils;
 
-use self::{
-    csr_macro::{CSR_REG_TABLE, Fcsr, Mstatus, Satp, Vcsr, resolve_shadow_addr},
-    read_validator::ReadValidator,
-    write_validator::WriteValidator,
-};
-use crate::config::arch_config::WordType;
+use self::csr_macro::CSR_REG_TABLE;
+use self::csr_macro::Fcsr;
+use self::csr_macro::Mstatus;
+use self::csr_macro::Satp;
+use self::csr_macro::Vcsr;
+use self::csr_macro::resolve_shadow_addr;
+use self::read_validator::ReadValidator;
+use self::write_validator::WriteValidator;
+use here_types::WordType;
 use std::cmp::Ordering;
 
 /// Constants in this module are not complete. Use `get_index` static method for each CSR type, like [`Mstatus::get_index`].
@@ -20,8 +23,8 @@ use std::cmp::Ordering;
 // then remove the `csr_index` module.
 #[rustfmt::skip]
 #[allow(non_upper_case_globals, unused)]
-pub(crate) mod csr_index {
-    use crate::config::arch_config::WordType;
+pub mod csr_index {
+    use here_types::WordType;
     pub const mstatus   : WordType  = 0x300;    // CPU 状态寄存器，控制中断使能、特权级别
     pub const misa      : WordType  = 0x301;    // ISA 特性寄存器，标明 CPU 支持的指令集扩展
     pub const mie       : WordType  = 0x304;    // 机器中断使能寄存器
@@ -118,7 +121,7 @@ impl TryFrom<u8> for PrivilegeLevel {
     }
 }
 
-pub(crate) trait NamedCsrReg {
+pub trait NamedCsrReg {
     fn new(data: *mut CsrReg, ctx: *mut CsrContext) -> Self;
     fn get_index() -> WordType;
     fn data(&self) -> WordType;
@@ -127,7 +130,7 @@ pub(crate) trait NamedCsrReg {
 }
 
 /// Write `value` to the bits specified by `mask`.
-pub(crate) struct CsrWriteOp {
+pub struct CsrWriteOp {
     mask: WordType,
 }
 
@@ -171,7 +174,7 @@ impl CsrWriteOp {
     }
 }
 
-pub(crate) struct CsrContext {
+pub struct CsrContext {
     pub extension: WordType, // Used in `misa`
     pub xlen: u8,            // 32 or 64
 }
@@ -186,7 +189,7 @@ impl CsrContext {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct CsrReg {
+pub struct CsrReg {
     value: WordType,
     write_validator: Option<WriteValidator>,
     read_validator: Option<ReadValidator>,
@@ -246,7 +249,7 @@ impl CsrReg {
 
 const CSR_SIZE: usize = 1 << 12;
 
-pub(crate) struct CsrRegFile {
+pub struct CsrRegFile {
     table: Vec<Option<CsrReg>>,
     cpl: PrivilegeLevel, // current privileged level
     pub(super) ctx: CsrContext,
@@ -462,9 +465,11 @@ impl CsrRegFile {
 
 #[cfg(test)]
 mod test {
-    use crate::isa::riscv::csr_reg::{
-        CsrRegFile, NamedCsrReg, PrivilegeLevel, csr_index, csr_macro::*,
-    };
+    use crate::riscv::csr_reg::CsrRegFile;
+    use crate::riscv::csr_reg::NamedCsrReg;
+    use crate::riscv::csr_reg::PrivilegeLevel;
+    use crate::riscv::csr_reg::csr_index;
+    use crate::riscv::csr_reg::csr_macro::*;
 
     #[test]
     fn test_rw_by_addr() {

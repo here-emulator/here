@@ -1,20 +1,25 @@
 use std::io::Write as StdWrite;
 
-use embedded_io::{ErrorKind, ErrorType, Read, Write};
-use noline::{
-    builder::EditorBuilder, error::NolineError, history::UnboundedHistory,
-    line_buffer::UnboundedBuffer, sync_editor::Editor,
-};
+use embedded_io::ErrorKind;
+use embedded_io::ErrorType;
+use embedded_io::Read;
+use embedded_io::Write;
+use noline::builder::EditorBuilder;
+use noline::error::NolineError;
+use noline::history::UnboundedHistory;
+use noline::line_buffer::UnboundedBuffer;
+use noline::sync_editor::Editor;
 use tokio::sync::mpsc;
 
-use crate::{
-    board::Board,
-    byte_io::{StdinHandle, StdinRouter},
-};
+use here_board::Board;
+use here_board::byte_io::StdinHandle;
+use here_board::byte_io::StdinRouter;
 
-use super::{
-    RvdbCommand, RvdbSession, format_clap_error, is_clap_display, session::RvdbCommandResponse,
-};
+use here_dbg::RvdbCommand;
+use here_dbg::RvdbCommandResponse;
+use here_dbg::RvdbSession;
+use here_dbg::format_clap_error;
+use here_dbg::is_clap_display;
 
 const REPL_INPUT_CAPACITY: usize = 1024;
 
@@ -184,7 +189,7 @@ impl<B: Board> SyncREPL<B> {
 
     pub fn run(&mut self) {
         loop {
-            let line = match self.editor.readline(super::PROMPT, &mut self.io) {
+            let line = match self.editor.readline(here_dbg::PROMPT, &mut self.io) {
                 Ok(line) => line.trim().to_owned(),
                 Err(NolineError::Aborted) => break,
                 Err(error) => {

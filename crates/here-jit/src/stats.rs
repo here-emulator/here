@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 
-use crate::isa::riscv::instruction::instr_table::RiscvInstr;
+use here_isa::riscv::instruction::instr_table::RiscvInstr;
 
-use super::translator::{BlockStopReason, MAX_BLOCK_INSTRUCTIONS};
+use super::translator::BlockStopReason;
+use super::translator::MAX_BLOCK_INSTRUCTIONS;
 
 #[inline]
 fn safe_ratio(numerator: u64, denominator: u64) -> f64 {

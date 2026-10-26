@@ -1,0 +1,23 @@
+[package]
+name = "here-jit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["riscv64"]
+riscv32 = ["here-isa/riscv32", "here-types/riscv32"]
+riscv64 = ["here-isa/riscv64", "here-types/riscv64"]
+test-support = ["here-isa/test-support"]
+
+[dependencies]
+here-isa = { workspace = true }
+here-types = { workspace = true }
+region.workspace = true
+rustc-hash.workspace = true
+smallvec.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+here-isa = { workspace = true, features = ["test-support"] }
+

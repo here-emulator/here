@@ -1,11 +1,21 @@
-use std::{path::PathBuf, str::FromStr};
+#![allow(dead_code)]
+#![feature(unsafe_cell_access)]
 
-use crate::{
-    device::{plic::types::PlicContextId, virtio::virtio_device::VirtIODeviceEnum},
-    isa::riscv::executor::{BatchResult, ExecutionHook, RVCPU},
-};
+use std::path::PathBuf;
+use std::str::FromStr;
+
+use here_device::plic::types::PlicContextId;
+use here_device::virtio::virtio_device::VirtIODeviceEnum;
+use here_isa::riscv::executor::BatchResult;
+use here_isa::riscv::executor::ExecutionHook;
+use here_isa::riscv::executor::RVCPU;
 
 pub mod builder;
+#[cfg(feature = "native")]
+pub mod byte_io;
+pub mod load;
+#[cfg(feature = "native")]
+pub mod task_spawner;
 pub mod virt;
 
 #[derive(Debug, Clone)]

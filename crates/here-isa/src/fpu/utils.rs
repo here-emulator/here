@@ -1,11 +1,11 @@
-use std::{
-    fmt::{Debug, Display},
-    ops::*,
-};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::ops::*;
 
 use rustc_apfloat::StatusAnd;
 
-use crate::{fpu::soft_float::APFloatOf, utils::UnsignedInteger};
+use crate::fpu::soft_float::APFloatOf;
+use here_types::UnsignedInteger;
 
 pub trait InBits<U> {
     fn from_bits(x: U) -> Self;

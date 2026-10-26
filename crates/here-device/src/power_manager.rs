@@ -1,7 +1,6 @@
-use crate::{
-    config::arch_config::WordType,
-    device::{DeviceTrait, MemError},
-};
+use crate::DeviceTrait;
+use crate::MemError;
+use here_types::WordType;
 use std::sync::atomic::AtomicU16;
 
 pub const POWER_OFF_CODE: u16 = 0x5555;
@@ -16,9 +15,9 @@ pub struct PowerManager {
 }
 
 impl PowerManager {
-    fn read_impl<T>(&mut self, addr: crate::config::arch_config::WordType) -> Result<T, MemError>
+    fn read_impl<T>(&mut self, addr: here_types::WordType) -> Result<T, MemError>
     where
-        T: crate::utils::UnsignedInteger,
+        T: here_types::UnsignedInteger,
     {
         debug_assert!(addr == 0x00);
         debug_assert!(size_of::<T>() >= 2);
@@ -28,13 +27,9 @@ impl PowerManager {
         Ok(ret)
     }
 
-    fn write_impl<T>(
-        &mut self,
-        _addr: crate::config::arch_config::WordType,
-        data: T,
-    ) -> Result<(), MemError>
+    fn write_impl<T>(&mut self, _addr: here_types::WordType, data: T) -> Result<(), MemError>
     where
-        T: crate::utils::UnsignedInteger,
+        T: here_types::UnsignedInteger,
     {
         debug_assert!(_addr == 0x00);
         let data: u64 = data.into();

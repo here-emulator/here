@@ -6,25 +6,22 @@
 //! code can opt in later by mapping [`SifiveSpiController`] at the desired MMIO base
 //! and wiring its optional interrupt source to the PLIC.
 
-use std::{
-    collections::VecDeque,
-    sync::{
-        Arc,
-        atomic::{AtomicU32, Ordering},
-    },
-};
+use std::collections::VecDeque;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering;
 
-use crate::{
-    config::arch_config::WordType,
-    device::{DeviceTrait, MemError, plic::PeriphIrqId},
-};
+use crate::DeviceTrait;
+use crate::MemError;
+use crate::plic::PeriphIrqId;
+use here_types::WordType;
 
 const SIFIVE_SPI_REGISTER_SIZE: WordType = 0x1000;
 const SIFIVE_SPI_DEFAULT_FIFO_DEPTH: usize = 8;
 const SIFIVE_SPI_NO_CHIP_SELECT: u32 = u32::MAX;
 
 pub(super) mod sifive_spi_reg_offset {
-    use crate::config::arch_config::WordType;
+    use here_types::WordType;
 
     pub const SCKDIV: WordType = 0x00; // Serial clock divisor
     pub const SCKMODE: WordType = 0x04; // Serial clock mode
@@ -371,7 +368,7 @@ impl SifiveSpiController {
 
     fn read_impl<T>(&mut self, addr: WordType) -> Result<T, MemError>
     where
-        T: crate::utils::UnsignedInteger,
+        T: here_types::UnsignedInteger,
     {
         match size_of::<T>() {
             4 if addr % 4 == 0 => Ok(T::truncate_from(self.read_register(addr)?)),
@@ -381,7 +378,7 @@ impl SifiveSpiController {
 
     fn write_impl<T>(&mut self, addr: WordType, data: T) -> Result<(), MemError>
     where
-        T: crate::utils::UnsignedInteger,
+        T: here_types::UnsignedInteger,
     {
         match size_of::<T>() {
             4 if addr % 4 == 0 => self.write_register(addr, data.truncate_to()),
@@ -403,9 +400,10 @@ impl DeviceTrait for SifiveSpiController {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::device::spi::w25q512::{
-        W25Q512JVQ, W25Q512JVQ_JEDEC_ID, W25Q512JVQ_SECTOR_SIZE, command,
-    };
+    use crate::spi::w25q512::W25Q512JVQ;
+    use crate::spi::w25q512::W25Q512JVQ_JEDEC_ID;
+    use crate::spi::w25q512::W25Q512JVQ_SECTOR_SIZE;
+    use crate::spi::w25q512::command;
 
     fn test_image_path(name: &str) -> String {
         std::fs::create_dir_all("./tmp").unwrap();

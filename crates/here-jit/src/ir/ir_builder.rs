@@ -1,4 +1,4 @@
-use crate::config::arch_config::REGFILE_CNT;
+use here_types::REGFILE_CNT;
 
 use super::*;
 

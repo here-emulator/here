@@ -1,9 +1,10 @@
-use std::{
-    fmt::Debug,
-    ops::{Index, IndexMut},
-};
+use std::fmt::Debug;
+use std::ops::Index;
+use std::ops::IndexMut;
 
-use crate::config::arch_config::{REG_NAME, REGFILE_CNT, WordType};
+use here_types::REG_NAME;
+use here_types::REGFILE_CNT;
+use here_types::WordType;
 
 #[repr(transparent)]
 pub struct RegFile {

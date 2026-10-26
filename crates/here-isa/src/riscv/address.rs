@@ -1,6 +1,6 @@
 use std::ops::Add;
 
-use crate::config::arch_config::WordType;
+use here_types::WordType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Address {

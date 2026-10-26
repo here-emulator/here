@@ -1,4 +1,5 @@
-use crate::device::virtio::{config::VirtIOFeatureSet, virtio_queue::VirtQueue};
+use crate::virtio::config::VirtIOFeatureSet;
+use crate::virtio::virtio_queue::VirtQueue;
 
 struct VirtIODevice {
     // parent_obj: DeviceState,

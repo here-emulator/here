@@ -1,19 +1,15 @@
-use crate::{
-    config::arch_config::WordType,
-    device::MemError,
-    isa::{
-        DebugTarget,
-        riscv::{
-            RawInstr, RiscvTypes,
-            address::Address,
-            csr_reg::PrivilegeLevel,
-            decoder::DecodeInstr,
-            executor::RVCPU,
-            mmu::{AccessType, PageTableError},
-        },
-    },
-    utils::UnsignedInteger,
-};
+use crate::DebugTarget;
+use crate::riscv::RawInstr;
+use crate::riscv::RiscvTypes;
+use crate::riscv::address::Address;
+use crate::riscv::csr_reg::PrivilegeLevel;
+use crate::riscv::decoder::DecodeInstr;
+use crate::riscv::executor::RVCPU;
+use crate::riscv::mmu::AccessType;
+use crate::riscv::mmu::PageTableError;
+use here_device::MemError;
+use here_types::UnsignedInteger;
+use here_types::WordType;
 
 // TODO: `DebugTarget` is not needed to be a trait,
 // we can directly implement these methods on `RVCPU` and call them in `Debugger`,

@@ -1,15 +1,18 @@
 use super::*;
 
 use gdbstub::common::Signal;
+use gdbstub::target::TargetError;
+use gdbstub::target::ext;
 use gdbstub::target::ext::base::single_register_access::SingleRegisterAccess;
 use gdbstub::target::ext::base::singlethread::SingleThreadBase;
-use gdbstub::target::{TargetError, ext};
 use gdbstub_arch::riscv::reg::id::RiscvRegId;
 
-use crate::board::Board;
-use crate::config::arch_config::{FLOAT_REGFILE_CNT, REGFILE_CNT, WordType};
-use crate::isa::riscv::address::Address;
-use crate::isa::riscv::csr_reg::PrivilegeLevel;
+use here_board::Board;
+use here_isa::riscv::address::Address;
+use here_isa::riscv::csr_reg::PrivilegeLevel;
+use here_types::FLOAT_REGFILE_CNT;
+use here_types::REGFILE_CNT;
+use here_types::WordType;
 
 impl<B: Board> target::Target for GdbDebugger<B> {
     type Arch = desc::Riscv64;
@@ -225,8 +228,8 @@ impl<B: Board> target::ext::base::singlethread::SingleThreadSingleStep for GdbDe
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::virt::VirtBoard;
     use gdbstub::target::ext::base::singlethread::SingleThreadBase;
+    use here_board::virt::VirtBoard;
 
     #[test]
     fn read_addrs_fails_when_any_byte_is_unreadable() {

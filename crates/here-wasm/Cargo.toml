@@ -1,0 +1,45 @@
+[package]
+name = "here-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = ["riscv64"]
+native = [
+    "here-board/native",
+    "here-device/native",
+]
+riscv32 = [
+    "here-types/riscv32",
+    "here-device/riscv32",
+    "here-isa/riscv32",
+    "here-board/riscv32",
+    "here-dbg/riscv32",
+]
+riscv64 = [
+    "here-types/riscv64",
+    "here-device/riscv64",
+    "here-isa/riscv64",
+    "here-board/riscv64",
+    "here-dbg/riscv64",
+]
+
+[dependencies]
+here-board = { workspace = true }
+here-dbg = { workspace = true }
+here-device = { workspace = true }
+here-isa = { workspace = true }
+here-types = { workspace = true }
+console_error_panic_hook.workspace = true
+embedded-io-async.workspace = true
+js-sys.workspace = true
+log.workspace = true
+noline.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+wasm-logger.workspace = true
+web-sys.workspace = true

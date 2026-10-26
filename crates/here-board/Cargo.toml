@@ -1,0 +1,37 @@
+[package]
+name = "here-board"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["riscv64", "native", "test-device"]
+riscv32 = [
+    "here-types/riscv32",
+    "here-device/riscv32",
+    "here-isa/riscv32",
+]
+riscv64 = [
+    "here-types/riscv64",
+    "here-device/riscv64",
+    "here-isa/riscv64",
+]
+native = ["dep:clap", "dep:here-jit", "dep:tokio", "here-device/native"]
+test-device = ["riscv64", "here-device/test-device"]
+test-support = ["here-device/test-support", "here-isa/test-support"]
+
+[dependencies]
+here-device = { workspace = true }
+here-isa = { workspace = true }
+here-types = { workspace = true }
+log.workspace = true
+xmas-elf.workspace = true
+clap = { workspace = true, optional = true }
+here-jit = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["sync", "fs", "io-util", "time", "rt", "macros"] }
+
+[dev-dependencies]
+crossterm.workspace = true
+here-device = { workspace = true, features = ["native", "test-device", "test-support"] }
+here-isa = { workspace = true, features = ["test-support"] }
+

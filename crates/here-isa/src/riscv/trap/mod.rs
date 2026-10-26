@@ -1,10 +1,10 @@
-use core::{fmt, panic};
+use core::fmt;
+use core::panic;
 
-use crate::{
-    config::arch_config::{WordType, XLEN},
-    device::MemError,
-    types::Interrupt,
-};
+use here_device::MemError;
+use here_types::Interrupt;
+use here_types::WordType;
+use here_types::XLEN;
 pub mod trap_controller;
 
 /// Trap Cause

@@ -2,7 +2,8 @@
 //!
 //! The runner that owns the runtime and task lifecycle lives in the board layer.
 
-use std::{future::Future, pin::Pin};
+use std::future::Future;
+use std::pin::Pin;
 
 use tokio::sync::watch;
 

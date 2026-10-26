@@ -1,22 +1,20 @@
 // TODO: most of this module is duplicate code.
 // Maybe we can reuse common exec function once we find a good way to handle the PC increment.
 
-use crate::{
-    config::arch_config::WordType,
-    debug_unreachable,
-    fpu::FloatPoint,
-    isa::riscv::{
-        csr_reg::csr_macro::Minstret,
-        executor::RVCPU,
-        instruction::{
-            RVInstrInfo,
-            exec_function::{ExecAdd, ExecTrait},
-            normal_compress_exec, normal_compress_float_exec,
-        },
-        trap::Exception,
-    },
-    utils::{TruncateTo, UnsignedInteger, wrapping_add_as_signed},
-};
+use crate::fpu::FloatPoint;
+use crate::riscv::csr_reg::csr_macro::Minstret;
+use crate::riscv::executor::RVCPU;
+use crate::riscv::instruction::RVInstrInfo;
+use crate::riscv::instruction::exec_function::ExecAdd;
+use crate::riscv::instruction::exec_function::ExecTrait;
+use crate::riscv::instruction::normal_compress_exec;
+use crate::riscv::instruction::normal_compress_float_exec;
+use crate::riscv::trap::Exception;
+use here_types::TruncateTo;
+use here_types::UnsignedInteger;
+use here_types::WordType;
+use here_types::debug_unreachable;
+use here_types::wrapping_add_as_signed;
 
 pub(super) fn exec_compress_arith<F>(info: RVInstrInfo, cpu: &mut RVCPU) -> Result<(), Exception>
 where

@@ -1,24 +1,33 @@
 # allow setting rustflags in profiles
 cargo-features = ["profile-rustflags"]
 
-[package]
-name = "here"
+[workspace]
+resolver = "3"
+members = [
+    "crates/here-types",
+    "crates/here-device",
+    "crates/here-isa",
+    "crates/here-jit",
+    "crates/here-board",
+    "crates/here-dbg",
+    "crates/here-bin",
+    "crates/here-wasm",
+]
+
+[workspace.package]
 version = "0.2.0-beta.1"
 edition = "2024"
+license = "MIT"
 
-[features]
-native-cli = ["dep:clap", "dep:crossterm", "dep:flexi_logger"]
+[workspace.dependencies]
 
-riscv32 = []
-riscv64 = []
-riscv-tests = []
-test-support = []
-test-device = ["riscv64"]
-custom-instr = ["riscv64"]
+here-board = { path = "crates/here-board", default-features = false }
+here-dbg = { path = "crates/here-dbg", default-features = false }
+here-device = { path = "crates/here-device", default-features = false }
+here-isa = { path = "crates/here-isa", default-features = false }
+here-jit = { path = "crates/here-jit" }
+here-types = { path = "crates/here-types" }
 
-default = ["riscv64", "native-cli", "test-device", "riscv-tests"]
-
-[dependencies]
 xmas-elf = "0.7.0"
 log = "0.4"
 rand = { version = "0.9.2", default-features = false, features = ["std"] }
@@ -30,50 +39,31 @@ rand_chacha = { version = "0.9.0", default-features = false, features = [
 thiserror = "1.0"
 smallvec = "1.15.1"
 phf = { version = "0.12", features = ["macros"] }
-bitflags = { version = "2.9.3" }
+bitflags = "2.9.3"
 rustc_apfloat = "0.2.3"
-num_enum = { version = "0.7.4" }
-bit-set = { version = "0.8.0" }
-bit-vec = { version = "0.9.1" }
+num_enum = "0.7.4"
+bit-set = "0.8.0"
 gdbstub_arch = "0.3.3"
 num-traits = "0.2.19"
 noline = { version = "0.5.1", default-features = false, features = ["alloc"] }
-embedded-io = { version = "0.6.1" }
-embedded-io-async = { version = "0.6.1" }
-bitfield-struct = { version = "0.13.0" }
-cfg_aliases = { version = "*" }
+embedded-io = "0.6.1"
+embedded-io-async = "0.6.1"
+bitfield-struct = "0.13.0"
 rustc-hash = "2.1.3"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-clap = { version = "4.5.43", features = ["derive"], optional = true }
-flexi_logger = { version = "0.31.2", optional = true }
-crossterm = { version = "0.28", optional = true }
-gdbstub = "0.7.10"
-tokio = { version = "1.53.1", features = ["full"] }
-region = "3.0.2"
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
 clap = { version = "4.5.43", features = ["derive"] }
-wasm-bindgen = { version = "0.2" }
-wasm-bindgen-futures = { version = "0.4" }
+flexi_logger = "0.31.2"
+crossterm = "0.28"
+gdbstub = "0.7.10"
+tokio = "1.53.1"
+region = "3.0.2"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["Window"] }
-js-sys = { version = "0.3" }
-console_error_panic_hook = { version = "0.1.7" }
-wasm-logger = { version = "0.2.0" }
-tokio = { version = "1.53.1", features = ["sync", "rt"] }
-
-[build-dependencies]
+js-sys = "0.3"
+console_error_panic_hook = "0.1.7"
+wasm-logger = "0.2.0"
 serde_json = "1.0.142"
-regex = { version = "1.12.3" }
-
-[lib]
-doctest = false
-crate-type = ["rlib", "cdylib"]
-
-[[bin]]
-name = "here"
-path = "src/main.rs"
-required-features = ["native-cli"]
+regex = "1.12.3"
 
 # For `cargo flamegraph`.
 # > Note: If you're using lld (which is the default since Rust 1.90.0) or mold on Linux, you must use the --no-rosegment flag.
@@ -97,9 +87,8 @@ lto = "off"
 codegen-units = 16
 incremental = true
 
-[dev-dependencies.cargo-husky]
-version = "1"
-default-features = false                                         # Disable features which are enabled by default
-features = ["precommit-hook", "run-cargo-test", "run-cargo-fmt"]
+[profile.dev]
+debug = true
 
-[dev-dependencies]
+[workspace.lints.rust]
+unused_imports = "warn"

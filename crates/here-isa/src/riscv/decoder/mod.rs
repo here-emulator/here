@@ -1,20 +1,18 @@
 use std::fmt::Display;
 
-use crate::{
-    config::arch_config::WordType,
-    debug_unreachable,
-    isa::{
-        InstrLen,
-        cache::Cacheable,
-        riscv::{
-            RawInstr,
-            decoder::compress_decoder::CompressedDecoder,
-            instruction::{InstrFormat, RVInstrInfo, instr_table::*},
-            isa_builder::{DEFAULT_ISA, ISABuilder, IsaParseError},
-        },
-    },
-    utils::sign_extend,
-};
+use crate::InstrLen;
+use crate::cache::Cacheable;
+use crate::riscv::RawInstr;
+use crate::riscv::decoder::compress_decoder::CompressedDecoder;
+use crate::riscv::instruction::InstrFormat;
+use crate::riscv::instruction::RVInstrInfo;
+use crate::riscv::instruction::instr_table::*;
+use crate::riscv::isa_builder::DEFAULT_ISA;
+use crate::riscv::isa_builder::ISABuilder;
+use crate::riscv::isa_builder::IsaParseError;
+use here_types::WordType;
+use here_types::debug_unreachable;
+use here_types::sign_extend;
 
 mod compress_decoder;
 mod funct_decoder;

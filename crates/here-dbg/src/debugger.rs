@@ -1,27 +1,27 @@
-use std::{
-    collections::{BTreeMap, VecDeque},
-    fmt::Debug,
-};
+use std::collections::BTreeMap;
+use std::collections::VecDeque;
+use std::fmt::Debug;
 
-use crate::{
-    board::Board,
-    config::arch_config::WordType,
-    device::MemError,
-    isa::{
-        DebugTarget, ISATypes,
-        riscv::{
-            RawInstr, RiscvTypes,
-            address::Address,
-            csr_reg::{NamedCsrReg, PrivilegeLevel, csr_macro::Mcycle},
-            decoder::DecodeInstr,
-            executor::{ExecutionHook, RVCPU},
-            instruction::{RVInstrInfo, instr_table::RiscvInstr},
-            mmu::{AccessType, PageTableError},
-        },
-    },
-    load::SymTab,
-    utils::UnsignedInteger,
-};
+use here_board::Board;
+use here_board::load::SymTab;
+use here_device::MemError;
+use here_isa::DebugTarget;
+use here_isa::ISATypes;
+use here_isa::riscv::RawInstr;
+use here_isa::riscv::RiscvTypes;
+use here_isa::riscv::address::Address;
+use here_isa::riscv::csr_reg::NamedCsrReg;
+use here_isa::riscv::csr_reg::PrivilegeLevel;
+use here_isa::riscv::csr_reg::csr_macro::Mcycle;
+use here_isa::riscv::decoder::DecodeInstr;
+use here_isa::riscv::executor::ExecutionHook;
+use here_isa::riscv::executor::RVCPU;
+use here_isa::riscv::instruction::RVInstrInfo;
+use here_isa::riscv::instruction::instr_table::RiscvInstr;
+use here_isa::riscv::mmu::AccessType;
+use here_isa::riscv::mmu::PageTableError;
+use here_types::UnsignedInteger;
+use here_types::WordType;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DebugEvent {
@@ -486,12 +486,12 @@ impl<B: Board> Debugger<B> {
     ///
     /// Return `Ok(None)` when `should_pause` requests a pause, otherwise return
     /// the debug event that stopped execution.
-    pub(crate) fn continue_with_batch_check(
+    pub fn continue_with_batch_check(
         &mut self,
         mut should_pause: impl FnMut() -> bool,
     ) -> Result<Option<DebugEvent>, DebugError> {
         loop {
-            if self.board.status() == crate::board::BoardStatus::Halt {
+            if self.board.status() == here_board::BoardStatus::Halt {
                 return Ok(Some(DebugEvent::BoardHalted));
             }
 
@@ -512,7 +512,7 @@ impl<B: Board> Debugger<B> {
         if max_steps == 0 {
             return Ok((DebugEvent::StepCompleted, 0));
         }
-        if self.board.status() == crate::board::BoardStatus::Halt {
+        if self.board.status() == here_board::BoardStatus::Halt {
             return Ok((DebugEvent::BoardHalted, 0));
         }
 
@@ -525,7 +525,7 @@ impl<B: Board> Debugger<B> {
         let result = self.board.run_cycles_hooked(max_steps, &mut hook);
         let event = if result.hook_stopped {
             DebugEvent::BreakpointHit
-        } else if self.board.status() == crate::board::BoardStatus::Halt {
+        } else if self.board.status() == here_board::BoardStatus::Halt {
             DebugEvent::BoardHalted
         } else {
             DebugEvent::StepCompleted
@@ -640,7 +640,8 @@ impl<B: Board> Debugger<B> {
 
 #[cfg(test)]
 mod test {
-    use crate::{isa::riscv::cpu_tester::TestCPUBuilder, ram_config::BASE_ADDR};
+    use here_isa::riscv::cpu_tester::TestCPUBuilder;
+    use here_types::ram_config::BASE_ADDR;
 
     use super::*;
 
@@ -659,20 +660,20 @@ mod test {
             &mut self,
             steps: u64,
             hook: &mut H,
-        ) -> crate::isa::riscv::executor::BatchResult {
+        ) -> here_isa::riscv::executor::BatchResult {
             self.cpu.step_batch_with_hook(steps, hook)
         }
 
-        fn step_batch(&mut self, steps: u64) -> crate::isa::riscv::executor::BatchResult {
+        fn step_batch(&mut self, steps: u64) -> here_isa::riscv::executor::BatchResult {
             self.cpu.step_batch(steps);
-            crate::isa::riscv::executor::BatchResult {
+            here_isa::riscv::executor::BatchResult {
                 cycles: steps,
                 hook_stopped: false,
             }
         }
 
-        fn status(&self) -> crate::board::BoardStatus {
-            crate::board::BoardStatus::Running
+        fn status(&self) -> here_board::BoardStatus {
+            here_board::BoardStatus::Running
         }
 
         fn cpu(&self) -> &RVCPU {
@@ -683,7 +684,7 @@ mod test {
             &mut self.cpu
         }
 
-        fn loader(&self) -> Option<&crate::load::ELFLoader> {
+        fn loader(&self) -> Option<&here_board::load::ELFLoader> {
             None
         }
     }

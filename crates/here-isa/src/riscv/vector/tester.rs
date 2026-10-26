@@ -1,15 +1,17 @@
 #![cfg(test)]
 
-use std::{cell::UnsafeCell, fmt::Debug, rc::Rc};
+use std::cell::UnsafeCell;
+use std::fmt::Debug;
+use std::rc::Rc;
 
-use crate::{
-    config::arch_config::WordType, device::mmio::MemoryMapIO, ram::Ram, utils::UnsignedInteger,
-};
+use here_device::mmio::MemoryMapIO;
+use here_device::ram::Ram;
+use here_types::UnsignedInteger;
+use here_types::WordType;
 
-use super::{
-    Vector,
-    types::{Vlmul, Vsew},
-};
+use super::Vector;
+use super::types::Vlmul;
+use super::types::Vsew;
 
 pub(super) struct VectorBuilder {
     vector: Vector,
@@ -117,7 +119,7 @@ impl<'a> VectorChecker<'a> {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(in crate::isa::riscv) struct TestOpParameter {
+pub(in crate::riscv) struct TestOpParameter {
     x1: Option<WordType>,
     vs1: Option<u8>,
     vs2: Option<u8>,

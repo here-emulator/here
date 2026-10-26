@@ -1,16 +1,21 @@
 pub mod io;
 mod reg;
 
-pub use io::{UART_INPUT_CAPACITY, UartBytePort, UartIoError, UartIoMode};
+pub use io::UART_INPUT_CAPACITY;
+pub use io::UartBytePort;
+pub use io::UartIoError;
+pub use io::UartIoMode;
 
 use std::ops::Not;
 
-use tokio::sync::mpsc::{self, Receiver, UnboundedSender};
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
 
-use crate::{
-    config::arch_config::WordType,
-    device::{DeviceTrait, PlicDevice, uart16550a::reg::*},
-};
+use crate::DeviceTrait;
+use crate::PlicDevice;
+use crate::uart16550a::reg::*;
+use here_types::WordType;
 
 pub struct Uart16550A {
     reg: Uart16550RegLayout,
@@ -176,7 +181,7 @@ impl DeviceTrait for Uart16550A {
 
     fn write(
         &mut self,
-        addr: crate::config::arch_config::WordType,
+        addr: here_types::WordType,
         len: u32,
         mut data: u64,
     ) -> Result<(), super::MemError> {
@@ -256,10 +261,9 @@ impl PlicDevice for Uart16550A {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        board::virt::config::UART_IRQ,
-        device::{DeviceTrait, PlicDevice},
-    };
+    const UART_IRQ: u32 = 10;
+    use crate::DeviceTrait;
+    use crate::PlicDevice;
 
     use super::*;
 

@@ -1,4 +1,4 @@
-use crate::isa::riscv::address::Address;
+use here_isa::riscv::address::Address;
 
 use super::*;
 

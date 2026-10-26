@@ -1,22 +1,34 @@
 pub mod types;
 
-use std::{hint::unlikely, ptr::NonNull};
+use std::hint::unlikely;
+use std::ptr::NonNull;
 
-use crate::{
-    config::arch_config::WordType,
-    device::{DeviceTrait, MemError, PlicDevice, irq::RiscvIRQSource},
-};
+use crate::DeviceTrait;
+use crate::MemError;
+use crate::PlicDevice;
+use crate::irq::RiscvIRQSource;
 use bit_set::BitSet;
+use here_types::WordType;
 
+use types::CLAIM_COMPLETE_REGISTER_INDEX;
+use types::INTERRUPT_SOURCE_ZERO;
 #[cfg(test)]
 use types::INTERRUPTS_PER_REGISTER;
+use types::NO_PENDING_INTERRUPT;
+use types::PLIC_INTERRUPT_WORDS;
+use types::PLICBitReg;
+use types::PLICContext;
 pub use types::PeriphIrqId;
-use types::{
-    CLAIM_COMPLETE_REGISTER_INDEX, INTERRUPT_SOURCE_ZERO, NO_PENDING_INTERRUPT,
-    PLIC_INTERRUPT_WORDS, PLICBitReg, PLICContext, PlicContextId, PlicPriority, PlicRegister,
-    PlicRegisterIndex, PlicRegisterWord, REGISTER_BYTES, VIRT_MAX_CONTEXTS, VIRT_MAX_INTERRUPTS,
-    source_zero_bit_mask, source_zero_word_index,
-};
+use types::PlicContextId;
+use types::PlicPriority;
+use types::PlicRegister;
+use types::PlicRegisterIndex;
+use types::PlicRegisterWord;
+use types::REGISTER_BYTES;
+use types::VIRT_MAX_CONTEXTS;
+use types::VIRT_MAX_INTERRUPTS;
+use types::source_zero_bit_mask;
+use types::source_zero_word_index;
 
 const PRIORITY_OFFSET: WordType = 0;
 const PENDING_BIT_OFFSET: WordType = 0x001000;
@@ -375,10 +387,10 @@ fn is_register_aligned(inner_addr: WordType) -> bool {
 /// exposes the PLIC MMIO register map, and drives per-context CPU IRQ lines.
 pub struct PLIC {
     layout: PLICLayout,
-    riscv_irq_line: [Option<crate::device::irq::IRQLine>; VIRT_MAX_CONTEXTS],
+    riscv_irq_line: [Option<crate::irq::IRQLine>; VIRT_MAX_CONTEXTS],
     riscv_irq_level: [Option<bool>; VIRT_MAX_CONTEXTS],
     // Non-owning pointers to boxed devices held by the board's DeviceArena.
-    peripheral_irq_devices: [Option<NonNull<dyn crate::device::PlicDevice>>; VIRT_MAX_INTERRUPTS],
+    peripheral_irq_devices: [Option<NonNull<dyn crate::PlicDevice>>; VIRT_MAX_INTERRUPTS],
 }
 
 impl PLIC {
@@ -396,7 +408,7 @@ impl PLIC {
     // its own MMIO access would alias its active mutable borrow.
     fn read_impl<T>(&mut self, inner_addr: WordType) -> Result<T, super::MemError>
     where
-        T: crate::utils::UnsignedInteger,
+        T: here_types::UnsignedInteger,
     {
         if size_of::<T>() as WordType != REGISTER_BYTES {
             return Err(MemError::LoadFault);
@@ -413,7 +425,7 @@ impl PLIC {
 
     fn write_impl<T>(&mut self, inner_addr: WordType, data: T) -> Result<(), super::MemError>
     where
-        T: crate::utils::UnsignedInteger,
+        T: here_types::UnsignedInteger,
     {
         if size_of::<T>() as WordType != REGISTER_BYTES {
             return Err(MemError::StoreFault);
@@ -514,7 +526,7 @@ impl DeviceTrait for PLIC {
 
 // Send the external interrupt resulting from the arbitration to the CPU through the IRQLine.
 impl RiscvIRQSource for PLIC {
-    fn set_irq_line(&mut self, line: crate::device::irq::IRQLine, id: usize) {
+    fn set_irq_line(&mut self, line: crate::irq::IRQLine, id: usize) {
         assert!(id < VIRT_MAX_CONTEXTS);
         // plic external interrupt source id will be write to plic.claim register.
         self.riscv_irq_line[id] = Some(line);
@@ -528,7 +540,8 @@ mod test {
     use std::cell::Cell;
 
     use super::*;
-    use crate::device::{PlicDevice, device_manager::DeviceArenaBuilder};
+    use crate::PlicDevice;
+    use crate::device_manager::DeviceArenaBuilder;
 
     // all methods go through mmio interface.
     impl PLIC {
@@ -855,18 +868,17 @@ mod test {
         levels: Vec<bool>,
     }
 
-    impl crate::device::irq::RiscvIRQHandler for RecordingCPUInterruptHandler {
-        fn handle_irq(&mut self, _interrupt: crate::types::Interrupt, level: bool) {
+    impl crate::irq::RiscvIRQHandler for RecordingCPUInterruptHandler {
+        fn handle_irq(&mut self, _interrupt: here_types::Interrupt, level: bool) {
             self.levels.push(level);
         }
     }
 
     #[test]
     fn context_irq_line_is_driven_only_on_level_changes() {
-        use crate::{
-            device::irq::{IRQLine, RiscvIRQSource},
-            types::Interrupt,
-        };
+        use crate::irq::IRQLine;
+        use crate::irq::RiscvIRQSource;
+        use here_types::Interrupt;
 
         let mut cpu_handler = RecordingCPUInterruptHandler { levels: Vec::new() };
         let mut plic = PLIC::new();

@@ -1,18 +1,16 @@
-use crate::{
-    config::arch_config::WordType,
-    isa::{
-        DebugTarget,
-        riscv::{
-            csr_reg::{NamedCsrReg, PrivilegeLevel, csr_index, csr_macro::*},
-            executor::RVCPU,
-            trap::{Exception, Trap},
-        },
-    },
-    types::Interrupt,
-};
+use crate::DebugTarget;
+use crate::riscv::csr_reg::NamedCsrReg;
+use crate::riscv::csr_reg::PrivilegeLevel;
+use crate::riscv::csr_reg::csr_index;
+use crate::riscv::csr_reg::csr_macro::*;
+use crate::riscv::executor::RVCPU;
+use crate::riscv::trap::Exception;
+use crate::riscv::trap::Trap;
+use here_types::Interrupt;
+use here_types::WordType;
 
 // TODO: Remove static class `TrapController` with sepreate modules for each privilege level.
-pub(in crate::isa::riscv) struct TrapController {}
+pub(in crate::riscv) struct TrapController {}
 
 impl TrapController {
     // pub fn new() -> Self {
@@ -237,10 +235,10 @@ impl TrapController {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{
-        isa::riscv::{cpu_tester::run_test_cpu_step, trap::Exception},
-        ram_config::{self, BASE_ADDR},
-    };
+    use crate::riscv::cpu_tester::run_test_cpu_step;
+    use crate::riscv::trap::Exception;
+    use here_types::ram_config;
+    use here_types::ram_config::BASE_ADDR;
 
     const IRQ_HANDLER_ADDR: WordType = 0x80002000;
 

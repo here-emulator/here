@@ -3,7 +3,8 @@ use std::thread::JoinHandle;
 use tokio::runtime::Builder;
 use tokio::sync::watch;
 
-use crate::device::task::{DeviceTask, TaskFuture};
+use here_device::task::DeviceTask;
+use here_device::task::TaskFuture;
 
 pub struct TaskSpawner {
     tasks: Vec<TaskFuture>,
@@ -71,10 +72,9 @@ impl Drop for TaskHandle {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    };
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::Ordering;
 
     use super::*;
 

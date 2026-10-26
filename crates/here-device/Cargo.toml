@@ -1,0 +1,32 @@
+[package]
+name = "here-device"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["riscv64", "native", "test-device"]
+riscv32 = ["here-types/riscv32"]
+riscv64 = ["here-types/riscv64"]
+native = [
+    "tokio/fs",
+    "tokio/io-util",
+    "tokio/time",
+    "tokio/rt",
+    "tokio/rt-multi-thread",
+    "tokio/macros",
+]
+test-device = ["riscv64"]
+test-support = []
+
+[dependencies]
+here-types = { workspace = true }
+bit-set.workspace = true
+bitfield-struct.workspace = true
+bitflags.workspace = true
+lazy_static.workspace = true
+log.workspace = true
+num_enum.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+

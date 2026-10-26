@@ -1,20 +1,25 @@
 use std::hint::cold_path;
 
-use crate::config::arch_config::WordType;
-use crate::isa::cache::*;
+use here_isa::cache::*;
 #[cfg(any(test, feature = "test-support"))]
-use crate::isa::riscv::decoder::DecodeInstr;
-use crate::isa::riscv::executor::{ExecutorBackend, RVCPU};
+use here_isa::riscv::decoder::DecodeInstr;
+use here_isa::riscv::executor::ExecutorBackend;
+use here_isa::riscv::executor::RVCPU;
+use here_types::WordType;
 
 use super::*;
 
-use super::backend::{CodeGenTrait, NativeCodeGen, PatchLoc};
+use super::backend::CodeGenTrait;
+use super::backend::NativeCodeGen;
+use super::backend::PatchLoc;
 use super::jit_buffer::JitBuffer;
-use super::translator::{TranslateResult, Translator};
+use super::translator::TranslateResult;
+use super::translator::Translator;
 
 pub mod jit_function;
 
-pub use jit_function::{JitContext, JitFunction};
+pub use jit_function::JitContext;
+pub use jit_function::JitFunction;
 
 impl Cacheable for BBCacheEntry {
     const ADDR_SHIFT_BITS: usize = 1;
@@ -410,15 +415,16 @@ impl ExecutorBackend for JitRuntime {
 #[cfg(all(test, target_arch = "x86_64"))]
 mod tests {
     use super::*;
-    use crate::isa::DebugTarget;
-    use crate::isa::riscv::address::Address;
-    use crate::isa::riscv::cpu_tester::TestCPUBuilder;
-    use crate::isa::riscv::csr_reg::NamedCsrReg;
-    use crate::isa::riscv::csr_reg::csr_macro::{Mcycle, Minstret};
-    use crate::isa::riscv::trap::Exception;
-    use crate::jit::ir::IRBuilder;
+    use crate::ir::IRBuilder;
     use crate::make_ir;
-    use crate::ram_config::BASE_ADDR;
+    use here_isa::DebugTarget;
+    use here_isa::riscv::address::Address;
+    use here_isa::riscv::cpu_tester::TestCPUBuilder;
+    use here_isa::riscv::csr_reg::NamedCsrReg;
+    use here_isa::riscv::csr_reg::csr_macro::Mcycle;
+    use here_isa::riscv::csr_reg::csr_macro::Minstret;
+    use here_isa::riscv::trap::Exception;
+    use here_types::ram_config::BASE_ADDR;
 
     #[test]
     fn test_block_chaining_forward_and_reexecution() {
@@ -648,7 +654,7 @@ mod tests {
         ], []);
         let block = builder.build_jmp(0x2000u64.into());
 
-        let exit = crate::jit::backend::tests::compile_and_exec_with_ctx(
+        let exit = crate::backend::tests::compile_and_exec_with_ctx(
             &block,
             &IRBlockMeta::default(),
             cpu.as_mut(),
@@ -672,7 +678,7 @@ mod tests {
             set_reg 2, v2;
         ], []);
         let block2 = builder2.build_jmp(0x3000u64.into());
-        let exit2 = crate::jit::backend::tests::compile_and_exec_with_ctx(
+        let exit2 = crate::backend::tests::compile_and_exec_with_ctx(
             &block2,
             &IRBlockMeta::default(),
             cpu.as_mut(),

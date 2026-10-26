@@ -1,26 +1,29 @@
 use std::hint::cold_path;
 
-use crate::{
-    config::arch_config::WordType,
-    cpu::RegFile,
-    device::irq::RiscvIRQHandler,
-    fpu::soft_float::SoftFPU,
-    isa::{
-        InstrLen,
-        cache::{Cache, CachePolicy, DirectCache},
-        riscv::{
-            RawInstr,
-            csr_reg::{CsrRegFile, NamedCsrReg, PrivilegeLevel, csr_macro::*},
-            decoder::{DecodeInstr, Decoder},
-            instruction::{RVInstrInfo, exec_mapping::get_exec_func, instr_table::RiscvInstr},
-            mmu::VirtAddrManager,
-            trap::{Exception, trap_controller::TrapController},
-            vector::Vector,
-        },
-    },
-    ram_config::DEFAULT_PC_VALUE,
-    types::Interrupt,
-};
+use crate::InstrLen;
+use crate::cache::Cache;
+use crate::cache::CachePolicy;
+use crate::cache::DirectCache;
+use crate::cpu::RegFile;
+use crate::fpu::soft_float::SoftFPU;
+use crate::riscv::RawInstr;
+use crate::riscv::csr_reg::CsrRegFile;
+use crate::riscv::csr_reg::NamedCsrReg;
+use crate::riscv::csr_reg::PrivilegeLevel;
+use crate::riscv::csr_reg::csr_macro::*;
+use crate::riscv::decoder::DecodeInstr;
+use crate::riscv::decoder::Decoder;
+use crate::riscv::instruction::RVInstrInfo;
+use crate::riscv::instruction::exec_mapping::get_exec_func;
+use crate::riscv::instruction::instr_table::RiscvInstr;
+use crate::riscv::mmu::VirtAddrManager;
+use crate::riscv::trap::Exception;
+use crate::riscv::trap::trap_controller::TrapController;
+use crate::riscv::vector::Vector;
+use here_device::irq::RiscvIRQHandler;
+use here_types::Interrupt;
+use here_types::WordType;
+use here_types::ram_config::DEFAULT_PC_VALUE;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BatchResult {
@@ -75,18 +78,18 @@ impl ExecutionHook for NoopExecutionHook {
 
 #[repr(C)]
 pub struct RVCPU {
-    pub(crate) reg_file: RegFile,
-    pub(crate) pc: WordType,
-    pub(super) memory: VirtAddrManager,
-    pub(super) decoder: Decoder,
-    pub(super) csr: CsrRegFile,
+    pub reg_file: RegFile,
+    pub pc: WordType,
+    pub(crate) memory: VirtAddrManager,
+    pub(crate) decoder: Decoder,
+    pub csr: CsrRegFile,
     pub(super) icache: Cache<DirectCache<DecodeInstr, 8192>>,
     icache_epoch: u64,
-    pub(super) fpu: SoftFPU,
-    pub(super) vector: Vector,
+    pub fpu: SoftFPU,
+    pub(crate) vector: Vector,
 
     /// The address of the memory-mapped `mtime` CSR.
-    pub(crate) time_addr: Option<WordType>,
+    pub time_addr: Option<WordType>,
 
     /// The trap value pending to be written to `mtval`/`stval`.
     ///
@@ -111,7 +114,7 @@ impl RVCPU {
         Self::from_decoder(Decoder::new(), v_memory)
     }
 
-    pub(crate) fn from_decoder(decoder: Decoder, v_memory: VirtAddrManager) -> Self {
+    pub fn from_decoder(decoder: Decoder, v_memory: VirtAddrManager) -> Self {
         let mut csr = CsrRegFile::new();
 
         let ext = decoder.extension_bits();
@@ -188,7 +191,7 @@ impl RVCPU {
     }
 
     #[inline]
-    pub(crate) fn step_batch_no_interrupt(&mut self, cycles: u64) {
+    pub fn step_batch_no_interrupt(&mut self, cycles: u64) {
         let mut executed = 0;
         while executed < cycles {
             self.step_impl();
@@ -257,7 +260,7 @@ impl RVCPU {
         mcycle.set_mcycle_directly(mcycle.data().wrapping_add(cycles as WordType));
     }
 
-    pub(crate) fn try_take_pending_interrupt(&mut self) -> bool {
+    pub fn try_take_pending_interrupt(&mut self) -> bool {
         if TrapController::try_take_interrupt(self).is_none() {
             return false;
         }
@@ -266,7 +269,7 @@ impl RVCPU {
         true
     }
 
-    pub(crate) fn finish_jit_block(
+    pub fn finish_jit_block(
         &mut self,
         next_pc: WordType,
         instr_count: u64,
@@ -288,11 +291,11 @@ impl RVCPU {
         }
     }
 
-    pub(crate) fn icache_epoch(&self) -> u64 {
+    pub fn icache_epoch(&self) -> u64 {
         self.icache_epoch
     }
 
-    pub(crate) fn instruction_alignment(&mut self) -> WordType {
+    pub fn instruction_alignment(&mut self) -> WordType {
         if self.csr.get_by_type_existing::<Misa>().c_enabled() {
             2
         } else {
@@ -337,7 +340,7 @@ impl RVCPU {
     }
 
     #[inline]
-    pub(crate) fn decode_at(&mut self, addr: WordType) -> Option<DecodeInstr> {
+    pub fn decode_at(&mut self, addr: WordType) -> Option<DecodeInstr> {
         self.decode_at_checked(addr).ok()
     }
 
@@ -401,7 +404,7 @@ impl RVCPU {
         }
     }
 
-    pub(crate) fn flush_icache(&mut self) {
+    pub fn flush_icache(&mut self) {
         self.icache.clear();
         self.icache_epoch = self.icache_epoch.wrapping_add(1);
     }

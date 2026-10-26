@@ -1,8 +1,9 @@
 use super::*;
-use crate::isa::riscv::vector::{
-    tester::{VectorBuilder, VectorChecker},
-    types::{FixedPointRoundingMode, Vlmul, Vsew},
-};
+use crate::riscv::vector::tester::VectorBuilder;
+use crate::riscv::vector::tester::VectorChecker;
+use crate::riscv::vector::types::FixedPointRoundingMode;
+use crate::riscv::vector::types::Vlmul;
+use crate::riscv::vector::types::Vsew;
 
 const VL_E8_M1: u16 = 16;
 

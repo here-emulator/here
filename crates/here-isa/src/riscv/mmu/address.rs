@@ -1,7 +1,7 @@
-use crate::{
-    config::arch_config::WordType,
-    isa::riscv::mmu::config::{PAGE_SIZE, PAGE_SIZE_XLEN, PHYSICAL_ADDR_WIDTH},
-};
+use crate::riscv::mmu::config::PAGE_SIZE;
+use crate::riscv::mmu::config::PAGE_SIZE_XLEN;
+use crate::riscv::mmu::config::PHYSICAL_ADDR_WIDTH;
+use here_types::WordType;
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
 pub(super) struct PhysicalAddr(pub(super) u64); // rv32 physical addr is 34bit-length.

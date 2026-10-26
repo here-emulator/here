@@ -1,15 +1,16 @@
-use super::{CommandOutput, DbgInstrLine};
-use crate::{
-    config::arch_config::{REG_NAME, SignedWordType, WordType},
-    isa::riscv::{
-        RawInstr,
-        address::Address,
-        csr_reg::{PrivilegeLevel, csr_macro::CSR_NAME},
-        debugger,
-        decoder::DecodeInstr,
-        instruction::{RVInstrInfo, instr_table::RiscvInstr},
-    },
-};
+use super::CommandOutput;
+use super::DbgInstrLine;
+use crate::debugger;
+use here_isa::riscv::RawInstr;
+use here_isa::riscv::address::Address;
+use here_isa::riscv::csr_reg::PrivilegeLevel;
+use here_isa::riscv::csr_reg::csr_macro::CSR_NAME;
+use here_isa::riscv::decoder::DecodeInstr;
+use here_isa::riscv::instruction::RVInstrInfo;
+use here_isa::riscv::instruction::instr_table::RiscvInstr;
+use here_types::REG_NAME;
+use here_types::SignedWordType;
+use here_types::WordType;
 
 #[derive(Clone, Copy)]
 enum AnsiColor {
@@ -153,11 +154,6 @@ impl Printer {
 
     pub(crate) fn render(&self, output: &CommandOutput) -> String {
         self.render_with_active_palette(output)
-    }
-
-    #[cfg(feature = "native-cli")]
-    pub(crate) fn print(&self, output: &CommandOutput) {
-        print!("{}", self.render(output));
     }
 
     fn render_with_active_palette(&self, output: &CommandOutput) -> String {
@@ -522,7 +518,7 @@ impl OutputPalette {
     }
 
     fn format_raw(&self, raw: Option<RawInstr>) -> impl std::fmt::Display {
-        use crate::isa::InstrLen;
+        use here_isa::InstrLen;
         match raw {
             Some(raw) if raw.len() == 2 => self.data(&format!("0x{:04x}    ", raw.val)).to_string(),
             Some(raw) => self.data(&format!("0x{:08x}", raw.val)).to_string(),

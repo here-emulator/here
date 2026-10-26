@@ -1,16 +1,25 @@
-use std::hint::{cold_path, unreachable_unchecked};
+use std::hint::cold_path;
+use std::hint::unreachable_unchecked;
 
-use rustc_apfloat::{
-    Float, FloatConvert, Status, StatusAnd,
-    ieee::{Double, Single},
-};
+use rustc_apfloat::Float;
+use rustc_apfloat::FloatConvert;
+use rustc_apfloat::Status;
+use rustc_apfloat::StatusAnd;
+use rustc_apfloat::ieee::Double;
+use rustc_apfloat::ieee::Single;
 
 use rustc_apfloat::Round as APFloatRound;
 
-use crate::{
-    fpu::{BinaryOp, Classification, CmpOp, FloatPoint, InFloat, Round},
-    utils::{SignedInteger, TruncateFrom, WordTrait, make_mask},
-};
+use crate::fpu::BinaryOp;
+use crate::fpu::Classification;
+use crate::fpu::CmpOp;
+use crate::fpu::FloatPoint;
+use crate::fpu::InFloat;
+use crate::fpu::Round;
+use here_types::SignedInteger;
+use here_types::TruncateFrom;
+use here_types::WordTrait;
+use here_types::make_mask;
 
 impl Into<APFloatRound> for Round {
     fn into(self) -> APFloatRound {

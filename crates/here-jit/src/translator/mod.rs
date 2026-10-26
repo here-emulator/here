@@ -3,20 +3,18 @@
 //! but some fusions are helpful, include:
 //! - branch + mov => cmov
 
-use crate::{
-    config::arch_config::WordType,
-    debug_unreachable,
-    isa::riscv::{
-        decoder::DecodeInstr,
-        executor::RVCPU,
-        instruction::{RVInstrInfo, instr_table::RiscvInstr},
-    },
-    make_ir,
-};
+use crate::make_ir;
+use here_isa::riscv::decoder::DecodeInstr;
+use here_isa::riscv::executor::RVCPU;
+use here_isa::riscv::instruction::RVInstrInfo;
+use here_isa::riscv::instruction::instr_table::RiscvInstr;
+use here_types::WordType;
+use here_types::debug_unreachable;
 
 use super::*;
 
-use super::abi::{LoadKind, StoreKind};
+use super::abi::LoadKind;
+use super::abi::StoreKind;
 
 /// Reason why translation of a basic block terminated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

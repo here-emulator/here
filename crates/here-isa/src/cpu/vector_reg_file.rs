@@ -1,6 +1,9 @@
-use std::{hint::unlikely, mem::align_of, slice::from_raw_parts};
+use std::hint::unlikely;
+use std::mem::align_of;
+use std::slice::from_raw_parts;
 
-use crate::isa::riscv::{trap::Exception, vector::VLEN_BYTE};
+use crate::riscv::trap::Exception;
+use crate::riscv::vector::VLEN_BYTE;
 
 #[repr(align(8))]
 pub struct VectorRegFile {

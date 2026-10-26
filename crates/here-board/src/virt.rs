@@ -1,43 +1,52 @@
-use std::{
-    cell::{Cell, UnsafeCell},
-    hint::cold_path,
-    path::PathBuf,
-    rc::Rc,
-    sync::atomic::Ordering,
-};
+use std::cell::Cell;
+use std::cell::UnsafeCell;
+use std::hint::cold_path;
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::sync::atomic::Ordering;
 
-pub use crate::device::uart16550a::{UartIoError, UartIoMode};
+pub use here_device::uart16550a::UartIoError;
+pub use here_device::uart16550a::UartIoMode;
 
-use crate::{
-    board::{Board, BoardStatus, DeviceConfig, VirtBoardPlicContextId, builder::RVBoardBuilder},
-    clock::{Timer, VirtualClock},
-    config::arch_config::WordType,
-    device::{
-        self,
-        aclint::{CLINT_SIZE, Clint},
-        device_manager::{DeviceArena, DeviceHandle},
-        plic::{PLIC, PLIC_SIZE},
-        power_manager::{POWER_MANAGER_SIZE, POWER_OFF_CODE, POWER_STATUS},
-        uart16550a::UartBytePort,
-    },
-    isa::riscv::{
-        decoder::Decoder,
-        executor::{BatchResult, ExecutionHook, ExecutorBackend, RVCPU},
-    },
-    load::{ELFLoader, load_bin},
-    ram::Ram,
-    ram_config,
-};
+use crate::Board;
+use crate::BoardStatus;
+use crate::DeviceConfig;
+use crate::VirtBoardPlicContextId;
+use crate::builder::RVBoardBuilder;
+use crate::load::ELFLoader;
+use crate::load::load_bin;
+use here_device::aclint::CLINT_SIZE;
+use here_device::aclint::Clint;
+use here_device::clock::Timer;
+use here_device::clock::VirtualClock;
+use here_device::device_manager::DeviceArena;
+use here_device::device_manager::DeviceHandle;
+use here_device::plic::PLIC;
+use here_device::plic::PLIC_SIZE;
+use here_device::power_manager::POWER_MANAGER_SIZE;
+use here_device::power_manager::POWER_OFF_CODE;
+use here_device::power_manager::POWER_STATUS;
+use here_device::ram::Ram;
+use here_device::uart16550a::UartBytePort;
+use here_isa::riscv::decoder::Decoder;
+use here_isa::riscv::executor::BatchResult;
+use here_isa::riscv::executor::ExecutionHook;
+use here_isa::riscv::executor::ExecutorBackend;
+use here_isa::riscv::executor::RVCPU;
+use here_types::WordType;
+use here_types::ram_config;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 use crate::task_spawner::TaskHandle;
 
-#[cfg(all(feature = "test-device", not(target_arch = "wasm32")))]
-use crate::device::sample_timer::{SAMPLE_TIMER_INTERRUPT_ID, SAMPLE_TIMER_SIZE};
+#[cfg(all(feature = "test-device", feature = "native"))]
+use here_device::sample_timer::SAMPLE_TIMER_INTERRUPT_ID;
+#[cfg(all(feature = "test-device", feature = "native"))]
+use here_device::sample_timer::SAMPLE_TIMER_SIZE;
 
 #[allow(unused)]
 pub mod config {
-    use crate::config::arch_config::WordType;
+    use here_types::WordType;
 
     pub const UART_BASE: WordType = 0x1000_0000;
     pub const UART_SIZE: WordType = 8;
@@ -70,7 +79,7 @@ impl MemoryImage {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[cfg_attr(feature = "native-cli", derive(clap::ValueEnum))]
+#[cfg_attr(feature = "native", derive(clap::ValueEnum))]
 pub enum ExecutorBackendKind {
     #[default]
     Interpreter,
@@ -145,7 +154,7 @@ impl VirtBoardConfig {
 
 pub struct VirtBoard {
     // Stop device tasks before dropping the state they may depend on.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "native")]
     pub task_handle: TaskHandle,
 
     pub loader: Option<ELFLoader>,
@@ -160,7 +169,7 @@ pub struct VirtBoard {
     pub plic: DeviceHandle<PLIC>,
     pub uart_io: UartIoMode,
     pub uart_port: Option<UartBytePort>,
-    #[cfg(feature = "native-cli")]
+    #[cfg(feature = "native")]
     pub uart_stdin_handle: Option<crate::byte_io::StdinHandle>,
 
     pub status: BoardStatus,
@@ -170,11 +179,11 @@ pub struct VirtBoard {
 }
 
 impl VirtBoard {
-    pub fn device<D: device::DeviceTrait>(&self, handle: DeviceHandle<D>) -> &D {
+    pub fn device<D: here_device::DeviceTrait>(&self, handle: DeviceHandle<D>) -> &D {
         self.device_arena.device(handle)
     }
 
-    pub fn device_mut<D: device::DeviceTrait>(&mut self, handle: DeviceHandle<D>) -> &mut D {
+    pub fn device_mut<D: here_device::DeviceTrait>(&mut self, handle: DeviceHandle<D>) -> &mut D {
         self.device_arena.device_mut(handle)
     }
 
@@ -251,7 +260,7 @@ impl VirtBoard {
             builder = builder.with_dump_jit(path);
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(feature = "native")]
         {
             for virtio_device in virtio_devices {
                 builder = builder.add_virtio_device(
@@ -262,12 +271,12 @@ impl VirtBoard {
                 );
             }
         }
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(not(feature = "native"))]
         {
             let _ = virtio_devices;
         }
 
-        #[cfg(all(feature = "test-device", not(target_arch = "wasm32")))]
+        #[cfg(all(feature = "test-device", feature = "native"))]
         {
             builder = builder.add_sample_timer(
                 config::SAMPLE_TIMER_BASE,
@@ -308,7 +317,7 @@ impl VirtBoard {
             .ok_or(UartIoError::Unavailable(self.uart_io))
     }
 
-    #[cfg(feature = "native-cli")]
+    #[cfg(feature = "native")]
     pub fn uart_stdin_handle(&self) -> Option<crate::byte_io::StdinHandle> {
         self.uart_stdin_handle
     }
@@ -401,14 +410,18 @@ impl Board for VirtBoard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::clock::Clock;
-    use crate::config::arch_config::XLEN;
-    use crate::device::DeviceTrait;
-    use crate::isa::DebugTarget;
-    use crate::isa::riscv::address::Address;
-    use crate::isa::riscv::csr_reg::csr_macro::{Mcause, Mcycle, Minstret, Satp};
-    use crate::isa::riscv::csr_reg::{NamedCsrReg, csr_index};
-    use crate::ram_config;
+    use here_device::DeviceTrait;
+    use here_device::clock::Clock;
+    use here_isa::DebugTarget;
+    use here_isa::riscv::address::Address;
+    use here_isa::riscv::csr_reg::NamedCsrReg;
+    use here_isa::riscv::csr_reg::csr_index;
+    use here_isa::riscv::csr_reg::csr_macro::Mcause;
+    use here_isa::riscv::csr_reg::csr_macro::Mcycle;
+    use here_isa::riscv::csr_reg::csr_macro::Minstret;
+    use here_isa::riscv::csr_reg::csr_macro::Satp;
+    use here_types::XLEN;
+    use here_types::ram_config;
 
     fn create_test_board() -> VirtBoard {
         let mut ram = Ram::new();
@@ -611,7 +624,7 @@ mod tests {
 
     #[test]
     fn virtboard_mmio_uses_uart16550a() {
-        use crate::isa::riscv::address::Address;
+        use here_isa::riscv::address::Address;
 
         let mut board = VirtBoard::from_binary_with(&[], VirtBoardConfig::new()).unwrap();
 
@@ -655,7 +668,7 @@ mod tests {
         ));
     }
 
-    #[cfg(feature = "native-cli")]
+    #[cfg(feature = "native")]
     #[test]
     fn stdio_uart_exposes_only_router_handle() {
         let mut board = VirtBoard::from_binary_with(
@@ -783,14 +796,14 @@ mod tests {
     #[cfg(feature = "test-device")]
     #[test]
     fn sample_timer_rearms_after_control_reset() {
-        use std::{
-            thread::sleep,
-            time::{Duration, Instant},
-        };
+        use std::thread::sleep;
+        use std::time::Duration;
+        use std::time::Instant;
 
-        use crate::board::virt::config::SAMPLE_TIMER_BASE;
-        use crate::device::sample_timer::SAMPLE_TIMER_INTERRUPT_ID;
-        use crate::{config::arch_config::WordType, isa::riscv::address::Address};
+        use crate::virt::config::SAMPLE_TIMER_BASE;
+        use here_device::sample_timer::SAMPLE_TIMER_INTERRUPT_ID;
+        use here_isa::riscv::address::Address;
+        use here_types::WordType;
         const CONTEXT_ENABLE_BIT_OFFSET: WordType = 0x002000;
         const CONTEXT_ENABLE_BIT_SIZE: WordType = 0x80;
         const CONTEXT_CONFIG_OFFSET: WordType = 0x200000;

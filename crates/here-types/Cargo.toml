@@ -1,0 +1,15 @@
+[package]
+name = "here-types"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["riscv64"]
+riscv32 = []
+riscv64 = []
+
+[dependencies]
+num-traits.workspace = true
+seq-macro.workspace = true
+

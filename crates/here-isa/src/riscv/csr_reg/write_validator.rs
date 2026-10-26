@@ -1,8 +1,7 @@
 use super::*;
-use crate::{
-    config::arch_config::WordType,
-    utils::{UnsignedInteger, make_mask},
-};
+use here_types::UnsignedInteger;
+use here_types::WordType;
+use here_types::make_mask;
 
 pub(super) type WriteValidator = fn(WordType, &CsrContext) -> CsrWriteOp;
 

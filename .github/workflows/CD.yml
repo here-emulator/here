@@ -25,7 +25,7 @@ jobs:
 
       - name: Verify Cargo.toml version matches git tag
         run: |
-          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="here-bin") | .version')
           TAG="${{ inputs.tag || github.ref_name }}"
           TAG_VERSION="${TAG#v}"
           echo "Cargo.toml version: $CARGO_VERSION"
@@ -79,7 +79,7 @@ jobs:
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} --features "riscv64,native-cli"
+        run: cargo build -p here-bin --release --target ${{ matrix.target }} --no-default-features --features "riscv64,native"
 
       - name: Rename binary (unix)
         if: matrix.os != 'windows-latest'

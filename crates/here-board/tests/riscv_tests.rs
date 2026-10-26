@@ -3,22 +3,22 @@
 //!
 //! [`riscv-tests`]: https://github.com/riscv-software-src/riscv-tests
 
-#![cfg(feature = "riscv-tests")]
-
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 use crossterm::style::Stylize;
-use here::board::virt::VirtBoard;
-use here::board::{Board, BoardStatus};
-use here::config::arch_config::WordType;
-use here::isa::DebugTarget;
-use here::isa::riscv::address::Address;
+use here_board::Board;
+use here_board::BoardStatus;
+use here_board::virt::VirtBoard;
+use here_isa::DebugTarget;
+use here_isa::riscv::address::Address;
+use here_types::WordType;
 
 fn find_tests_exclude(prefix: &str, exclude_names: &[&str]) -> Vec<PathBuf> {
     let mut paths = Vec::new();
-    let isa_dir = Path::new("riscv-tests/isa");
-    if let Ok(entries) = fs::read_dir(isa_dir) {
+    let isa_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../riscv-tests/isa");
+    if let Ok(entries) = fs::read_dir(&isa_dir) {
         for e in entries.flatten() {
             if e.path().is_dir() || e.path().extension() != None {
                 continue;

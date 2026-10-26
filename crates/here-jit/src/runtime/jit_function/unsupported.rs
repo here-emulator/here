@@ -1,6 +1,7 @@
-use crate::isa::riscv::executor::RVCPU;
+use here_isa::riscv::executor::RVCPU;
 
-use super::{JitContext, JitExit};
+use super::JitContext;
+use super::JitExit;
 
 #[repr(C)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]

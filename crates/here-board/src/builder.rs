@@ -1,42 +1,46 @@
-use std::{
-    any::TypeId,
-    cell::{Cell, UnsafeCell},
-    collections::HashMap,
-    path::PathBuf,
-    ptr::NonNull,
-    rc::Rc,
-};
+use std::any::TypeId;
+use std::cell::Cell;
+use std::cell::UnsafeCell;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::ptr::NonNull;
+use std::rc::Rc;
 
-#[cfg(not(target_arch = "wasm32"))]
+use crate::BoardStatus;
+use crate::VirtBoardPlicContextId;
+#[cfg(feature = "native")]
 use crate::task_spawner::TaskSpawner;
-use crate::{
-    board::{
-        BoardStatus, VirtBoardPlicContextId,
-        virt::{ExecutorBackendKind, UartIoMode, VirtBoard},
-    },
-    clock::{Timer, VirtualClock},
-    config::arch_config::WordType,
-    device::{
-        DeviceTrait, IdAllocator, PlicDevice,
-        aclint::Clint,
-        device_manager::{DeviceArena, DeviceArenaBuilder, DeviceHandle},
-        irq::{IRQLine, RiscvIRQHandler, RiscvIRQSource},
-        mmio::{MemoryMapIO, MemoryMapItem},
-        plic::{PLIC, PeriphIrqId},
-        power_manager::PowerManager,
-        uart16550a::{Uart16550A, UartBytePort},
-    },
-    isa::{
-        DebugTarget,
-        riscv::{
-            decoder::Decoder,
-            executor::{ExecutorBackend, InterpreterBackend, RVCPU},
-            mmu::VirtAddrManager,
-        },
-    },
-    ram::Ram,
-    types::Interrupt,
-};
+use crate::virt::ExecutorBackendKind;
+use crate::virt::UartIoMode;
+use crate::virt::VirtBoard;
+use here_device::DeviceTrait;
+use here_device::IdAllocator;
+use here_device::PlicDevice;
+use here_device::aclint::Clint;
+use here_device::clock::Timer;
+use here_device::clock::VirtualClock;
+use here_device::device_manager::DeviceArena;
+use here_device::device_manager::DeviceArenaBuilder;
+use here_device::device_manager::DeviceHandle;
+use here_device::irq::IRQLine;
+use here_device::irq::RiscvIRQHandler;
+use here_device::irq::RiscvIRQSource;
+use here_device::mmio::MemoryMapIO;
+use here_device::mmio::MemoryMapItem;
+use here_device::plic::PLIC;
+use here_device::plic::PeriphIrqId;
+use here_device::power_manager::PowerManager;
+use here_device::ram::Ram;
+use here_device::uart16550a::Uart16550A;
+use here_device::uart16550a::UartBytePort;
+use here_isa::DebugTarget;
+use here_isa::riscv::decoder::Decoder;
+use here_isa::riscv::executor::ExecutorBackend;
+use here_isa::riscv::executor::InterpreterBackend;
+use here_isa::riscv::executor::RVCPU;
+use here_isa::riscv::mmu::VirtAddrManager;
+use here_types::Interrupt;
+use here_types::WordType;
 
 pub struct RVBoardBuilder {
     ram_ref: Rc<UnsafeCell<Ram>>,
@@ -61,7 +65,7 @@ pub struct RVBoardBuilder {
     clint_mmio: Option<(WordType, WordType)>,
     plic_mmio: Option<(WordType, WordType)>,
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "native")]
     pub spawner: TaskSpawner,
 }
 
@@ -90,7 +94,7 @@ impl RVBoardBuilder {
             executor_backend: ExecutorBackendKind::Interpreter,
             dump_jit: None,
 
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(feature = "native")]
             spawner: TaskSpawner::new(),
             clint_mmio: None,
             plic_mmio: None,
@@ -144,9 +148,9 @@ impl RVBoardBuilder {
         self.add_plic_device(Box::new(uart1), base, size, irq)
     }
 
-    #[cfg(all(feature = "test-device", not(target_arch = "wasm32")))]
+    #[cfg(all(feature = "test-device", feature = "native"))]
     pub fn add_sample_timer(mut self, base: WordType, size: WordType, irq: PeriphIrqId) -> Self {
-        use crate::device::sample_timer::SampleTimerDevice;
+        use here_device::sample_timer::SampleTimerDevice;
 
         let (device, task) = SampleTimerDevice::new();
         self.spawner.register(task);
@@ -223,13 +227,13 @@ impl RVBoardBuilder {
         let ram_ref = self.ram_ref.clone();
 
         let mut uart_port = None;
-        #[cfg(feature = "native-cli")]
+        #[cfg(feature = "native")]
         let mut uart_stdin_handle = None;
         if let Some(uart_port1) = self.uart_port.take() {
             match self.uart_io {
                 UartIoMode::None => drop(uart_port1),
                 UartIoMode::External => uart_port = Some(uart_port1),
-                #[cfg(feature = "native-cli")]
+                #[cfg(feature = "native")]
                 UartIoMode::Stdio => {
                     use crate::byte_io::StdinRouter;
 
@@ -299,11 +303,11 @@ impl RVBoardBuilder {
         let executor_backend =
             create_executor_backend(self.executor_backend, self.dump_jit.take(), cpu.as_mut())?;
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(feature = "native")]
         let task_handle = self.spawner.start();
 
         Ok(VirtBoard {
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(feature = "native")]
             task_handle,
             loader: None,
             cpu,
@@ -316,7 +320,7 @@ impl RVBoardBuilder {
             plic,
             uart_io: self.uart_io,
             uart_port,
-            #[cfg(feature = "native-cli")]
+            #[cfg(feature = "native")]
             uart_stdin_handle,
 
             status: BoardStatus::Running,
@@ -333,9 +337,9 @@ fn create_executor_backend(
     match kind {
         ExecutorBackendKind::Interpreter => Ok(Box::new(InterpreterBackend)),
         ExecutorBackendKind::Jit => {
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(feature = "native")]
             {
-                let mut jit = crate::jit::JitRuntime::try_new(cpu).map_err(|e| e.to_string())?;
+                let mut jit = here_jit::JitRuntime::try_new(cpu).map_err(|e| e.to_string())?;
                 if let Some(path) = dump_jit {
                     jit.enable_dump(&path).map_err(|error| {
                         format!(
@@ -346,7 +350,7 @@ fn create_executor_backend(
                 }
                 Ok(Box::new(jit))
             }
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(not(feature = "native"))]
             {
                 let _ = (dump_jit, cpu);
                 Err("JIT executor backend is not supported on this platform".to_string())
@@ -355,17 +359,14 @@ fn create_executor_backend(
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 mod native {
     use super::*;
 
-    use crate::{
-        board::DeviceConfig,
-        device::virtio::{
-            virtio_block::VirtIOBlkDeviceBuilder, virtio_device::VirtIODeviceEnum,
-            virtio_mmio::VirtIOMMIO,
-        },
-    };
+    use crate::DeviceConfig;
+    use here_device::virtio::virtio_block::VirtIOBlkDeviceBuilder;
+    use here_device::virtio::virtio_device::VirtIODeviceEnum;
+    use here_device::virtio::virtio_mmio::VirtIOMMIO;
 
     impl RVBoardBuilder {
         pub fn add_virtio_device(
@@ -382,10 +383,8 @@ mod native {
                         ram_base,
                         String::from(config.path.to_str().unwrap()),
                     )
-                    .host_feature(
-                        crate::device::virtio::virtio_block::VirtIOBlockFeature::BlockSize,
-                    )
-                    .host_feature(crate::device::virtio::virtio_block::VirtIOBlockFeature::Flush)
+                    .host_feature(here_device::virtio::virtio_block::VirtIOBlockFeature::BlockSize)
+                    .host_feature(here_device::virtio::virtio_block::VirtIOBlockFeature::Flush)
                     .build();
                     self.spawner.register(worker);
                     device
@@ -403,8 +402,10 @@ mod native {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::virt::config::*;
-    use crate::device::{aclint::CLINT_SIZE, plic::PLIC_SIZE, power_manager::POWER_MANAGER_SIZE};
+    use crate::virt::config::*;
+    use here_device::aclint::CLINT_SIZE;
+    use here_device::plic::PLIC_SIZE;
+    use here_device::power_manager::POWER_MANAGER_SIZE;
     #[test]
     #[should_panic]
     fn test_rvboard_builder_missing_clint() {
@@ -426,13 +427,16 @@ mod tests {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, feature = "native"))]
 mod native_tests {
     use super::*;
-    use crate::board::virt::*;
-    use crate::device::virtio::virtio_block::init_block_file;
-    use crate::device::{aclint::CLINT_SIZE, plic::PLIC_SIZE, power_manager::POWER_MANAGER_SIZE};
-    use crate::{board::DeviceConfig, device::virtio::virtio_device::VirtIODeviceEnum};
+    use crate::DeviceConfig;
+    use crate::virt::*;
+    use here_device::aclint::CLINT_SIZE;
+    use here_device::plic::PLIC_SIZE;
+    use here_device::power_manager::POWER_MANAGER_SIZE;
+    use here_device::virtio::virtio_block::init_block_file;
+    use here_device::virtio::virtio_device::VirtIODeviceEnum;
 
     fn add_default_mmio_devices(builder: RVBoardBuilder) -> RVBoardBuilder {
         builder

@@ -1,6 +1,8 @@
-use std::fmt::{self, Write};
+use std::fmt;
+use std::fmt::Write;
 
-use crate::jit::backend::{AsmPatch, write_edge_label};
+use crate::backend::AsmPatch;
+use crate::backend::write_edge_label;
 
 use super::*;
 

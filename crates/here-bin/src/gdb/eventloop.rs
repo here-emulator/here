@@ -11,11 +11,13 @@ use gdbstub::target::Target;
 use std::net::TcpListener;
 use std::net::TcpStream;
 #[cfg(unix)]
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
 
-use crate::isa::riscv::csr_reg::NamedCsrReg;
-use crate::isa::riscv::csr_reg::csr_macro::CSR_NAME;
-use crate::isa::riscv::csr_reg::csr_macro::Misa;
+use here_isa::riscv::csr_reg::NamedCsrReg;
+use here_isa::riscv::csr_reg::csr_macro::CSR_NAME;
+use here_isa::riscv::csr_reg::csr_macro::Misa;
 #[cfg(unix)]
 use std::os::unix::net::UnixListener;
 #[cfg(unix)]

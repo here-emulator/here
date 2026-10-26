@@ -1,10 +1,15 @@
 use std::time;
 
 use clap::ValueEnum;
-use flexi_logger::{
-    Cleanup, Criterion, Duplicate, FileSpec, LogSpecBuilder, Logger, LoggerHandle, Naming,
-    WriteMode,
-};
+use flexi_logger::Cleanup;
+use flexi_logger::Criterion;
+use flexi_logger::Duplicate;
+use flexi_logger::FileSpec;
+use flexi_logger::LogSpecBuilder;
+use flexi_logger::Logger;
+use flexi_logger::LoggerHandle;
+use flexi_logger::Naming;
+use flexi_logger::WriteMode;
 use log::LevelFilter;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]

@@ -1,22 +1,14 @@
-use crate::{
-    config::arch_config::WordType,
-    debug_unreachable,
-    isa::{
-        riscv::{
-            RawInstr,
-            decoder::DecodeInstr,
-            instruction::{
-                InstrFormat, RVInstrInfo,
-                instr_table::{
-                    RVInstrDesc,
-                    RiscvInstr::{self, *},
-                },
-            },
-        },
-        utils::DecodeMask,
-    },
-    utils::UnsignedInteger,
-};
+use crate::riscv::RawInstr;
+use crate::riscv::decoder::DecodeInstr;
+use crate::riscv::instruction::InstrFormat;
+use crate::riscv::instruction::RVInstrInfo;
+use crate::riscv::instruction::instr_table::RVInstrDesc;
+use crate::riscv::instruction::instr_table::RiscvInstr;
+use crate::riscv::instruction::instr_table::RiscvInstr::*;
+use crate::utils::DecodeMask;
+use here_types::UnsignedInteger;
+use here_types::WordType;
+use here_types::debug_unreachable;
 
 pub(super) struct CompressedDecoder {
     masks: Vec<(DecodeMask, RiscvInstr, InstrFormat)>,
@@ -43,7 +35,7 @@ macro_rules! sign_ext_extract {
         // The highest destination bit is the immediate's sign bit, so the field
         // width (and thus the bit count to sign-extend from) is that bit + 1.
         let from_bits = *[$($dst_high as u32),*].iter().max().unwrap() + 1;
-        crate::utils::sign_extend(field as WordType, from_bits)
+        here_types::sign_extend(field as WordType, from_bits)
     }};
 }
 

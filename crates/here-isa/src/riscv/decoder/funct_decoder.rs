@@ -1,16 +1,12 @@
 use smallvec::SmallVec;
 
-use crate::isa::{
-    InstrLen,
-    riscv::{
-        RawInstr,
-        decoder::{DecodeInstr, decode_info},
-        instruction::{
-            instr_table::{RVInstrDesc, RiscvInstr},
-            *,
-        },
-    },
-};
+use crate::InstrLen;
+use crate::riscv::RawInstr;
+use crate::riscv::decoder::DecodeInstr;
+use crate::riscv::decoder::decode_info;
+use crate::riscv::instruction::instr_table::RVInstrDesc;
+use crate::riscv::instruction::instr_table::RiscvInstr;
+use crate::riscv::instruction::*;
 
 type PartialResult = (RiscvInstr, InstrFormat);
 

@@ -1,11 +1,13 @@
-use super::{
-    CommandOutput, PrintObject, RvdbCommand, format_clap_error, is_clap_display, printer::Printer,
-};
-use crate::{
-    board::Board,
-    isa::riscv::debugger::Debugger,
-    load::{ELFLoader, SymTab},
-};
+use super::CommandOutput;
+use super::PrintObject;
+use super::RvdbCommand;
+use super::format_clap_error;
+use super::is_clap_display;
+use super::printer::Printer;
+use crate::debugger::Debugger;
+use here_board::Board;
+use here_board::load::ELFLoader;
+use here_board::load::SymTab;
 
 const PROMPT: &str = "(rvdb) ";
 
@@ -129,7 +131,9 @@ mod tests {
     use std::convert::Infallible;
 
     use super::*;
-    use crate::board::virt::{UartIoMode, VirtBoard, VirtBoardConfig};
+    use here_board::virt::UartIoMode;
+    use here_board::virt::VirtBoard;
+    use here_board::virt::VirtBoardConfig;
 
     #[test]
     fn run_script_reports_errors_and_stops_on_exit() {

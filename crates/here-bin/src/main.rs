@@ -1,28 +1,35 @@
+#![allow(dead_code)]
+
+mod gdb;
 mod logging;
+mod sync_repl;
 mod version;
 mod welcome;
 
 use std::fs;
-use std::io::{IsTerminal, Write};
+use std::io::IsTerminal;
+use std::io::Write;
 use std::time::Instant;
 
+use crate::sync_repl::SyncREPL;
 use clap::Parser;
-use here::board::Board;
-use here::gdb;
-use here::isa::DebugTarget;
-use here::isa::riscv::address::Address;
-use here::isa::riscv::decoder::Decoder;
-use here::isa::riscv::isa_builder::DEFAULT_ISA;
-use here::rvdb::{Printer, RvdbSession, SyncREPL};
-use here::{
-    board::{
-        DeviceConfig,
-        virt::{ExecutorBackendKind, MemoryImage, UartIoMode, VirtBoard, VirtBoardConfig},
-    },
-    config::arch_config::WordType,
-};
+use here_board::Board;
+use here_board::DeviceConfig;
+use here_board::virt::ExecutorBackendKind;
+use here_board::virt::MemoryImage;
+use here_board::virt::UartIoMode;
+use here_board::virt::VirtBoard;
+use here_board::virt::VirtBoardConfig;
+use here_dbg::Printer;
+use here_dbg::RvdbSession;
+use here_isa::DebugTarget;
+use here_isa::riscv::address::Address;
+use here_isa::riscv::decoder::Decoder;
+use here_isa::riscv::isa_builder::DEFAULT_ISA;
+use here_types::WordType;
 
-use crate::{logging::LogLevel, welcome::display_welcome_message};
+use crate::logging::LogLevel;
+use crate::welcome::display_welcome_message;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, clap::ValueEnum)]
 enum TargetFormat {
@@ -82,6 +89,7 @@ fn display_device_list(devices: &[DeviceConfig]) {
 
 #[derive(Parser, Debug)]
 #[command(
+    name = "here",
     version = version::VERSION,
     next_line_help = true,
     about = "An educational full-system RISC-V emulator written in Rust.",
@@ -432,7 +440,7 @@ fn run_normal(board: &mut VirtBoard, args: &Args) {
         board.run();
     } else {
         board.run_cycles(args.max_cycles);
-        if board.status() != here::board::BoardStatus::Halt {
+        if board.status() != here_board::BoardStatus::Halt {
             log::error!(
                 "Max cycles reached: {} at pc 0x{:x}\r",
                 args.max_cycles,

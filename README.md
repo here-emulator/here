@@ -45,7 +45,7 @@ git submodule update --init --recursive
 After building the riscv-tests binaries, run:
 
 ```sh
-cargo test --features riscv-tests
+cargo test
 ```
 
 Test support for `riscv-arch-test` also exists, but it is not integrated into CI. Unfortunately, the test suite stabilized at 4.x a few months after we implemented support for 3.x, so the suite we use is not up to date at present.

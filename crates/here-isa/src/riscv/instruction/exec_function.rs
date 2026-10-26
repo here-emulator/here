@@ -1,24 +1,24 @@
-use std::{
-    hint::{unlikely, unreachable_unchecked},
-    marker::PhantomData,
-};
+use std::hint::unlikely;
+use std::hint::unreachable_unchecked;
+use std::marker::PhantomData;
 
 pub(super) use super::exec_float_function::*;
 use super::normal_exec;
 
-use crate::{
-    config::arch_config::WordType,
-    isa::riscv::{
-        csr_reg::{NamedCsrReg, csr_macro::Minstret},
-        executor::RVCPU,
-        instruction::RVInstrInfo,
-        trap::Exception,
-    },
-    utils::{
-        TruncateFrom, TruncateToBits, UnsignedInteger, as_signed_i128, from_signed_i128,
-        shift_amount, sign_extend_u32, wrapping_add_as_signed,
-    },
-};
+use crate::riscv::csr_reg::NamedCsrReg;
+use crate::riscv::csr_reg::csr_macro::Minstret;
+use crate::riscv::executor::RVCPU;
+use crate::riscv::instruction::RVInstrInfo;
+use crate::riscv::trap::Exception;
+use here_types::TruncateFrom;
+use here_types::TruncateToBits;
+use here_types::UnsignedInteger;
+use here_types::WordType;
+use here_types::as_signed_i128;
+use here_types::from_signed_i128;
+use here_types::shift_amount;
+use here_types::sign_extend_u32;
+use here_types::wrapping_add_as_signed;
 
 /// ExecTrait will generate operation result to `exec_xxx` function.
 /// ExecTrait::exec only do calculate.

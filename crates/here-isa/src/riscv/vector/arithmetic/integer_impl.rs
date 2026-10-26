@@ -1,24 +1,52 @@
+use crate::riscv::instruction::exec_function::ExecAdd;
+use crate::riscv::instruction::exec_function::ExecAddu;
+use crate::riscv::instruction::exec_function::ExecAnd;
+use crate::riscv::instruction::exec_function::ExecAndn;
+use crate::riscv::instruction::exec_function::ExecDivSigned;
+use crate::riscv::instruction::exec_function::ExecDivUnsigned;
+use crate::riscv::instruction::exec_function::ExecEqual;
+use crate::riscv::instruction::exec_function::ExecMax;
+use crate::riscv::instruction::exec_function::ExecMaxu;
+use crate::riscv::instruction::exec_function::ExecMin;
+use crate::riscv::instruction::exec_function::ExecMinu;
+use crate::riscv::instruction::exec_function::ExecMove;
+use crate::riscv::instruction::exec_function::ExecMulHighSigned;
+use crate::riscv::instruction::exec_function::ExecMulHighSignedUnsigned;
+use crate::riscv::instruction::exec_function::ExecMulHighUnsigned;
+use crate::riscv::instruction::exec_function::ExecMulLow;
+use crate::riscv::instruction::exec_function::ExecNand;
+use crate::riscv::instruction::exec_function::ExecNor;
+use crate::riscv::instruction::exec_function::ExecNotEqual;
+use crate::riscv::instruction::exec_function::ExecOr;
+use crate::riscv::instruction::exec_function::ExecOrn;
+use crate::riscv::instruction::exec_function::ExecRemSigned;
+use crate::riscv::instruction::exec_function::ExecRemUnsigned;
+use crate::riscv::instruction::exec_function::ExecRevSub;
+use crate::riscv::instruction::exec_function::ExecSLL;
+use crate::riscv::instruction::exec_function::ExecSRA;
+use crate::riscv::instruction::exec_function::ExecSRL;
+use crate::riscv::instruction::exec_function::ExecSext;
+use crate::riscv::instruction::exec_function::ExecSub;
+use crate::riscv::instruction::exec_function::ExecSubu;
+use crate::riscv::instruction::exec_function::ExecTrait;
+use crate::riscv::instruction::exec_function::ExecUnaryTrait;
+use crate::riscv::instruction::exec_function::ExecUnsignedLess;
+use crate::riscv::instruction::exec_function::ExecXnor;
+use crate::riscv::instruction::exec_function::ExecXor;
+use crate::riscv::instruction::exec_function::ExecZext;
+use crate::riscv::trap::Exception;
+use crate::riscv::vector::VLEN_BYTE;
+use crate::riscv::vector::VecOpMask;
 #[cfg(test)]
-use crate::isa::riscv::vector::{Vector, tester::TestOpParameter};
-use crate::{
-    config::arch_config::WordType,
-    isa::riscv::{
-        instruction::exec_function::{
-            ExecAdd, ExecAddu, ExecAnd, ExecAndn, ExecDivSigned, ExecDivUnsigned, ExecEqual,
-            ExecMax, ExecMaxu, ExecMin, ExecMinu, ExecMove, ExecMulHighSigned,
-            ExecMulHighSignedUnsigned, ExecMulHighUnsigned, ExecMulLow, ExecNand, ExecNor,
-            ExecNotEqual, ExecOr, ExecOrn, ExecRemSigned, ExecRemUnsigned, ExecRevSub, ExecSLL,
-            ExecSRA, ExecSRL, ExecSext, ExecSub, ExecSubu, ExecTrait, ExecUnaryTrait,
-            ExecUnsignedLess, ExecXnor, ExecXor, ExecZext,
-        },
-        trap::Exception,
-        vector::{
-            VLEN_BYTE, VecOpMask,
-            types::{VGFRef, VGFRefMut},
-        },
-    },
-    utils::{TruncateFrom, UnsignedInteger, as_signed_i128},
-};
+use crate::riscv::vector::Vector;
+#[cfg(test)]
+use crate::riscv::vector::tester::TestOpParameter;
+use crate::riscv::vector::types::VGFRef;
+use crate::riscv::vector::types::VGFRefMut;
+use here_types::TruncateFrom;
+use here_types::UnsignedInteger;
+use here_types::WordType;
+use here_types::as_signed_i128;
 
 trait ExecTernaryTrait<OUT, IN = WordType> {
     fn exec(a: IN, b: IN, c: bool) -> OUT;
@@ -205,10 +233,10 @@ impl<Src, Shift, Dst> NarrowingIntegerShiftExec<Src, Shift, Dst> for ExecNsrl
 where
     Src: UnsignedInteger,
     Shift: UnsignedInteger,
-    Dst: UnsignedInteger + crate::utils::TruncateFrom<Src>,
+    Dst: UnsignedInteger + here_types::TruncateFrom<Src>,
 {
     fn exec(src: Src, shift: Shift) -> Dst {
-        Dst::truncate_from(src >> crate::utils::shift_amount(shift))
+        Dst::truncate_from(src >> here_types::shift_amount(shift))
     }
 }
 
@@ -219,8 +247,8 @@ where
     Dst: UnsignedInteger,
 {
     fn exec(src: Src, shift: Shift) -> Dst {
-        crate::utils::from_signed_i128(
-            crate::utils::as_signed_i128(src) >> crate::utils::shift_amount(shift),
+        here_types::from_signed_i128(
+            here_types::as_signed_i128(src) >> here_types::shift_amount(shift),
         )
     }
 }
@@ -417,7 +445,7 @@ macro_rules! dispatch_integer_sew {
 }
 
 // OPIVV
-pub(in crate::isa::riscv) trait VectorOpIntegerVV {
+pub(in crate::riscv) trait VectorOpIntegerVV {
     fn exec(
         vs1: &VGFRef,
         vs2: &VGFRef,
@@ -437,7 +465,7 @@ pub(in crate::isa::riscv) trait VectorOpIntegerVV {
 // OPIVV mask-register logical operations. Mask bits are packed into one vector
 // register, so these operations treat the register as bit storage rather than
 // using the current SEW/LMUL data grouping.
-pub(in crate::isa::riscv) trait VectorOpBitVV {
+pub(in crate::riscv) trait VectorOpBitVV {
     fn exec(
         vs1: &VGFRef,
         vs2: &VGFRef,
@@ -455,7 +483,7 @@ pub(in crate::isa::riscv) trait VectorOpBitVV {
 }
 
 // OPIVX
-pub(in crate::isa::riscv) trait VectorOpIntegerVX {
+pub(in crate::riscv) trait VectorOpIntegerVX {
     fn exec(
         x1: WordType,
         vs2: &VGFRef,
@@ -472,7 +500,7 @@ pub(in crate::isa::riscv) trait VectorOpIntegerVX {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpIntegerVVV {
+pub(in crate::riscv) trait VectorOpIntegerVVV {
     fn exec(
         vs1: &VGFRef,
         vs2: &VGFRef,
@@ -496,7 +524,7 @@ pub(in crate::isa::riscv) trait VectorOpIntegerVVV {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpIntegerVXV {
+pub(in crate::riscv) trait VectorOpIntegerVXV {
     fn exec(
         x1: WordType,
         vs2: &VGFRef,
@@ -514,7 +542,7 @@ pub(in crate::isa::riscv) trait VectorOpIntegerVXV {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpWideningIntegerVV {
+pub(in crate::riscv) trait VectorOpWideningIntegerVV {
     fn exec(
         vs1: &VGFRef,
         vs2: &VGFRef,
@@ -537,7 +565,7 @@ pub(in crate::isa::riscv) trait VectorOpWideningIntegerVV {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpWideningIntegerVVV {
+pub(in crate::riscv) trait VectorOpWideningIntegerVVV {
     fn exec(
         vs1: &VGFRef,
         vs2: &VGFRef,
@@ -561,7 +589,7 @@ pub(in crate::isa::riscv) trait VectorOpWideningIntegerVVV {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpWideningIntegerVXV {
+pub(in crate::riscv) trait VectorOpWideningIntegerVXV {
     fn exec(
         x1: WordType,
         vs2: &VGFRef,
@@ -585,7 +613,7 @@ pub(in crate::isa::riscv) trait VectorOpWideningIntegerVXV {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpWideningIntegerVX {
+pub(in crate::riscv) trait VectorOpWideningIntegerVX {
     fn exec(
         x1: WordType,
         vs2: &VGFRef,
@@ -608,7 +636,7 @@ pub(in crate::isa::riscv) trait VectorOpWideningIntegerVX {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpWideningIntegerWV {
+pub(in crate::riscv) trait VectorOpWideningIntegerWV {
     fn exec(
         vs1: &VGFRef,
         vs2: &VGFRef,
@@ -631,7 +659,7 @@ pub(in crate::isa::riscv) trait VectorOpWideningIntegerWV {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpWideningIntegerWX {
+pub(in crate::riscv) trait VectorOpWideningIntegerWX {
     fn exec(
         x1: WordType,
         vs2: &VGFRef,
@@ -654,7 +682,7 @@ pub(in crate::isa::riscv) trait VectorOpWideningIntegerWX {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpIntegerNarrowingWV {
+pub(in crate::riscv) trait VectorOpIntegerNarrowingWV {
     fn exec(
         vs1: &VGFRef,
         vs2: &VGFRef,
@@ -677,7 +705,7 @@ pub(in crate::isa::riscv) trait VectorOpIntegerNarrowingWV {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpIntegerNarrowingVX {
+pub(in crate::riscv) trait VectorOpIntegerNarrowingVX {
     fn exec(
         x1: WordType,
         vs2: &VGFRef,
@@ -701,7 +729,7 @@ pub(in crate::isa::riscv) trait VectorOpIntegerNarrowingVX {
 }
 
 // OPIV(Unary)
-pub(in crate::isa::riscv) trait VectorOpIntegerV {
+pub(in crate::riscv) trait VectorOpIntegerV {
     fn exec(vs2: &VGFRef, vd: &mut VGFRefMut, mask: &VecOpMask) -> Result<(), Exception>;
 
     #[cfg(test)]
@@ -720,7 +748,7 @@ pub(in crate::isa::riscv) trait VectorOpIntegerV {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpIntegerVVM {
+pub(in crate::riscv) trait VectorOpIntegerVVM {
     fn exec(
         vs1: &VGFRef,
         vs2: &VGFRef,
@@ -745,7 +773,7 @@ pub(in crate::isa::riscv) trait VectorOpIntegerVVM {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpIntegerVXM {
+pub(in crate::riscv) trait VectorOpIntegerVXM {
     fn exec(
         x1: WordType,
         vs2: &VGFRef,
@@ -770,7 +798,7 @@ pub(in crate::isa::riscv) trait VectorOpIntegerVXM {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpIntegerMaskVV {
+pub(in crate::riscv) trait VectorOpIntegerMaskVV {
     fn exec(
         vs1: &VGFRef,
         vs2: &VGFRef,
@@ -793,7 +821,7 @@ pub(in crate::isa::riscv) trait VectorOpIntegerMaskVV {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpIntegerMaskVX {
+pub(in crate::riscv) trait VectorOpIntegerMaskVX {
     fn exec(
         x1: WordType,
         vs2: &VGFRef,
@@ -816,7 +844,7 @@ pub(in crate::isa::riscv) trait VectorOpIntegerMaskVX {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpIntegerMaskVVM {
+pub(in crate::riscv) trait VectorOpIntegerMaskVVM {
     fn exec(
         vs1: &VGFRef,
         vs2: &VGFRef,
@@ -841,7 +869,7 @@ pub(in crate::isa::riscv) trait VectorOpIntegerMaskVVM {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpIntegerMaskVXM {
+pub(in crate::riscv) trait VectorOpIntegerMaskVXM {
     fn exec(
         x1: WordType,
         vs2: &VGFRef,
@@ -866,7 +894,7 @@ pub(in crate::isa::riscv) trait VectorOpIntegerMaskVXM {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpMaskToX {
+pub(in crate::riscv) trait VectorOpMaskToX {
     fn exec(vs2: &VGFRef, mask: &VecOpMask) -> Result<WordType, Exception>;
 
     #[cfg(test)]
@@ -878,7 +906,7 @@ pub(in crate::isa::riscv) trait VectorOpMaskToX {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpMaskUnary {
+pub(in crate::riscv) trait VectorOpMaskUnary {
     fn exec(vs2: &VGFRef, vd: &mut VGFRefMut, mask: &VecOpMask) -> Result<(), Exception>;
 
     #[cfg(test)]
@@ -890,7 +918,7 @@ pub(in crate::isa::riscv) trait VectorOpMaskUnary {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpMaskToVector {
+pub(in crate::riscv) trait VectorOpMaskToVector {
     fn exec(vs2: &VGFRef, vd: &mut VGFRefMut, mask: &VecOpMask) -> Result<(), Exception>;
 
     #[cfg(test)]
@@ -902,7 +930,7 @@ pub(in crate::isa::riscv) trait VectorOpMaskToVector {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpIndex {
+pub(in crate::riscv) trait VectorOpIndex {
     fn exec(vd: &mut VGFRefMut, mask: &VecOpMask) -> Result<(), Exception>;
 
     #[cfg(test)]
@@ -914,7 +942,7 @@ pub(in crate::isa::riscv) trait VectorOpIndex {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpIntegerGatherVV {
+pub(in crate::riscv) trait VectorOpIntegerGatherVV {
     fn exec(
         vs1: &VGFRef,
         vs2: &VGFRef,
@@ -937,7 +965,7 @@ pub(in crate::isa::riscv) trait VectorOpIntegerGatherVV {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpIntegerGatherEI16VV {
+pub(in crate::riscv) trait VectorOpIntegerGatherEI16VV {
     fn exec(
         vs1: &VGFRef,
         vs2: &VGFRef,
@@ -960,7 +988,7 @@ pub(in crate::isa::riscv) trait VectorOpIntegerGatherEI16VV {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpCompress {
+pub(in crate::riscv) trait VectorOpCompress {
     fn exec(
         vs1: &VGFRef,
         vs2: &VGFRef,
@@ -2190,86 +2218,86 @@ macro_rules! impl_vector_op_integer_mask_vxm_binary {
     };
 }
 
-pub(in crate::isa::riscv) struct VectorOpAdd;
-pub(in crate::isa::riscv) struct VectorOpAddu;
-pub(in crate::isa::riscv) struct VectorOpSub;
-pub(in crate::isa::riscv) struct VectorOpSubu;
-pub(in crate::isa::riscv) struct VectorOpRevSub;
-pub(in crate::isa::riscv) struct VectorOpAnd;
-pub(in crate::isa::riscv) struct VectorOpNand;
-pub(in crate::isa::riscv) struct VectorOpAndn;
-pub(in crate::isa::riscv) struct VectorOpOr;
-pub(in crate::isa::riscv) struct VectorOpNor;
-pub(in crate::isa::riscv) struct VectorOpOrn;
-pub(in crate::isa::riscv) struct VectorOpXor;
-pub(in crate::isa::riscv) struct VectorOpXnor;
-pub(in crate::isa::riscv) struct VectorOpSll;
-pub(in crate::isa::riscv) struct VectorOpSrl;
-pub(in crate::isa::riscv) struct VectorOpSra;
-pub(in crate::isa::riscv) struct VectorOpAdc;
-pub(in crate::isa::riscv) struct VectorOpSbc;
-pub(in crate::isa::riscv) struct VectorOpMadc;
-pub(in crate::isa::riscv) struct VectorOpMsbc;
-pub(in crate::isa::riscv) struct VectorOpMseq;
-pub(in crate::isa::riscv) struct VectorOpMsne;
-pub(in crate::isa::riscv) struct VectorOpMsltu;
-pub(in crate::isa::riscv) struct VectorOpMslt;
-pub(in crate::isa::riscv) struct VectorOpMsleu;
-pub(in crate::isa::riscv) struct VectorOpMsle;
-pub(in crate::isa::riscv) struct VectorOpMsgtu;
-pub(in crate::isa::riscv) struct VectorOpMsgt;
-pub(in crate::isa::riscv) struct VectorOpMax;
-pub(in crate::isa::riscv) struct VectorOpMaxu;
-pub(in crate::isa::riscv) struct VectorOpMin;
-pub(in crate::isa::riscv) struct VectorOpMinu;
-pub(in crate::isa::riscv) struct VectorOpMul;
-pub(in crate::isa::riscv) struct VectorOpMulh;
-pub(in crate::isa::riscv) struct VectorOpMulhu;
-pub(in crate::isa::riscv) struct VectorOpMulhsu;
-pub(in crate::isa::riscv) struct VectorOpMacc;
-pub(in crate::isa::riscv) struct VectorOpNmsac;
-pub(in crate::isa::riscv) struct VectorOpMadd;
-pub(in crate::isa::riscv) struct VectorOpNmsub;
-pub(in crate::isa::riscv) struct VectorOpWadd;
-pub(in crate::isa::riscv) struct VectorOpWaddu;
-pub(in crate::isa::riscv) struct VectorOpWsub;
-pub(in crate::isa::riscv) struct VectorOpWsubu;
-pub(in crate::isa::riscv) struct VectorOpWmul;
-pub(in crate::isa::riscv) struct VectorOpWmulu;
-pub(in crate::isa::riscv) struct VectorOpWmulsu;
-pub(in crate::isa::riscv) struct VectorOpWmacc;
-pub(in crate::isa::riscv) struct VectorOpNsrl;
-pub(in crate::isa::riscv) struct VectorOpNsra;
-pub(in crate::isa::riscv) struct VectorOpWmaccu;
-pub(in crate::isa::riscv) struct VectorOpWmaccsu;
-pub(in crate::isa::riscv) struct VectorOpWmaccus;
-pub(in crate::isa::riscv) struct VectorOpDiv;
-pub(in crate::isa::riscv) struct VectorOpDivu;
-pub(in crate::isa::riscv) struct VectorOpRem;
-pub(in crate::isa::riscv) struct VectorOpRemu;
-pub(in crate::isa::riscv) struct VectorOpZextVf2;
-pub(in crate::isa::riscv) struct VectorOpZextVf4;
-pub(in crate::isa::riscv) struct VectorOpZextVf8;
-pub(in crate::isa::riscv) struct VectorOpSextVf2;
-pub(in crate::isa::riscv) struct VectorOpSextVf4;
-pub(in crate::isa::riscv) struct VectorOpSextVf8;
-pub(in crate::isa::riscv) struct VectorOpRGatherVV;
-pub(in crate::isa::riscv) struct VectorOpRGatherVX;
-pub(in crate::isa::riscv) struct VectorOpRGatherVI;
-pub(in crate::isa::riscv) struct VectorOpRGatherEI16VV;
-pub(in crate::isa::riscv) struct VectorOpSlideUp;
-pub(in crate::isa::riscv) struct VectorOpSlideDown;
-pub(in crate::isa::riscv) struct VectorOpSlide1Up;
-pub(in crate::isa::riscv) struct VectorOpSlide1Down;
-pub(in crate::isa::riscv) struct VectorOpMerge;
-pub(in crate::isa::riscv) struct VectorOpCpopM;
-pub(in crate::isa::riscv) struct VectorOpFirstM;
-pub(in crate::isa::riscv) struct VectorOpMsbfM;
-pub(in crate::isa::riscv) struct VectorOpMsifM;
-pub(in crate::isa::riscv) struct VectorOpMsofM;
-pub(in crate::isa::riscv) struct VectorOpIotaM;
-pub(in crate::isa::riscv) struct VectorOpIdV;
-pub(in crate::isa::riscv) struct VectorOpCompressVm;
+pub(in crate::riscv) struct VectorOpAdd;
+pub(in crate::riscv) struct VectorOpAddu;
+pub(in crate::riscv) struct VectorOpSub;
+pub(in crate::riscv) struct VectorOpSubu;
+pub(in crate::riscv) struct VectorOpRevSub;
+pub(in crate::riscv) struct VectorOpAnd;
+pub(in crate::riscv) struct VectorOpNand;
+pub(in crate::riscv) struct VectorOpAndn;
+pub(in crate::riscv) struct VectorOpOr;
+pub(in crate::riscv) struct VectorOpNor;
+pub(in crate::riscv) struct VectorOpOrn;
+pub(in crate::riscv) struct VectorOpXor;
+pub(in crate::riscv) struct VectorOpXnor;
+pub(in crate::riscv) struct VectorOpSll;
+pub(in crate::riscv) struct VectorOpSrl;
+pub(in crate::riscv) struct VectorOpSra;
+pub(in crate::riscv) struct VectorOpAdc;
+pub(in crate::riscv) struct VectorOpSbc;
+pub(in crate::riscv) struct VectorOpMadc;
+pub(in crate::riscv) struct VectorOpMsbc;
+pub(in crate::riscv) struct VectorOpMseq;
+pub(in crate::riscv) struct VectorOpMsne;
+pub(in crate::riscv) struct VectorOpMsltu;
+pub(in crate::riscv) struct VectorOpMslt;
+pub(in crate::riscv) struct VectorOpMsleu;
+pub(in crate::riscv) struct VectorOpMsle;
+pub(in crate::riscv) struct VectorOpMsgtu;
+pub(in crate::riscv) struct VectorOpMsgt;
+pub(in crate::riscv) struct VectorOpMax;
+pub(in crate::riscv) struct VectorOpMaxu;
+pub(in crate::riscv) struct VectorOpMin;
+pub(in crate::riscv) struct VectorOpMinu;
+pub(in crate::riscv) struct VectorOpMul;
+pub(in crate::riscv) struct VectorOpMulh;
+pub(in crate::riscv) struct VectorOpMulhu;
+pub(in crate::riscv) struct VectorOpMulhsu;
+pub(in crate::riscv) struct VectorOpMacc;
+pub(in crate::riscv) struct VectorOpNmsac;
+pub(in crate::riscv) struct VectorOpMadd;
+pub(in crate::riscv) struct VectorOpNmsub;
+pub(in crate::riscv) struct VectorOpWadd;
+pub(in crate::riscv) struct VectorOpWaddu;
+pub(in crate::riscv) struct VectorOpWsub;
+pub(in crate::riscv) struct VectorOpWsubu;
+pub(in crate::riscv) struct VectorOpWmul;
+pub(in crate::riscv) struct VectorOpWmulu;
+pub(in crate::riscv) struct VectorOpWmulsu;
+pub(in crate::riscv) struct VectorOpWmacc;
+pub(in crate::riscv) struct VectorOpNsrl;
+pub(in crate::riscv) struct VectorOpNsra;
+pub(in crate::riscv) struct VectorOpWmaccu;
+pub(in crate::riscv) struct VectorOpWmaccsu;
+pub(in crate::riscv) struct VectorOpWmaccus;
+pub(in crate::riscv) struct VectorOpDiv;
+pub(in crate::riscv) struct VectorOpDivu;
+pub(in crate::riscv) struct VectorOpRem;
+pub(in crate::riscv) struct VectorOpRemu;
+pub(in crate::riscv) struct VectorOpZextVf2;
+pub(in crate::riscv) struct VectorOpZextVf4;
+pub(in crate::riscv) struct VectorOpZextVf8;
+pub(in crate::riscv) struct VectorOpSextVf2;
+pub(in crate::riscv) struct VectorOpSextVf4;
+pub(in crate::riscv) struct VectorOpSextVf8;
+pub(in crate::riscv) struct VectorOpRGatherVV;
+pub(in crate::riscv) struct VectorOpRGatherVX;
+pub(in crate::riscv) struct VectorOpRGatherVI;
+pub(in crate::riscv) struct VectorOpRGatherEI16VV;
+pub(in crate::riscv) struct VectorOpSlideUp;
+pub(in crate::riscv) struct VectorOpSlideDown;
+pub(in crate::riscv) struct VectorOpSlide1Up;
+pub(in crate::riscv) struct VectorOpSlide1Down;
+pub(in crate::riscv) struct VectorOpMerge;
+pub(in crate::riscv) struct VectorOpCpopM;
+pub(in crate::riscv) struct VectorOpFirstM;
+pub(in crate::riscv) struct VectorOpMsbfM;
+pub(in crate::riscv) struct VectorOpMsifM;
+pub(in crate::riscv) struct VectorOpMsofM;
+pub(in crate::riscv) struct VectorOpIotaM;
+pub(in crate::riscv) struct VectorOpIdV;
+pub(in crate::riscv) struct VectorOpCompressVm;
 
 impl_vector_op_integer_vv_binary!(VectorOpAdd, ExecAdd);
 impl_vector_op_integer_vv_binary!(VectorOpAddu, ExecAddu);

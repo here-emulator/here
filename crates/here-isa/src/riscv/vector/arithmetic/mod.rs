@@ -1,21 +1,20 @@
-use crate::{
-    config::arch_config::WordType,
-    isa::riscv::{
-        instruction::exec_function::ExecUnaryTrait,
-        trap::Exception,
-        vector::{
-            VLEN_BYTE, VecOpMask, Vector,
-            types::{VGFRef, VGFRefMut, Vlmul, Vsew},
-        },
-    },
-    utils::sign_extend,
-};
+use crate::riscv::instruction::exec_function::ExecUnaryTrait;
+use crate::riscv::trap::Exception;
+use crate::riscv::vector::VLEN_BYTE;
+use crate::riscv::vector::VecOpMask;
+use crate::riscv::vector::Vector;
+use crate::riscv::vector::types::VGFRef;
+use crate::riscv::vector::types::VGFRefMut;
+use crate::riscv::vector::types::Vlmul;
+use crate::riscv::vector::types::Vsew;
+use here_types::WordType;
+use here_types::sign_extend;
 
-pub(in crate::isa::riscv) mod integer_impl;
-pub(in crate::isa::riscv) use integer_impl::*;
+pub(in crate::riscv) mod integer_impl;
+pub(in crate::riscv) use integer_impl::*;
 
-pub(in crate::isa::riscv) mod fix_point_impl;
-pub(in crate::isa::riscv) use fix_point_impl::*;
+pub(in crate::riscv) mod fix_point_impl;
+pub(in crate::riscv) use fix_point_impl::*;
 
 #[inline]
 fn vector_register_group_overlaps(lhs: u8, lhs_lmul: u8, rhs: u8, rhs_lmul: u8) -> bool {
@@ -55,7 +54,7 @@ fn narrowing_source_lmul(vlmul: Vlmul) -> Result<u8, Exception> {
 
 impl Vector {
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_vv<OpIVV>(
+    pub(in crate::riscv) fn exec_integer_vv<OpIVV>(
         &mut self,
         vs1: u8,
         vs2: u8,
@@ -85,7 +84,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_gather_vv<OpIVV>(
+    pub(in crate::riscv) fn exec_integer_gather_vv<OpIVV>(
         &mut self,
         vs1: u8,
         vs2: u8,
@@ -120,7 +119,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_gather_ei16_vv<OpIVV>(
+    pub(in crate::riscv) fn exec_integer_gather_ei16_vv<OpIVV>(
         &mut self,
         vs1: u8,
         vs2: u8,
@@ -156,7 +155,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_compress<Op>(
+    pub(in crate::riscv) fn exec_compress<Op>(
         &mut self,
         vs1: u8,
         vs2: u8,
@@ -204,7 +203,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_bit_vv<OpIVV>(
+    pub(in crate::riscv) fn exec_bit_vv<OpIVV>(
         &mut self,
         vs1: u8,
         vs2: u8,
@@ -236,7 +235,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_vx<OpIVX>(
+    pub(in crate::riscv) fn exec_integer_vx<OpIVX>(
         &mut self,
         x1: WordType,
         vs2: u8,
@@ -264,7 +263,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_gather_vx<OpIVX>(
+    pub(in crate::riscv) fn exec_integer_gather_vx<OpIVX>(
         &mut self,
         x1: WordType,
         vs2: u8,
@@ -295,7 +294,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_vvv<OpIVV>(
+    pub(in crate::riscv) fn exec_integer_vvv<OpIVV>(
         &mut self,
         vs1: u8,
         vs2: u8,
@@ -327,7 +326,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_vxv<OpIVX>(
+    pub(in crate::riscv) fn exec_integer_vxv<OpIVX>(
         &mut self,
         x1: WordType,
         vs2: u8,
@@ -357,7 +356,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_slideup<OpIVX>(
+    pub(in crate::riscv) fn exec_integer_slideup<OpIVX>(
         &mut self,
         offset: WordType,
         vs2: u8,
@@ -376,7 +375,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_slidedown<OpIVX>(
+    pub(in crate::riscv) fn exec_integer_slidedown<OpIVX>(
         &mut self,
         offset: WordType,
         vs2: u8,
@@ -407,7 +406,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_widening_integer_vv<OpIVV>(
+    pub(in crate::riscv) fn exec_widening_integer_vv<OpIVV>(
         &mut self,
         vs1: u8,
         vs2: u8,
@@ -450,7 +449,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_widening_integer_vvv<OpIVV>(
+    pub(in crate::riscv) fn exec_widening_integer_vvv<OpIVV>(
         &mut self,
         vs1: u8,
         vs2: u8,
@@ -495,7 +494,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_widening_integer_vxv<OpIVX>(
+    pub(in crate::riscv) fn exec_widening_integer_vxv<OpIVX>(
         &mut self,
         x1: WordType,
         vs2: u8,
@@ -538,7 +537,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_widening_integer_vx<OpIVX>(
+    pub(in crate::riscv) fn exec_widening_integer_vx<OpIVX>(
         &mut self,
         x1: WordType,
         vs2: u8,
@@ -579,7 +578,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_widening_integer_wv<OpIVV>(
+    pub(in crate::riscv) fn exec_widening_integer_wv<OpIVV>(
         &mut self,
         vs1: u8,
         vs2: u8,
@@ -622,7 +621,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_widening_integer_wx<OpIVX>(
+    pub(in crate::riscv) fn exec_widening_integer_wx<OpIVX>(
         &mut self,
         x1: WordType,
         vs2: u8,
@@ -663,7 +662,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_narrowing_wv<OpIVV>(
+    pub(in crate::riscv) fn exec_integer_narrowing_wv<OpIVV>(
         &mut self,
         vs1: u8,
         vs2: u8,
@@ -703,7 +702,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_narrowing_vx<OpIVX>(
+    pub(in crate::riscv) fn exec_integer_narrowing_vx<OpIVX>(
         &mut self,
         x1: WordType,
         vs2: u8,
@@ -741,7 +740,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_v<OpIV>(
+    pub(in crate::riscv) fn exec_integer_v<OpIV>(
         &mut self,
         vs2: u8,
         vd: u8,
@@ -774,7 +773,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_v_ext<OpIV, const FACTOR: u8>(
+    pub(in crate::riscv) fn exec_integer_v_ext<OpIV, const FACTOR: u8>(
         &mut self,
         vs2: u8,
         vd: u8,
@@ -792,7 +791,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_scalar_move<OpIV, T>(
+    pub(in crate::riscv) fn exec_integer_scalar_move<OpIV, T>(
         &mut self,
         src: T,
         vd: u8,
@@ -828,7 +827,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_move_scalar_to_element(
+    pub(in crate::riscv) fn exec_move_scalar_to_element(
         &mut self,
         src: WordType,
         vd: u8,
@@ -850,7 +849,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_move_element_to_scalar(
+    pub(in crate::riscv) fn exec_move_element_to_scalar(
         &self,
         vs2: u8,
         vstart: usize,
@@ -871,7 +870,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_whole_register_move<OpIV>(
+    pub(in crate::riscv) fn exec_whole_register_move<OpIV>(
         &mut self,
         vs2: u8,
         vd: u8,
@@ -901,7 +900,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_vvm<OpIVVM>(
+    pub(in crate::riscv) fn exec_integer_vvm<OpIVVM>(
         &mut self,
         vs1: u8,
         vs2: u8,
@@ -934,7 +933,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_vxm<OpIVXM>(
+    pub(in crate::riscv) fn exec_integer_vxm<OpIVXM>(
         &mut self,
         x1: WordType,
         vs2: u8,
@@ -965,7 +964,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_mask_vv<OpIMVV>(
+    pub(in crate::riscv) fn exec_integer_mask_vv<OpIMVV>(
         &mut self,
         vs1: u8,
         vs2: u8,
@@ -1000,7 +999,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_mask_vx<OpIMVX>(
+    pub(in crate::riscv) fn exec_integer_mask_vx<OpIMVX>(
         &mut self,
         x1: WordType,
         vs2: u8,
@@ -1033,7 +1032,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_mask_vvm<OpIMVVM>(
+    pub(in crate::riscv) fn exec_integer_mask_vvm<OpIMVVM>(
         &mut self,
         vs1: u8,
         vs2: u8,
@@ -1071,7 +1070,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_integer_mask_vxm<OpIMVXM>(
+    pub(in crate::riscv) fn exec_integer_mask_vxm<OpIMVXM>(
         &mut self,
         x1: WordType,
         vs2: u8,
@@ -1107,7 +1106,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_mask_to_x<Op>(
+    pub(in crate::riscv) fn exec_mask_to_x<Op>(
         &mut self,
         vs2: u8,
         enable_mask: bool,
@@ -1130,7 +1129,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_mask_unary<Op>(
+    pub(in crate::riscv) fn exec_mask_unary<Op>(
         &mut self,
         vs2: u8,
         vd: u8,
@@ -1164,7 +1163,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_mask_to_vector<Op>(
+    pub(in crate::riscv) fn exec_mask_to_vector<Op>(
         &mut self,
         vs2: u8,
         vd: u8,
@@ -1195,7 +1194,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_index<Op>(
+    pub(in crate::riscv) fn exec_index<Op>(
         &mut self,
         vd: u8,
         enable_mask: bool,

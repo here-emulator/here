@@ -1,5 +1,5 @@
 use super::*;
-use crate::pack_bits;
+use here_types::pack_bits;
 
 /// Opcode bytes. Deliberately excludes multi-byte integers: an unsuffixed
 /// integer literal defaults to `i32`, which previously could silently emit

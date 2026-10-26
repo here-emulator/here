@@ -1,11 +1,8 @@
-use crate::{
-    isa::riscv::{
-        csr_reg::csr_index,
-        instruction::{RVInstrInfo, instr_table::RiscvInstr},
-        isa_builder::TEST_ISA,
-    },
-    utils::negative_of,
-};
+use crate::riscv::csr_reg::csr_index;
+use crate::riscv::instruction::RVInstrInfo;
+use crate::riscv::instruction::instr_table::RiscvInstr;
+use crate::riscv::isa_builder::TEST_ISA;
+use here_types::negative_of;
 
 use super::*;
 

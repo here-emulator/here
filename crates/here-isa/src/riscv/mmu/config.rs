@@ -1,4 +1,5 @@
-use crate::{config::arch_config::WordType, utils::is_sign_extended};
+use here_types::WordType;
+use here_types::is_sign_extended;
 
 pub const PAGE_SIZE_XLEN: usize = 12;
 pub const PAGE_SIZE: WordType = 1 << PAGE_SIZE_XLEN;

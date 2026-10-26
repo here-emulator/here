@@ -1,10 +1,11 @@
 use core::slice;
-use std::{ptr::null_mut, sync::atomic::AtomicU16};
+use std::ptr::null_mut;
+use std::sync::atomic::AtomicU16;
 
 use bitflags::bitflags;
 use log::error;
 
-use crate::ram_config;
+use here_types::ram_config;
 
 // =====================================
 //           VirtQueueDesc

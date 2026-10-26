@@ -1,17 +1,18 @@
-use crate::{
-    config::arch_config::WordType,
-    device::MemError,
-    isa::riscv::{
-        csr_reg::{
-            CsrRegFile, PrivilegeLevel,
-            csr_macro::{Mstatus, Sstatus},
-        },
-        executor::RVCPU,
-        mmu::{AccessEffect, AccessPolicy, AccessType, PTEFlags, PageTableError, PermissionCheck},
-        trap::Exception,
-    },
-    utils::UnsignedInteger,
-};
+use crate::riscv::csr_reg::CsrRegFile;
+use crate::riscv::csr_reg::PrivilegeLevel;
+use crate::riscv::csr_reg::csr_macro::Mstatus;
+use crate::riscv::csr_reg::csr_macro::Sstatus;
+use crate::riscv::executor::RVCPU;
+use crate::riscv::mmu::AccessEffect;
+use crate::riscv::mmu::AccessPolicy;
+use crate::riscv::mmu::AccessType;
+use crate::riscv::mmu::PTEFlags;
+use crate::riscv::mmu::PageTableError;
+use crate::riscv::mmu::PermissionCheck;
+use crate::riscv::trap::Exception;
+use here_device::MemError;
+use here_types::UnsignedInteger;
+use here_types::WordType;
 
 enum AccessPrivilege {
     UserOnly,
@@ -151,7 +152,7 @@ impl RVCPU {
         })
     }
 
-    pub(crate) fn read<T>(&mut self, addr: WordType) -> Result<T, Exception>
+    pub fn read<T>(&mut self, addr: WordType) -> Result<T, Exception>
     where
         T: UnsignedInteger,
     {
@@ -160,7 +161,7 @@ impl RVCPU {
         self.finish_memory_access(addr, result)
     }
 
-    pub(crate) fn write<T>(&mut self, addr: WordType, data: T) -> Result<(), Exception>
+    pub fn write<T>(&mut self, addr: WordType, data: T) -> Result<(), Exception>
     where
         T: UnsignedInteger,
     {
@@ -169,7 +170,7 @@ impl RVCPU {
         self.finish_memory_access(addr, result)
     }
 
-    pub(crate) fn load_reserved<T>(&mut self, addr: WordType) -> Result<T, Exception>
+    pub fn load_reserved<T>(&mut self, addr: WordType) -> Result<T, Exception>
     where
         T: UnsignedInteger,
     {
@@ -178,11 +179,7 @@ impl RVCPU {
         self.finish_memory_access(addr, result)
     }
 
-    pub(crate) fn store_conditional<T>(
-        &mut self,
-        addr: WordType,
-        data: T,
-    ) -> Result<bool, Exception>
+    pub fn store_conditional<T>(&mut self, addr: WordType, data: T) -> Result<bool, Exception>
     where
         T: UnsignedInteger,
     {
@@ -193,7 +190,7 @@ impl RVCPU {
         self.finish_memory_access(addr, result)
     }
 
-    pub(crate) fn fetch_and_op_amo<T, F>(
+    pub fn fetch_and_op_amo<T, F>(
         &mut self,
         addr: WordType,
         rhs_val: T,
@@ -213,10 +210,7 @@ impl RVCPU {
         })
     }
 
-    pub(in crate::isa::riscv) fn read_for_ifetch<T>(
-        &mut self,
-        addr: WordType,
-    ) -> Result<T, MemError>
+    pub(in crate::riscv) fn read_for_ifetch<T>(&mut self, addr: WordType) -> Result<T, MemError>
     where
         T: UnsignedInteger,
     {
@@ -224,7 +218,7 @@ impl RVCPU {
         self.memory.read_with_policy(addr, policy)
     }
 
-    pub(in crate::isa::riscv) fn read_for_debug_ifetch<T>(
+    pub(in crate::riscv) fn read_for_debug_ifetch<T>(
         &mut self,
         addr: WordType,
     ) -> Result<T, MemError>
@@ -235,7 +229,7 @@ impl RVCPU {
         self.memory.read_with_policy(addr, policy)
     }
 
-    pub(in crate::isa::riscv) fn translate_for_debug(
+    pub(in crate::riscv) fn translate_for_debug(
         &mut self,
         addr: u64,
         access: AccessType,

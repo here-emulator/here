@@ -1,4 +1,5 @@
-use region::{Allocation, Protection};
+use region::Allocation;
+use region::Protection;
 
 use super::runtime::JitFunction;
 

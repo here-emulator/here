@@ -1,8 +1,11 @@
-use std::{
-    fs::{File, OpenOptions},
-    io::{self, Read, Seek, SeekFrom, Write},
-    path::Path,
-};
+use std::fs::File;
+use std::fs::OpenOptions;
+use std::io;
+use std::io::Read;
+use std::io::Seek;
+use std::io::SeekFrom;
+use std::io::Write;
+use std::path::Path;
 
 use super::spi_sifive::SpiSlaveDevice;
 
@@ -625,10 +628,11 @@ impl SpiSlaveDevice for W25Q512JVQ {
 mod test {
     use std::fs;
 
-    use crate::device::{
-        DeviceTrait,
-        spi::spi_sifive::{SifiveSpiController, csmode, rxdata, sifive_spi_reg_offset},
-    };
+    use crate::DeviceTrait;
+    use crate::spi::spi_sifive::SifiveSpiController;
+    use crate::spi::spi_sifive::csmode;
+    use crate::spi::spi_sifive::rxdata;
+    use crate::spi::spi_sifive::sifive_spi_reg_offset;
 
     use super::*;
 

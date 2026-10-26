@@ -1,12 +1,14 @@
-use crate::{
-    config::arch_config::WordType,
-    cpu::VectorRegFile,
-    device::{DeviceTrait, MemError, mmio::MemoryMapIO},
-    isa::riscv::{
-        trap::Exception,
-        vector::types::{VGFRef, VGFRefMut, VectorConfig, Vlmul, Vsew},
-    },
-};
+use crate::cpu::VectorRegFile;
+use crate::riscv::trap::Exception;
+use crate::riscv::vector::types::VGFRef;
+use crate::riscv::vector::types::VGFRefMut;
+use crate::riscv::vector::types::VectorConfig;
+use crate::riscv::vector::types::Vlmul;
+use crate::riscv::vector::types::Vsew;
+use here_device::DeviceTrait;
+use here_device::MemError;
+use here_device::mmio::MemoryMapIO;
+use here_types::WordType;
 
 pub mod arithmetic;
 #[cfg(test)]
@@ -19,7 +21,7 @@ pub const VLEN_BYTE: usize = VLEN >> 3;
 ///
 /// Provides execution capabilities for vector load/store instructions (stride, indexed, masked, etc.),
 /// as well as configuration for vector length, SEW, LMUL, and agnostic policies.
-pub(super) struct Vector {
+pub(crate) struct Vector {
     config: VectorConfig,
     vector_regfile: VectorRegFile,
 }
@@ -116,7 +118,7 @@ impl From<Exception> for VectorMemException {
 /// Based on the mask bits in the `v0` register and the `tail_agnostic` / `mask_agnostic` configuration,
 /// determines whether each element actually performs memory access and whether unoperated elements
 /// are written with the default value (agnostic).
-pub(in crate::isa::riscv) struct VecOpMask {
+pub(in crate::riscv) struct VecOpMask {
     mask_bit: Option<Vec<u8>>,
     // Elements below `start` have already completed before a resumable trap.
     // They are always left undisturbed when the instruction is retried.
@@ -767,8 +769,9 @@ impl Vector {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::ram_config::BASE_ADDR;
-    use tester::{VectorBuilder, VectorChecker};
+    use here_types::ram_config::BASE_ADDR;
+    use tester::VectorBuilder;
+    use tester::VectorChecker;
 
     #[test]
     fn test_unit_stride_load() {

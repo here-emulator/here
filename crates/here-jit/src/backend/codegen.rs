@@ -16,6 +16,7 @@ pub trait CodeGenTrait: Sized {
     unsafe fn patch(buf: *mut u8, loc: PatchLoc<Self::PatchKind>, imm: i64);
 
     /// Enables assembly dumps for subsequent compilations.
+    #[allow(dead_code)]
     fn set_dump_asm(&mut self, _enable: bool) {}
 }
 
@@ -330,7 +331,9 @@ impl CodeGenTrait for DummyCodeGen {
 #[cfg(all(test, target_arch = "x86_64"))]
 mod tests {
     use super::*;
-    use crate::jit::backend::x64::{X64, X64Inst, X64Reg};
+    use crate::backend::x64::X64;
+    use crate::backend::x64::X64Inst;
+    use crate::backend::x64::X64Reg;
 
     fn test_liveness(vreg_count: u32) -> LivenessPass {
         let mut pass = LivenessPass::default();

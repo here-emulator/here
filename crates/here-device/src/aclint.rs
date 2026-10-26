@@ -1,14 +1,16 @@
-use std::{cell::UnsafeCell, rc::Rc};
+use std::cell::UnsafeCell;
+use std::rc::Rc;
 
-use crate::{
-    clock::{Clock, Timer, VirtualClock},
-    config::arch_config::WordType,
-    device::{
-        DeviceTrait, MemError,
-        irq::{IRQLine, RiscvIRQSource},
-    },
-    utils::{concat_to_u64, negative_of},
-};
+use crate::DeviceTrait;
+use crate::MemError;
+use crate::clock::Clock;
+use crate::clock::Timer;
+use crate::clock::VirtualClock;
+use crate::irq::IRQLine;
+use crate::irq::RiscvIRQSource;
+use here_types::WordType;
+use here_types::concat_to_u64;
+use here_types::negative_of;
 
 /// MMIO region size for the CLINT device.
 pub const CLINT_SIZE: WordType = 0x10000;
@@ -73,7 +75,7 @@ impl Clint {
 
     fn read_impl<T>(&mut self, addr: WordType) -> Result<T, MemError>
     where
-        T: crate::utils::UnsignedInteger,
+        T: here_types::UnsignedInteger,
     {
         if self.msip_base <= addr && addr < self.msip_base + ((self.hart_num as u64) << 2) {
             let hartid = ((addr - self.msip_base) >> 2) as usize;
@@ -111,7 +113,7 @@ impl Clint {
 
     fn write_impl<T>(&mut self, addr: WordType, data: T) -> Result<(), MemError>
     where
-        T: crate::utils::UnsignedInteger,
+        T: here_types::UnsignedInteger,
     {
         if self.msip_base <= addr && addr < self.msip_base + ((self.hart_num as u64) << 2) {
             let hartid = ((addr - self.msip_base) >> 2) as usize;
@@ -206,8 +208,8 @@ impl DeviceTrait for Clint {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::device::irq::RiscvIRQHandler;
-    use crate::types::Interrupt;
+    use crate::irq::RiscvIRQHandler;
+    use here_types::Interrupt;
 
     struct MockIrqHandler {
         triggered: bool,

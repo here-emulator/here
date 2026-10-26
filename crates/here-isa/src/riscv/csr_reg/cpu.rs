@@ -1,11 +1,8 @@
-use crate::{
-    config::arch_config::WordType,
-    isa::riscv::{
-        csr_reg::{NamedCsrReg, csr_macro::Satp},
-        executor::RVCPU,
-        trap::Exception,
-    },
-};
+use crate::riscv::csr_reg::NamedCsrReg;
+use crate::riscv::csr_reg::csr_macro::Satp;
+use crate::riscv::executor::RVCPU;
+use crate::riscv::trap::Exception;
+use here_types::WordType;
 
 impl RVCPU {
     pub fn read_csr(&mut self, addr: WordType) -> Result<WordType, Exception> {

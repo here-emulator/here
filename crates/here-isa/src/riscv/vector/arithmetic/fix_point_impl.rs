@@ -1,17 +1,20 @@
+use crate::riscv::trap::Exception;
+use crate::riscv::vector::VecOpMask;
+use crate::riscv::vector::Vector;
+use crate::riscv::vector::arithmetic::narrowing_source_lmul;
+use crate::riscv::vector::arithmetic::vector_register_group_overlaps;
 #[cfg(test)]
-use crate::isa::riscv::vector::tester::TestOpParameter;
-use crate::{
-    config::arch_config::WordType,
-    isa::riscv::{
-        trap::Exception,
-        vector::{
-            VecOpMask, Vector,
-            arithmetic::{narrowing_source_lmul, vector_register_group_overlaps},
-            types::{FixedPointRoundingMode, VGFRef, VGFRefMut, Vsew},
-        },
-    },
-    utils::{TruncateFrom, UnsignedInteger, as_signed_i128, from_signed_i128, shift_amount},
-};
+use crate::riscv::vector::tester::TestOpParameter;
+use crate::riscv::vector::types::FixedPointRoundingMode;
+use crate::riscv::vector::types::VGFRef;
+use crate::riscv::vector::types::VGFRefMut;
+use crate::riscv::vector::types::Vsew;
+use here_types::TruncateFrom;
+use here_types::UnsignedInteger;
+use here_types::WordType;
+use here_types::as_signed_i128;
+use here_types::from_signed_i128;
+use here_types::shift_amount;
 
 trait FixedPointBinaryExec<T> {
     fn exec(vs2: T, vs1: T, round: FixedPointRoundingMode) -> (T, bool);
@@ -21,7 +24,7 @@ trait FixedPointNarrowingShiftExec<Src, Shift, Dst> {
     fn exec(src: Src, shift: Shift, round: FixedPointRoundingMode) -> (Dst, bool);
 }
 
-pub(in crate::isa::riscv) trait VectorOpFixedPointVV {
+pub(in crate::riscv) trait VectorOpFixedPointVV {
     fn exec(
         vs1: &VGFRef,
         vs2: &VGFRef,
@@ -47,7 +50,7 @@ pub(in crate::isa::riscv) trait VectorOpFixedPointVV {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpFixedPointVX {
+pub(in crate::riscv) trait VectorOpFixedPointVX {
     fn exec(
         x1: WordType,
         vs2: &VGFRef,
@@ -73,7 +76,7 @@ pub(in crate::isa::riscv) trait VectorOpFixedPointVX {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpFixedPointNarrowingWV {
+pub(in crate::riscv) trait VectorOpFixedPointNarrowingWV {
     fn exec(
         vs1: &VGFRef,
         vs2: &VGFRef,
@@ -99,7 +102,7 @@ pub(in crate::isa::riscv) trait VectorOpFixedPointNarrowingWV {
     }
 }
 
-pub(in crate::isa::riscv) trait VectorOpFixedPointNarrowingVX {
+pub(in crate::riscv) trait VectorOpFixedPointNarrowingVX {
     fn exec(
         x1: WordType,
         vs2: &VGFRef,
@@ -127,17 +130,17 @@ pub(in crate::isa::riscv) trait VectorOpFixedPointNarrowingVX {
 
 impl Vector {
     #[inline]
-    pub(in crate::isa::riscv) fn fixed_point_rounding_mode(&self) -> FixedPointRoundingMode {
+    pub(in crate::riscv) fn fixed_point_rounding_mode(&self) -> FixedPointRoundingMode {
         self.config.fixed_point_rounding_mode
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn fixed_point_accrued_saturation_flag(&self) -> bool {
+    pub(in crate::riscv) fn fixed_point_accrued_saturation_flag(&self) -> bool {
         self.config.fixed_point_accrued_saturation_flag
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn set_fixed_point_rounding_mode(
+    pub(in crate::riscv) fn set_fixed_point_rounding_mode(
         &mut self,
         round: FixedPointRoundingMode,
     ) {
@@ -145,12 +148,12 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn clear_fixed_point_accrued_saturation_flag(&mut self) {
+    pub(in crate::riscv) fn clear_fixed_point_accrued_saturation_flag(&mut self) {
         self.config.fixed_point_accrued_saturation_flag = false;
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_fixed_point_vv<Op>(
+    pub(in crate::riscv) fn exec_fixed_point_vv<Op>(
         &mut self,
         vs1: u8,
         vs2: u8,
@@ -186,7 +189,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_fixed_point_vx<Op>(
+    pub(in crate::riscv) fn exec_fixed_point_vx<Op>(
         &mut self,
         x1: WordType,
         vs2: u8,
@@ -220,7 +223,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_fixed_point_narrowing_wv<Op>(
+    pub(in crate::riscv) fn exec_fixed_point_narrowing_wv<Op>(
         &mut self,
         vs1: u8,
         vs2: u8,
@@ -265,7 +268,7 @@ impl Vector {
     }
 
     #[inline]
-    pub(in crate::isa::riscv) fn exec_fixed_point_narrowing_vx<Op>(
+    pub(in crate::riscv) fn exec_fixed_point_narrowing_vx<Op>(
         &mut self,
         x1: WordType,
         vs2: u8,
@@ -743,19 +746,19 @@ macro_rules! impl_fixed_point_narrowing_binary {
     };
 }
 
-pub(in crate::isa::riscv) struct VectorOpSaddu;
-pub(in crate::isa::riscv) struct VectorOpSadd;
-pub(in crate::isa::riscv) struct VectorOpSsubu;
-pub(in crate::isa::riscv) struct VectorOpSsub;
-pub(in crate::isa::riscv) struct VectorOpAaddu;
-pub(in crate::isa::riscv) struct VectorOpAadd;
-pub(in crate::isa::riscv) struct VectorOpAsubu;
-pub(in crate::isa::riscv) struct VectorOpAsub;
-pub(in crate::isa::riscv) struct VectorOpSmul;
-pub(in crate::isa::riscv) struct VectorOpSsrl;
-pub(in crate::isa::riscv) struct VectorOpSsra;
-pub(in crate::isa::riscv) struct VectorOpNclipu;
-pub(in crate::isa::riscv) struct VectorOpNclip;
+pub(in crate::riscv) struct VectorOpSaddu;
+pub(in crate::riscv) struct VectorOpSadd;
+pub(in crate::riscv) struct VectorOpSsubu;
+pub(in crate::riscv) struct VectorOpSsub;
+pub(in crate::riscv) struct VectorOpAaddu;
+pub(in crate::riscv) struct VectorOpAadd;
+pub(in crate::riscv) struct VectorOpAsubu;
+pub(in crate::riscv) struct VectorOpAsub;
+pub(in crate::riscv) struct VectorOpSmul;
+pub(in crate::riscv) struct VectorOpSsrl;
+pub(in crate::riscv) struct VectorOpSsra;
+pub(in crate::riscv) struct VectorOpNclipu;
+pub(in crate::riscv) struct VectorOpNclip;
 
 impl_fixed_point_binary!(VectorOpSaddu, ExecSaturatingAddUnsigned);
 impl_fixed_point_binary!(VectorOpSadd, ExecSaturatingAddSigned);

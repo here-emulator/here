@@ -1,4 +1,4 @@
-use crate::config::arch_config::WordType;
+use here_types::WordType;
 
 pub type PeriphIrqId = u32;
 

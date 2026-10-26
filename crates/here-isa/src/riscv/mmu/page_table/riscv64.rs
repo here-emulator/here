@@ -3,18 +3,15 @@ use core::panic;
 
 use super::*;
 
-use crate::{
-    config::arch_config::WordType,
-    isa::{
-        cache::*,
-        riscv::mmu::{
-            address::{PhysicalAddr, PhysicalPageNum, VirtualAddr, VirtualPageNum},
-            config::*,
-        },
-    },
-    ram::Ram,
-    ram_config,
-};
+use crate::cache::*;
+use crate::riscv::mmu::address::PhysicalAddr;
+use crate::riscv::mmu::address::PhysicalPageNum;
+use crate::riscv::mmu::address::VirtualAddr;
+use crate::riscv::mmu::address::VirtualPageNum;
+use crate::riscv::mmu::config::*;
+use here_device::ram::Ram;
+use here_types::WordType;
+use here_types::ram_config;
 
 bitflags! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -359,7 +356,7 @@ impl PageTableWalker {
 
 #[cfg(test)]
 mod test_sv39 {
-    use crate::ram_config;
+    use here_types::ram_config;
 
     use super::*;
 

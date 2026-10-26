@@ -1,4 +1,5 @@
-use super::{VReg, VRegId};
+use super::VReg;
+use super::VRegId;
 
 pub const CPU_VREG: VReg = VReg::new(0);
 pub const JIT_CONTEXT_VREG: VReg = VReg::new(1);

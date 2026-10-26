@@ -1,20 +1,21 @@
-use crate::config::arch_config::WordType;
-use crate::isa::riscv::cpu_tester::{CPUChecker, TestCPUBuilder};
-use crate::isa::riscv::executor::RVCPU;
-use crate::jit::backend::NativeCodeGen;
-use crate::jit::backend::codegen::CodeGenTrait;
-use crate::jit::ir::*;
-use crate::jit::jit_buffer::JitBuffer;
+use crate::backend::NativeCodeGen;
+use crate::backend::codegen::CodeGenTrait;
+use crate::ir::*;
+use crate::jit_buffer::JitBuffer;
 use crate::make_ir;
+use here_isa::riscv::cpu_tester::CPUChecker;
+use here_isa::riscv::cpu_tester::TestCPUBuilder;
+use here_isa::riscv::executor::RVCPU;
+use here_types::WordType;
 
-use crate::jit::runtime::JitContext;
+use crate::runtime::JitContext;
 
 pub(crate) fn compile_and_exec_with_ctx(
     block: &IRBlock,
     meta: &IRBlockMeta,
     cpu: &mut RVCPU,
     ctx: &mut JitContext,
-) -> crate::jit::runtime::jit_function::JitExit {
+) -> crate::runtime::jit_function::JitExit {
     let mut codegen = NativeCodeGen::try_new().expect("Native CodeGen must be supported");
     let code_block = codegen.compile(block, meta);
     let mut jit_buf = JitBuffer::with_capacity(64 * 1024);

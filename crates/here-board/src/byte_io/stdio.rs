@@ -1,20 +1,17 @@
-#![cfg(feature = "native-cli")]
+#![cfg(feature = "native")]
 
-use std::{
-    io::Read,
-    sync::{Arc, LazyLock},
-    thread,
-};
+use std::io::Read;
+use std::sync::Arc;
+use std::sync::LazyLock;
+use std::thread;
 
-use tokio::{
-    runtime::Builder,
-    sync::{
-        mpsc::{self, error::TrySendError},
-        watch,
-    },
-};
+use tokio::runtime::Builder;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::watch;
 
-use crate::device::power_manager::{POWER_OFF_CODE, POWER_STATUS};
+use here_device::power_manager::POWER_OFF_CODE;
+use here_device::power_manager::POWER_STATUS;
 use std::sync::atomic::Ordering;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,8 +86,7 @@ impl StdinRouter {
         self.target_tx.send_replace(target);
     }
 
-    #[cfg(test)]
-    pub(crate) fn current_target(&self) -> StdinHandle {
+    pub fn current_target(&self) -> StdinHandle {
         *self.target_tx.borrow()
     }
 }
@@ -188,7 +184,9 @@ async fn forward_bytes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::device::{DeviceTrait, PlicDevice, uart16550a::Uart16550A};
+    use here_device::DeviceTrait;
+    use here_device::PlicDevice;
+    use here_device::uart16550a::Uart16550A;
 
     fn test_router() -> (StdinRouter, watch::Receiver<StdinHandle>) {
         let (target_tx, target_rx) = watch::channel(StdinHandle::NONE);

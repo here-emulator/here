@@ -1,0 +1,49 @@
+[package]
+name = "here-bin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "here"
+path = "src/main.rs"
+required-features = ["native"]
+
+[features]
+default = ["native", "riscv64", "test-device"]
+native = [
+    "here-board/native",
+    "here-dbg/native",
+    "here-device/native",
+]
+riscv32 = [
+    "here-types/riscv32",
+    "here-device/riscv32",
+    "here-isa/riscv32",
+    "here-board/riscv32",
+    "here-dbg/riscv32",
+]
+riscv64 = [
+    "here-types/riscv64",
+    "here-device/riscv64",
+    "here-isa/riscv64",
+    "here-board/riscv64",
+    "here-dbg/riscv64",
+]
+test-device = ["here-board/test-device", "here-device/test-device"]
+
+[dependencies]
+here-board = { workspace = true }
+here-dbg = { workspace = true }
+here-device = { workspace = true }
+here-isa = { workspace = true }
+here-types = { workspace = true }
+clap.workspace = true
+crossterm.workspace = true
+embedded-io.workspace = true
+flexi_logger.workspace = true
+gdbstub.workspace = true
+gdbstub_arch.workspace = true
+log.workspace = true
+noline.workspace = true
+tokio = { workspace = true, features = ["sync"] }

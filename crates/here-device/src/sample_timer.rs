@@ -1,20 +1,20 @@
 //! A simple millisecond timer used to exercise external interrupts.
 
-use std::{
-    hint::cold_path,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
+use std::hint::cold_path;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 
-use tokio::{sync::watch, time::Instant};
+use tokio::sync::watch;
+use tokio::time::Instant;
 
-use crate::{
-    config::arch_config::WordType,
-    device::{DeviceTrait, MemError, PlicDevice, plic::PeriphIrqId, task::DeviceTask},
-};
+use crate::DeviceTrait;
+use crate::MemError;
+use crate::PlicDevice;
+use crate::plic::PeriphIrqId;
+use crate::task::DeviceTask;
+use here_types::WordType;
 
 pub const SAMPLE_TIMER_INTERRUPT_ID: PeriphIrqId = 63;
 
@@ -118,7 +118,7 @@ impl DeviceTrait for SampleTimerDevice {
     fn read(&mut self, addr: WordType, len: u32) -> Result<u64, MemError> {
         if len != 4 {
             cold_path();
-            return Err(crate::device::MemError::LoadFault);
+            return Err(crate::MemError::LoadFault);
         }
 
         let data = match addr {
@@ -134,7 +134,7 @@ impl DeviceTrait for SampleTimerDevice {
     fn write(&mut self, addr: WordType, len: u32, data: u64) -> Result<(), MemError> {
         if len != 4 {
             cold_path();
-            return Err(crate::device::MemError::StoreFault);
+            return Err(crate::MemError::StoreFault);
         }
 
         let data = data as u32;

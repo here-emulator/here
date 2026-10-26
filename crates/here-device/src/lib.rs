@@ -1,14 +1,15 @@
+#![allow(dead_code)]
+#![feature(likely_unlikely)]
+#![feature(macro_metavar_expr_concat)]
+#![feature(unsafe_cell_access)]
+
 use std::fmt;
 
-use crate::config::arch_config::WordType;
+use here_types::WordType;
 
 macro_rules! dispatch_read_write {
     ($read_impl: ident, $write_impl: ident) => {
-        fn read(
-            &mut self,
-            addr: crate::config::arch_config::WordType,
-            len: u32,
-        ) -> Result<u64, MemError> {
+        fn read(&mut self, addr: here_types::WordType, len: u32) -> Result<u64, MemError> {
             match len {
                 1 => self.$read_impl::<u8>(addr).map(|v| v.into()),
                 2 => self.$read_impl::<u16>(addr).map(|v| v.into()),
@@ -20,7 +21,7 @@ macro_rules! dispatch_read_write {
 
         fn write(
             &mut self,
-            addr: crate::config::arch_config::WordType,
+            addr: here_types::WordType,
             len: u32,
             data: u64,
         ) -> Result<(), MemError> {
@@ -40,6 +41,7 @@ macro_rules! dispatch_read_write {
 }
 
 pub mod aclint;
+pub mod clock;
 pub mod device_manager;
 mod id_allocator;
 pub mod irq;
@@ -48,9 +50,10 @@ pub use id_allocator::IdAllocator;
 pub mod mmio;
 pub mod plic;
 pub mod power_manager;
-#[cfg(all(feature = "test-device", not(target_arch = "wasm32")))]
+pub mod ram;
+#[cfg(all(feature = "test-device", feature = "native"))]
 pub mod sample_timer;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 pub mod task;
 pub mod virtio;
 

@@ -1,7 +1,10 @@
 use core::panic;
 use regex::Regex;
 use serde_json::Value;
-use std::{collections::HashMap, env, fs, path::PathBuf};
+use std::collections::HashMap;
+use std::env;
+use std::fs;
+use std::path::PathBuf;
 
 fn to_bits(s: &str) -> u64 {
     u64::from_str_radix(s, 2).unwrap_or(0)
@@ -214,23 +217,6 @@ fn parse_instr<'a>(
     }
 }
 
-fn get_commit_hash() -> String {
-    if let Ok(hash) = env::var("GIT_HASH")
-        && !hash.is_empty()
-    {
-        return hash;
-    }
-
-    let output = std::process::Command::new("git")
-        .args(["rev-parse", "--short=8", "HEAD"])
-        .output();
-
-    match output {
-        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_owned(),
-        _ => String::from("unknown"),
-    }
-}
-
 /// Generate the `define_riscv_isa!` macro
 fn generate_isa_code(json_paths: &[PathBuf]) {
     let ext_to_name: HashMap<&'static str, &'static str> = {
@@ -308,8 +294,4 @@ fn main() {
     ];
 
     generate_isa_code(&json_paths);
-
-    // Expose commit hash to the crate via env! macro.
-    println!("cargo:rerun-if-env-changed=GIT_HASH");
-    println!("cargo:rustc-env=HERE_COMMIT_HASH={}", get_commit_hash());
 }

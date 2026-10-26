@@ -1,10 +1,10 @@
-use tokio::sync::mpsc::{
-    Sender, UnboundedReceiver,
-    error::{TryRecvError, TrySendError},
-};
+use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::error::TryRecvError;
+use tokio::sync::mpsc::error::TrySendError;
 
-#[cfg(feature = "native-cli")]
-use crate::device::task::DeviceTask;
+#[cfg(feature = "native")]
+use crate::task::DeviceTask;
 
 pub const UART_INPUT_CAPACITY: usize = 1024;
 
@@ -13,7 +13,7 @@ pub enum UartIoMode {
     None,
     #[default]
     External,
-    #[cfg(feature = "native-cli")]
+    #[cfg(feature = "native")]
     Stdio,
 }
 
@@ -63,7 +63,7 @@ impl UartBytePort {
     }
 }
 
-#[cfg(feature = "native-cli")]
+#[cfg(feature = "native")]
 impl DeviceTask for UartBytePort {
     async fn run_simple(mut self) {
         use std::io::Write;

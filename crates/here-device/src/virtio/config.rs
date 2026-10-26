@@ -6,7 +6,7 @@ pub type VirtIOFeatureSet = u128;
 pub(crate) const VIRTIO_MAX_FEATURE_BIT_LEN: usize = 128;
 
 pub(crate) mod virtio_reserved_feature {
-    use crate::device::virtio::config::VirtIOFeatureSet;
+    use crate::virtio::config::VirtIOFeatureSet;
 
     pub const NOTIFY_ON_EMPTY: VirtIOFeatureSet = 1 << 24;
     pub const ANY_LAYOUT: VirtIOFeatureSet = 1 << 27;

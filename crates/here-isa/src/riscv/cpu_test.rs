@@ -1,20 +1,22 @@
 use std::thread;
 
 use super::*;
-use crate::{
-    isa::riscv::{
-        cpu_tester::*,
-        csr_reg::{
-            NamedCsrReg, csr_index,
-            csr_macro::{Mcause, Mcycle, Mepc, Minstret, Mtvec},
-        },
-        vector::VLEN,
-    },
-    ram_config,
-    utils::{
-        UnsignedInteger, as_signed_i128, from_signed_i128, negative_of, shift_amount, sign_extend,
-    },
-};
+use crate::riscv::cpu_tester::*;
+use crate::riscv::csr_reg::NamedCsrReg;
+use crate::riscv::csr_reg::csr_index;
+use crate::riscv::csr_reg::csr_macro::Mcause;
+use crate::riscv::csr_reg::csr_macro::Mcycle;
+use crate::riscv::csr_reg::csr_macro::Mepc;
+use crate::riscv::csr_reg::csr_macro::Minstret;
+use crate::riscv::csr_reg::csr_macro::Mtvec;
+use crate::riscv::vector::VLEN;
+use here_types::UnsignedInteger;
+use here_types::as_signed_i128;
+use here_types::from_signed_i128;
+use here_types::negative_of;
+use here_types::ram_config;
+use here_types::shift_amount;
+use here_types::sign_extend;
 
 #[test]
 fn test_step_batch_executes_requested_cycles() {
@@ -906,7 +908,8 @@ fn test_cpu_test_builder_enables_vector_isa() {
 
 #[test]
 fn test_amo() {
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::Ordering;
 
     const CNT: usize = 4096;
     const TARGET_ADDR: WordType = ram_config::BASE_ADDR + 1024;

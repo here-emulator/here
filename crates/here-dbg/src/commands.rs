@@ -1,22 +1,23 @@
 use clap::Parser;
 
-use super::{session::RvdbSession, *};
+use super::session::RvdbSession;
+use super::*;
 
-use crate::{
-    board::Board,
-    config::arch_config::{FLOAT_REG_NAME, REG_NAME, REGFILE_CNT, VECTOR_REG_NAME, WordType},
-    dispatch_integer_sew,
-    isa::{
-        InstrLen,
-        riscv::{
-            address::Address,
-            csr_reg::csr_macro::{CSR_ADDRESS, CSR_NAME},
-            debugger::{DebugError, DebugEvent},
-            mmu::AccessType,
-        },
-    },
-    load::ELFLoader,
-};
+use crate::debugger::DebugError;
+use crate::debugger::DebugEvent;
+use here_board::Board;
+use here_board::load::ELFLoader;
+use here_isa::InstrLen;
+use here_isa::dispatch_integer_sew;
+use here_isa::riscv::address::Address;
+use here_isa::riscv::csr_reg::csr_macro::CSR_ADDRESS;
+use here_isa::riscv::csr_reg::csr_macro::CSR_NAME;
+use here_isa::riscv::mmu::AccessType;
+use here_types::FLOAT_REG_NAME;
+use here_types::REG_NAME;
+use here_types::REGFILE_CNT;
+use here_types::VECTOR_REG_NAME;
+use here_types::WordType;
 
 impl<B: Board> RvdbSession<B> {
     pub fn handle_command(&mut self, cmd: RvdbCommand) -> Result<CommandOutput, String> {
@@ -399,12 +400,12 @@ impl<B: Board> RvdbSession<B> {
     }
 }
 
-#[cfg(feature = "native-cli")]
+#[cfg(feature = "native")]
 fn read_symbol_file_from_path(path: &str) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|e| e.to_string() + ", when reading " + path)
 }
 
-#[cfg(not(feature = "native-cli"))]
+#[cfg(not(feature = "native"))]
 fn read_symbol_file_from_path(_path: &str) -> Result<Vec<u8>, String> {
     Err(
         "symbol-file path loading is unsupported in this environment; use load_symbol_file_bytes"
@@ -479,7 +480,7 @@ fn parse_csr(s: &str) -> Result<WordType, String> {
 mod tests {
     use super::*;
 
-    use crate::board::virt::VirtBoard;
+    use here_board::virt::VirtBoard;
 
     #[test]
     #[cfg(feature = "riscv64")]
@@ -518,7 +519,7 @@ mod tests {
     #[test]
     #[cfg(feature = "riscv64")]
     fn test_list_advances_by_instruction_length() {
-        use crate::ram_config::BASE_ADDR;
+        use here_types::ram_config::BASE_ADDR;
 
         // c.addi s0,5 (2B) | addi x2,x3,-5 (4B) | c.li a0,-3 (2B)
         let mut session = RvdbSession::new(board_with_program(&[0x0415, 0x8113, 0xffb1, 0x5575]));
@@ -546,7 +547,7 @@ mod tests {
     #[test]
     #[cfg(feature = "riscv64")]
     fn test_decoded_length_in_history() {
-        use crate::ram_config::BASE_ADDR;
+        use here_types::ram_config::BASE_ADDR;
 
         // c.li a0,-3 (2B) then c.addi s0,5 (2B): stepping must advance PC by 2.
         let mut session = RvdbSession::new(board_with_program(&[0x5575, 0x0415]));

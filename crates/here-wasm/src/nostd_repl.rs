@@ -2,21 +2,29 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::future::poll_fn;
 use std::rc::Rc;
-use std::task::{Context, Poll};
+use std::task::Context;
+use std::task::Poll;
 
-use embedded_io_async::{ErrorKind, ErrorType, Write};
-use noline::{
-    async_editor::Editor, builder::EditorBuilder, error::NolineError, history::UnboundedHistory,
-    line_buffer::UnboundedBuffer,
-};
+use embedded_io_async::ErrorKind;
+use embedded_io_async::ErrorType;
+use embedded_io_async::Write;
+use noline::async_editor::Editor;
+use noline::builder::EditorBuilder;
+use noline::error::NolineError;
+use noline::history::UnboundedHistory;
+use noline::line_buffer::UnboundedBuffer;
 
-use crate::board::Board;
-use crate::isa::riscv::debugger::DebugEvent;
-use crate::rvdb::{Printer, RvdbCommand, RvdbSession, format_clap_error, is_clap_display};
+use here_board::Board;
+use here_dbg::Printer;
+use here_dbg::RvdbCommand;
+use here_dbg::RvdbSession;
+use here_dbg::debugger::DebugEvent;
+use here_dbg::format_clap_error;
+use here_dbg::is_clap_display;
 
 const CONTINUE_CHUNK: u64 = 100_000;
 
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+#[cfg_attr(not(feature = "native"), wasm_bindgen::prelude::wasm_bindgen)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct REPLResponse {
     pub exit: bool,
@@ -169,7 +177,7 @@ impl<B: Board> AsyncREPL<B> {
     pub async fn readline(&mut self) -> Result<String, NolineError> {
         let line = self
             .editor
-            .readline(super::PROMPT, &mut self.channel)
+            .readline(here_dbg::PROMPT, &mut self.channel)
             .await?;
         Ok(line.to_owned())
     }
@@ -320,7 +328,7 @@ impl<B: Board> AsyncREPL<B> {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(not(feature = "native"))]
 fn yield_once() -> impl Future<Output = ()> {
     use js_sys::Promise;
     use wasm_bindgen_futures::JsFuture;
@@ -336,7 +344,7 @@ fn yield_once() -> impl Future<Output = ()> {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 fn yield_once() -> impl Future<Output = ()> {
     std::future::ready(())
 }

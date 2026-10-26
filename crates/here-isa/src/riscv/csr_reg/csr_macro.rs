@@ -3,8 +3,10 @@ use phf::phf_map;
 use super::read_validator::*;
 use super::write_validator::*;
 use super::*;
-use crate::config::arch_config::{SignedWordType, WordType, XLEN};
-use crate::utils::BIT_ONES_ARRAY;
+use here_types::BIT_ONES_ARRAY;
+use here_types::SignedWordType;
+use here_types::WordType;
+use here_types::XLEN;
 
 /// Generator a single csr register.
 macro_rules! gen_csr_reg {

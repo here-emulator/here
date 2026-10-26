@@ -2,7 +2,7 @@ use std::fmt::Write;
 
 use smallvec::SmallVec;
 
-use crate::config::arch_config::WordType;
+use here_types::WordType;
 
 use super::TargetInst;
 
