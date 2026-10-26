@@ -13,7 +13,7 @@ use here::board::virt::VirtBoard;
 use here::board::{Board, BoardStatus};
 use here::config::arch_config::WordType;
 use here::isa::DebugTarget;
-use here::isa::riscv::debugger::Address;
+use here::isa::riscv::address::Address;
 
 fn find_tests_exclude(prefix: &str, exclude_names: &[&str]) -> Vec<PathBuf> {
     let mut paths = Vec::new();

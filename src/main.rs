@@ -10,7 +10,7 @@ use clap::Parser;
 use here::board::Board;
 use here::gdb;
 use here::isa::DebugTarget;
-use here::isa::riscv::debugger::Address;
+use here::isa::riscv::address::Address;
 use here::isa::riscv::decoder::Decoder;
 use here::isa::riscv::isa_builder::DEFAULT_ISA;
 use here::rvdb::{Printer, RvdbSession, SyncREPL};

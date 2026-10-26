@@ -15,7 +15,7 @@ use crate::isa::riscv::RawInstr;
 use crate::isa::riscv::csr_reg::PrivilegeLevel;
 use crate::isa::riscv::debugger;
 use crate::isa::riscv::mmu::AccessType;
-use crate::isa::riscv::{debugger::Address, decoder::DecodeInstr};
+use crate::isa::riscv::{address::Address, decoder::DecodeInstr};
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 use std::fmt;

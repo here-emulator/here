@@ -1,9 +1,9 @@
 use std::hint::cold_path;
 
 use crate::{
-    board::virt::RiscvIRQHandler,
     config::arch_config::WordType,
     cpu::RegFile,
+    device::irq::RiscvIRQHandler,
     fpu::soft_float::SoftFPU,
     isa::{
         InstrLen,
@@ -14,11 +14,12 @@ use crate::{
             decoder::{DecodeInstr, Decoder},
             instruction::{RVInstrInfo, exec_mapping::get_exec_func, instr_table::RiscvInstr},
             mmu::VirtAddrManager,
-            trap::{Exception, Interrupt, trap_controller::TrapController},
+            trap::{Exception, trap_controller::TrapController},
             vector::Vector,
         },
     },
     ram_config::DEFAULT_PC_VALUE,
+    types::Interrupt,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

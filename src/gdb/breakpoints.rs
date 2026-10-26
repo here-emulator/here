@@ -1,4 +1,4 @@
-use crate::isa::riscv::debugger::Address;
+use crate::isa::riscv::address::Address;
 
 use super::*;
 

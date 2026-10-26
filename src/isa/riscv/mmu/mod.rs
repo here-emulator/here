@@ -13,7 +13,7 @@ use self::page_table::*;
 use crate::{
     config::arch_config::WordType,
     device::{DeviceTrait, MemError, mmio::MemoryMapIO},
-    isa::riscv::{debugger::Address, trap::Exception},
+    isa::riscv::{address::Address, trap::Exception},
     ram::Ram,
     ram_config,
     utils::UnsignedInteger,

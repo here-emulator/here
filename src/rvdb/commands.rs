@@ -9,8 +9,9 @@ use crate::{
     isa::{
         InstrLen,
         riscv::{
+            address::Address,
             csr_reg::csr_macro::{CSR_ADDRESS, CSR_NAME},
-            debugger::{Address, DebugError, DebugEvent},
+            debugger::{DebugError, DebugEvent},
             mmu::AccessType,
         },
     },

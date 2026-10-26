@@ -3,9 +3,8 @@ pub mod types;
 use std::{hint::unlikely, ptr::NonNull};
 
 use crate::{
-    board::virt::RiscvIRQSource,
     config::arch_config::WordType,
-    device::{DeviceTrait, MemError, PlicDevice},
+    device::{DeviceTrait, MemError, PlicDevice, irq::RiscvIRQSource},
 };
 use bit_set::BitSet;
 
@@ -376,7 +375,7 @@ fn is_register_aligned(inner_addr: WordType) -> bool {
 /// exposes the PLIC MMIO register map, and drives per-context CPU IRQ lines.
 pub struct PLIC {
     layout: PLICLayout,
-    riscv_irq_line: [Option<crate::board::virt::IRQLine>; VIRT_MAX_CONTEXTS],
+    riscv_irq_line: [Option<crate::device::irq::IRQLine>; VIRT_MAX_CONTEXTS],
     riscv_irq_level: [Option<bool>; VIRT_MAX_CONTEXTS],
     // Non-owning pointers to boxed devices held by the board's DeviceArena.
     peripheral_irq_devices: [Option<NonNull<dyn crate::device::PlicDevice>>; VIRT_MAX_INTERRUPTS],
@@ -519,7 +518,7 @@ impl DeviceTrait for PLIC {
 
 // Send the external interrupt resulting from the arbitration to the CPU through the IRQLine.
 impl RiscvIRQSource for PLIC {
-    fn set_irq_line(&mut self, line: crate::board::virt::IRQLine, id: usize) {
+    fn set_irq_line(&mut self, line: crate::device::irq::IRQLine, id: usize) {
         assert!(id < VIRT_MAX_CONTEXTS);
         // plic external interrupt source id will be write to plic.claim register.
         self.riscv_irq_line[id] = Some(line);
@@ -860,8 +859,8 @@ mod test {
         levels: Vec<bool>,
     }
 
-    impl crate::board::virt::RiscvIRQHandler for RecordingCPUInterruptHandler {
-        fn handle_irq(&mut self, _interrupt: crate::isa::riscv::trap::Interrupt, level: bool) {
+    impl crate::device::irq::RiscvIRQHandler for RecordingCPUInterruptHandler {
+        fn handle_irq(&mut self, _interrupt: crate::types::Interrupt, level: bool) {
             self.levels.push(level);
         }
     }
@@ -869,8 +868,8 @@ mod test {
     #[test]
     fn context_irq_line_is_driven_only_on_level_changes() {
         use crate::{
-            board::virt::{IRQLine, RiscvIRQSource},
-            isa::riscv::trap::Interrupt,
+            device::irq::{IRQLine, RiscvIRQSource},
+            types::Interrupt,
         };
 
         let mut cpu_handler = RecordingCPUInterruptHandler { levels: Vec::new() };

@@ -12,9 +12,7 @@ use crate::task_spawner::TaskSpawner;
 use crate::{
     board::{
         BoardStatus, VirtBoardPlicContextId,
-        virt::{
-            ExecutorBackendKind, IRQLine, RiscvIRQHandler, RiscvIRQSource, UartIoMode, VirtBoard,
-        },
+        virt::{ExecutorBackendKind, UartIoMode, VirtBoard},
     },
     clock::{Timer, VirtualClock},
     config::arch_config::WordType,
@@ -22,6 +20,7 @@ use crate::{
         DeviceTrait, IdAllocator, PlicDevice,
         aclint::Clint,
         device_manager::{DeviceArena, DeviceArenaBuilder, DeviceHandle},
+        irq::{IRQLine, RiscvIRQHandler, RiscvIRQSource},
         mmio::{MemoryMapIO, MemoryMapItem},
         plic::{PLIC, PeriphIrqId},
         power_manager::PowerManager,
@@ -33,10 +32,10 @@ use crate::{
             decoder::Decoder,
             executor::{ExecutorBackend, InterpreterBackend, RVCPU},
             mmu::VirtAddrManager,
-            trap::Interrupt,
         },
     },
     ram::Ram,
+    types::Interrupt,
 };
 
 pub struct RVBoardBuilder {

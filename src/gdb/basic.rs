@@ -8,8 +8,8 @@ use gdbstub_arch::riscv::reg::id::RiscvRegId;
 
 use crate::board::Board;
 use crate::config::arch_config::{FLOAT_REGFILE_CNT, REGFILE_CNT, WordType};
+use crate::isa::riscv::address::Address;
 use crate::isa::riscv::csr_reg::PrivilegeLevel;
-use crate::isa::riscv::debugger::Address;
 
 impl<B: Board> target::Target for GdbDebugger<B> {
     type Arch = desc::Riscv64;

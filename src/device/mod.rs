@@ -42,6 +42,7 @@ macro_rules! dispatch_read_write {
 pub(crate) mod aclint;
 pub mod device_manager;
 mod id_allocator;
+pub mod irq;
 pub mod uart16550a;
 pub(crate) use id_allocator::*;
 pub(crate) mod mmio;

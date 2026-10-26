@@ -5,9 +5,10 @@ use crate::{
         riscv::{
             csr_reg::{NamedCsrReg, PrivilegeLevel, csr_index, csr_macro::*},
             executor::RVCPU,
-            trap::{Exception, Interrupt, Trap},
+            trap::{Exception, Trap},
         },
     },
+    types::Interrupt,
 };
 
 // TODO: Remove static class `TrapController` with sepreate modules for each privilege level.

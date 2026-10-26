@@ -3,8 +3,9 @@ use crate::{
     config::arch_config::{REG_NAME, SignedWordType, WordType},
     isa::riscv::{
         RawInstr,
+        address::Address,
         csr_reg::{PrivilegeLevel, csr_macro::CSR_NAME},
-        debugger::{self, Address},
+        debugger,
         decoder::DecodeInstr,
         instruction::{RVInstrInfo, instr_table::RiscvInstr},
     },

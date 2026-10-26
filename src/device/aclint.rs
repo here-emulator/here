@@ -1,10 +1,12 @@
 use std::{cell::UnsafeCell, rc::Rc};
 
 use crate::{
-    board::virt::{IRQLine, RiscvIRQSource},
     clock::{Clock, Timer, VirtualClock},
     config::arch_config::WordType,
-    device::{DeviceTrait, MemError},
+    device::{
+        DeviceTrait, MemError,
+        irq::{IRQLine, RiscvIRQSource},
+    },
     utils::{concat_to_u64, negative_of},
 };
 
@@ -204,8 +206,8 @@ impl DeviceTrait for Clint {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::virt::RiscvIRQHandler;
-    use crate::isa::riscv::trap::Interrupt;
+    use crate::device::irq::RiscvIRQHandler;
+    use crate::types::Interrupt;
 
     struct MockIrqHandler {
         triggered: bool,

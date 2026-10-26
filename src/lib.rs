@@ -33,6 +33,7 @@ pub mod load;
 pub mod ram;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod task_spawner;
+pub mod types;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_api;

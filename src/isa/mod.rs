@@ -2,8 +2,8 @@ use crate::{
     config::arch_config::WordType,
     device::MemError,
     isa::riscv::{
+        address::Address,
         csr_reg::PrivilegeLevel,
-        debugger::Address,
         mmu::{AccessType, PageTableError},
     },
     utils::UnsignedInteger,

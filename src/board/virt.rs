@@ -24,7 +24,6 @@ use crate::{
     isa::riscv::{
         decoder::Decoder,
         executor::{BatchResult, ExecutionHook, ExecutorBackend, RVCPU},
-        trap::Interrupt,
     },
     load::{ELFLoader, load_bin},
     ram::Ram,
@@ -58,14 +57,6 @@ pub mod config {
 }
 
 pub use config::*;
-
-pub trait RiscvIRQHandler {
-    fn handle_irq(&mut self, interrupt: Interrupt, level: bool);
-}
-
-pub trait RiscvIRQSource {
-    fn set_irq_line(&mut self, line: IRQLine, id: usize);
-}
 
 #[derive(Debug)]
 pub struct MemoryImage {
@@ -150,25 +141,6 @@ impl VirtBoardConfig {
     pub fn with_dump_jit(mut self, path: impl Into<PathBuf>) -> Self {
         self.dump_jit = Some(path.into());
         self
-    }
-}
-
-/// NOTE: Only used in single-threaded contexts.
-pub struct IRQLine {
-    target: *mut dyn RiscvIRQHandler,
-    interrupt_nr: Interrupt,
-}
-
-impl IRQLine {
-    pub fn new(target: *mut dyn RiscvIRQHandler, interrupt_nr: Interrupt) -> Self {
-        Self {
-            target,
-            interrupt_nr,
-        }
-    }
-
-    pub fn set_irq(&mut self, level: bool) {
-        unsafe { &mut *self.target }.handle_irq(self.interrupt_nr, level);
     }
 }
 
@@ -434,9 +406,9 @@ mod tests {
     use crate::config::arch_config::XLEN;
     use crate::device::DeviceTrait;
     use crate::isa::DebugTarget;
+    use crate::isa::riscv::address::Address;
     use crate::isa::riscv::csr_reg::csr_macro::{Mcause, Mcycle, Minstret, Satp};
     use crate::isa::riscv::csr_reg::{NamedCsrReg, csr_index};
-    use crate::isa::riscv::debugger::Address;
     use crate::ram_config;
 
     fn create_test_board() -> VirtBoard {
@@ -640,7 +612,7 @@ mod tests {
 
     #[test]
     fn virtboard_mmio_uses_uart16550a() {
-        use crate::isa::riscv::debugger::Address;
+        use crate::isa::riscv::address::Address;
 
         let mut board = VirtBoard::from_binary_with(&[], VirtBoardConfig::new()).unwrap();
 
@@ -819,7 +791,7 @@ mod tests {
 
         use crate::board::virt::config::SAMPLE_TIMER_BASE;
         use crate::device::sample_timer::SAMPLE_TIMER_INTERRUPT_ID;
-        use crate::{config::arch_config::WordType, isa::riscv::debugger::Address};
+        use crate::{config::arch_config::WordType, isa::riscv::address::Address};
         const CONTEXT_ENABLE_BIT_OFFSET: WordType = 0x002000;
         const CONTEXT_ENABLE_BIT_SIZE: WordType = 0x80;
         const CONTEXT_CONFIG_OFFSET: WordType = 0x200000;

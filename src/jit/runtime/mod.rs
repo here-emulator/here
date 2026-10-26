@@ -411,10 +411,10 @@ impl ExecutorBackend for JitRuntime {
 mod tests {
     use super::*;
     use crate::isa::DebugTarget;
+    use crate::isa::riscv::address::Address;
     use crate::isa::riscv::cpu_tester::TestCPUBuilder;
     use crate::isa::riscv::csr_reg::NamedCsrReg;
     use crate::isa::riscv::csr_reg::csr_macro::{Mcycle, Minstret};
-    use crate::isa::riscv::debugger::Address;
     use crate::isa::riscv::trap::Exception;
     use crate::jit::ir::IRBuilder;
     use crate::make_ir;
