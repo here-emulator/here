@@ -379,7 +379,7 @@ mod native {
             let virtio_device = match config.dev_type {
                 VirtIODeviceEnum::VirtIOBlock => {
                     let ram_base = unsafe { &mut self.ram_ref.as_mut_unchecked()[0] as *mut u8 };
-                    VirtIOBlkDeviceBuilder::new(
+                    let (device, worker) = VirtIOBlkDeviceBuilder::new(
                         ram_base,
                         String::from(config.path.to_str().unwrap()),
                     )
@@ -387,7 +387,9 @@ mod native {
                         crate::device::virtio::virtio_block::VirtIOBlockFeature::BlockSize,
                     )
                     .host_feature(crate::device::virtio::virtio_block::VirtIOBlockFeature::Flush)
-                    .get_and_spawner_task(&mut self.spawner)
+                    .build();
+                    self.spawner.register(worker);
+                    device
                 }
                 dev_type => {
                     panic!("unsupport device: {:#?}", dev_type);

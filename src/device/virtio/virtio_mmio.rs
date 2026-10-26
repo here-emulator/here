@@ -638,7 +638,7 @@ mod test {
             .generation(0)
             .host_feature(VirtIOBlockFeature::BlockSize)
             .host_feature(VirtIOBlockFeature::Flush)
-            .get_with_worker();
+            .build();
 
         let mut virtio_mmio_device = VirtIOMMIO::new(Box::new(UnsafeCell::new(virt_device)));
         assert_eq!(

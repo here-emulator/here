@@ -29,7 +29,7 @@ use crate::{
         virtio_mmio::{VIRTIO_DEVICE_ID_BLOCK, VirtIODeviceStatus},
         virtio_queue::{VirtQueue, VirtQueueCompletion, VirtQueueDesc},
     },
-    task_spawner::{DeviceTask, TaskSpawner},
+    task_spawner::DeviceTask,
 };
 
 pub(super) const SECTOR_SIZE: usize = 512;
@@ -253,7 +253,7 @@ enum VirtIOBlockAsyncTask {
 }
 
 /// Owns the backing file and executes queued block requests on the task runtime.
-pub(super) struct VirtIOBlockAsyncWorker {
+pub(crate) struct VirtIOBlockAsyncWorker {
     file: File,
     receiver: mpsc::Receiver<VirtIOBlockAsyncTask>,
 }
@@ -775,23 +775,7 @@ impl VirtIOBlkDeviceBuilder {
         self
     }
 
-    pub fn get_and_spawner_task(self, task_spawner: &mut TaskSpawner) -> VirtIOBlkDevice {
-        let Self {
-            device,
-            receiver,
-            file,
-        } = self;
-        task_spawner.register(VirtIOBlockAsyncWorker::new(file, receiver));
-        device
-    }
-
-    #[cfg(test)]
-    pub(crate) fn get(self) -> VirtIOBlkDevice {
-        self.get_with_worker().0
-    }
-
-    #[cfg(test)]
-    pub(super) fn get_with_worker(self) -> (VirtIOBlkDevice, VirtIOBlockAsyncWorker) {
+    pub fn build(self) -> (VirtIOBlkDevice, VirtIOBlockAsyncWorker) {
         let Self {
             device,
             receiver,
@@ -840,6 +824,7 @@ mod test {
         },
         ram::Ram,
         ram_config,
+        task_spawner::TaskSpawner,
     };
 
     use super::*;
@@ -872,7 +857,7 @@ mod test {
 
         let mut ram = Ram::new();
         let ram_base = &mut ram[0] as *mut u8;
-        let _ = VirtIOBlkDeviceBuilder::new(ram_base, file_name.to_owned()).get();
+        let _ = VirtIOBlkDeviceBuilder::new(ram_base, file_name.to_owned()).build();
     }
 
     #[test]
@@ -917,9 +902,9 @@ mod test {
 
         let mut ram = Ram::new();
         let ram_base = &mut ram[0] as *mut u8;
+        let (mut virt_device, worker) = VirtIOBlkDeviceBuilder::new(ram_base, file_name).build();
         let mut spawner = TaskSpawner::new();
-        let mut virt_device =
-            VirtIOBlkDeviceBuilder::new(ram_base, file_name).get_and_spawner_task(&mut spawner);
+        spawner.register(worker);
         let _task_handle = spawner.start();
         virt_device.set_queue_num(QUEUE_NUM as u32);
 
@@ -1030,7 +1015,7 @@ mod test {
         let mut ram = Ram::new();
         let ram_base = &mut ram[0] as *mut u8;
         let (mut virt_device, mut worker) =
-            VirtIOBlkDeviceBuilder::new(ram_base, file_name).get_with_worker();
+            VirtIOBlkDeviceBuilder::new(ram_base, file_name).build();
         virt_device.set_queue_num(QUEUE_NUM as u32);
 
         let virtq_desc_base = 0x8000_2000 as u64;
