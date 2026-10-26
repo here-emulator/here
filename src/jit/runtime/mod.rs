@@ -2,7 +2,7 @@ use std::hint::cold_path;
 
 use crate::config::arch_config::WordType;
 use crate::isa::cache::*;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::isa::riscv::decoder::DecodeInstr;
 use crate::isa::riscv::executor::{ExecutorBackend, RVCPU};
 
@@ -188,7 +188,7 @@ impl JitRuntime {
         entry
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn try_execute_instruction_for_test(
         &mut self,
         cpu: &mut RVCPU,

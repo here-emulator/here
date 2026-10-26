@@ -12,6 +12,7 @@ native-cli = ["dep:clap", "dep:crossterm", "dep:flexi_logger"]
 riscv32 = []
 riscv64 = []
 riscv-tests = []
+test-support = []
 test-device = ["riscv64"]
 custom-instr = ["riscv64"]
 

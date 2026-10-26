@@ -56,7 +56,7 @@ pub enum VirtIODeviceEnum {
     VirtIOSpiMaster = 45,
 }
 
-pub(crate) trait VirtIODeviceTrait {
+pub trait VirtIODeviceTrait {
     fn get_device_id(&self) -> u16;
     fn status(&mut self) -> &mut u8;
     fn get_generation(&self) -> u32;

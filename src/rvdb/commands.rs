@@ -19,7 +19,7 @@ use crate::{
 };
 
 impl<B: Board> RvdbSession<B> {
-    pub(super) fn handle_command(&mut self, cmd: RvdbCommand) -> Result<CommandOutput, String> {
+    pub fn handle_command(&mut self, cmd: RvdbCommand) -> Result<CommandOutput, String> {
         match cmd {
             RvdbCommand::Print(cmd) => self.handle_print(cmd),
             RvdbCommand::Display(cmd) => self.handle_display(cmd),
@@ -257,7 +257,7 @@ impl<B: Board> RvdbSession<B> {
         })
     }
 
-    pub(super) fn parse_line(&self, line: &str) -> Result<RvdbCommand, clap::Error> {
+    pub fn parse_line(&self, line: &str) -> Result<RvdbCommand, clap::Error> {
         RvdbCommand::try_parse_from(line.split_whitespace())
     }
 
@@ -265,17 +265,14 @@ impl<B: Board> RvdbSession<B> {
     ///
     /// Does not render output or collect watch results — the caller decides when
     /// to call [`Self::collect_stop_output`].
-    pub(super) fn continue_for_steps(
-        &mut self,
-        max_steps: u64,
-    ) -> Result<(DebugEvent, u64), DebugError> {
+    pub fn continue_for_steps(&mut self, max_steps: u64) -> Result<(DebugEvent, u64), DebugError> {
         self.dbg.continue_until_step(max_steps)
     }
 
     /// After a continue/step stops with a real stop event (breakpoint hit, board
     /// halted), render the `ContinueDone` output: current instruction + watch list.
     /// `StepCompleted` callers should not call this (no stop to report).
-    pub(super) fn collect_stop_output(
+    pub fn collect_stop_output(
         &mut self,
         event: DebugEvent,
         actual_steps: u64,

@@ -192,7 +192,7 @@ impl Ram {
     }
 
     /// Invalidate an LR reservation when another agent writes an overlapping RAM range.
-    pub(crate) fn try_invalidate_reservation(&mut self, addr: WordType) {
+    pub fn try_invalidate_reservation(&mut self, addr: WordType) {
         if self
             .reserved
             .is_some_and(|res| res.in_the_same_reservation_set(addr))
@@ -209,7 +209,7 @@ impl Ram {
             .checked_add(size_of::<T>())
             .is_some_and(|end| end <= ram_config::SIZE)
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn get_raw_ptr(&mut self) -> *mut u8 {
         self.data.as_mut_ptr()
     }

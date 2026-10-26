@@ -37,7 +37,7 @@ enum AccessPolicy {
     },
 }
 
-pub(crate) struct VirtAddrManager {
+pub struct VirtAddrManager {
     pub(crate) mmio: MemoryMapIO,
     page_table: PageTableWalker,
     ram: Rc<UnsafeCell<Ram>>,
@@ -45,7 +45,7 @@ pub(crate) struct VirtAddrManager {
 
 /// Performs address translation and physical memory access using policies prepared by the CPU.
 impl VirtAddrManager {
-    pub(crate) fn from_ram_and_mmio(ram_ref: Rc<UnsafeCell<Ram>>, mmio: MemoryMapIO) -> Self {
+    pub fn from_ram_and_mmio(ram_ref: Rc<UnsafeCell<Ram>>, mmio: MemoryMapIO) -> Self {
         Self {
             mmio: mmio,
             page_table: PageTableWalker::new(0, config::VirtualMemoryMode::None),
@@ -190,8 +190,8 @@ impl VirtAddrManager {
         self.mmio.write_by_type(paddr.into(), data)
     }
 
-    #[cfg(test)]
-    pub(crate) fn get_raw_ptr(&self) -> *mut u8 {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn get_raw_ptr(&self) -> *mut u8 {
         unsafe { &mut *self.ram.get() }.get_raw_ptr()
     }
 

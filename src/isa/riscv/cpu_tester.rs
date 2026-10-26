@@ -1,8 +1,10 @@
-#![cfg(test)]
+#![cfg(any(test, feature = "test-support"))]
 
 use std::{cell::UnsafeCell, fmt::Debug, rc::Rc};
 
+#[cfg(test)]
 use rand::{Rng, SeedableRng};
+#[cfg(test)]
 use rand_chacha::ChaCha12Rng;
 
 use crate::{
@@ -13,17 +15,24 @@ use crate::{
             NamedCsrReg,
             csr_macro::{Mstatus, Vl, Vtype},
         },
-        decoder::{DecodeInstr, Decoder},
+        decoder::Decoder,
         executor::RVCPU,
-        instruction::{RVInstrInfo, instr_table::RiscvInstr},
         isa_builder::TEST_ISA,
         mmu::VirtAddrManager,
         vector::types::{Vlmul, Vsew},
     },
     ram::Ram,
-    ram_config::{self, BASE_ADDR},
-    utils::{UnsignedInteger, sign_extend},
+    ram_config::BASE_ADDR,
+    utils::UnsignedInteger,
 };
+
+#[cfg(test)]
+use crate::isa::riscv::{
+    decoder::DecodeInstr,
+    instruction::{RVInstrInfo, instr_table::RiscvInstr},
+};
+#[cfg(test)]
+use crate::utils::sign_extend;
 
 pub struct TestCPUBuilder {
     cpu: Box<RVCPU>,
@@ -237,11 +246,13 @@ fn assert_register_state_eq(label: &str, expected: &RVCPU, actual: &RVCPU) {
     }
 }
 
+#[cfg(test)]
 fn assert_execution_state_eq(label: &str, expected: &RVCPU, actual: &RVCPU) {
     assert_eq!(actual.pc, expected.pc, "{label}: PC differs");
     assert_register_state_eq(label, expected, actual);
 }
 
+#[cfg(test)]
 fn run_codegen_if_supported<F>(decoded: DecodeInstr, build: &F, interpreter: &RVCPU)
 where
     F: Fn(TestCPUBuilder) -> TestCPUBuilder,
@@ -259,6 +270,7 @@ where
     assert_execution_state_eq(&label, interpreter, &jit_cpu);
 }
 
+#[cfg(test)]
 pub fn run_test_exec<F, G>(instr: RiscvInstr, info: RVInstrInfo, build: F, check: G)
 where
     F: Fn(TestCPUBuilder) -> TestCPUBuilder,
@@ -279,6 +291,7 @@ where
     );
 }
 
+#[cfg(test)]
 pub fn run_test_exec_decode<F, G>(raw_instr: u32, build: F, check: G)
 where
     F: Fn(TestCPUBuilder) -> TestCPUBuilder,
@@ -293,6 +306,7 @@ where
     run_codegen_if_supported(decoded, &build, &cpu);
 }
 
+#[cfg(test)]
 pub fn run_test_cpu_step<F, G>(raw_instrs: &[u32], build: F, check: G)
 where
     F: Fn(TestCPUBuilder) -> TestCPUBuilder,
@@ -301,10 +315,7 @@ where
     let make_cpu = || {
         let mut builder = build(TestCPUBuilder::new());
         for (i, inst) in raw_instrs.iter().enumerate() {
-            builder = builder.mem(
-                (size_of::<u32>() * i) as WordType + ram_config::BASE_ADDR,
-                *inst,
-            );
+            builder = builder.mem((size_of::<u32>() * i) as WordType + BASE_ADDR, *inst);
         }
         builder.build()
     };
@@ -325,10 +336,12 @@ where
     assert_execution_state_eq("JIT executor/interpreter", &cpu, &jit_cpu);
 }
 
+#[cfg(test)]
 pub struct ExecTester {
     rng: ChaCha12Rng,
 }
 
+#[cfg(test)]
 impl ExecTester {
     pub fn new() -> Self {
         Self {

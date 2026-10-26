@@ -441,11 +441,7 @@ impl PLIC {
         self.layout.set_source_level(interrupt_id, level);
     }
 
-    pub(crate) fn register_device(
-        &mut self,
-        device: NonNull<dyn PlicDevice>,
-        interrupt_id: PeriphIrqId,
-    ) {
+    pub fn register_device(&mut self, device: NonNull<dyn PlicDevice>, interrupt_id: PeriphIrqId) {
         assert!(is_valid_interrupt_id(interrupt_id));
         self.peripheral_irq_devices[interrupt_id as usize] = Some(device);
     }

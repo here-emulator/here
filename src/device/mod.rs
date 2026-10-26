@@ -39,20 +39,20 @@ macro_rules! dispatch_read_write {
     };
 }
 
-pub(crate) mod aclint;
+pub mod aclint;
 pub mod device_manager;
 mod id_allocator;
 pub mod irq;
 pub mod uart16550a;
-pub(crate) use id_allocator::*;
-pub(crate) mod mmio;
-pub(crate) mod plic;
-pub(crate) mod power_manager;
+pub use id_allocator::IdAllocator;
+pub mod mmio;
+pub mod plic;
+pub mod power_manager;
 #[cfg(all(feature = "test-device", not(target_arch = "wasm32")))]
-pub(crate) mod sample_timer;
+pub mod sample_timer;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod task;
-pub(crate) mod virtio;
+pub mod virtio;
 
 #[allow(unused)]
 pub(crate) mod spi;

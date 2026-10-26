@@ -40,7 +40,7 @@ const VIRTIO_BLOCK_TASK_CAPACITY: usize = VIRTQUEUE_MAX_SIZE as usize;
 #[rustfmt::skip]
 /// Standard VirtIO block feature bits. A variant is advertised only when the
 /// corresponding behavior is implemented and enabled by the device builder.
-pub(crate) enum VirtIOBlockFeature {
+pub enum VirtIOBlockFeature {
     SizeMax     = 1 << 1,   // Maximum segment size supported
     SegMax      = 1 << 2,   // Maximum number of segments supported
     Geometry    = 1 << 4,   // Disk geometry available
@@ -253,7 +253,7 @@ enum VirtIOBlockAsyncTask {
 }
 
 /// Owns the backing file and executes queued block requests on the task runtime.
-pub(crate) struct VirtIOBlockAsyncWorker {
+pub struct VirtIOBlockAsyncWorker {
     file: File,
     receiver: mpsc::Receiver<VirtIOBlockAsyncTask>,
 }
@@ -388,7 +388,7 @@ impl VirtIOBlockAsyncWorker {
 // ======================================
 //          Virtio Block Device
 // ======================================
-pub(crate) struct VirtIOBlkDevice {
+pub struct VirtIOBlkDevice {
     pub(crate) name: &'static str,
     pub(crate) status: u8,
     pub(crate) isr: Arc<AtomicU8>,

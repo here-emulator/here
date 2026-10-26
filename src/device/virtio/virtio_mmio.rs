@@ -105,7 +105,7 @@ impl VirtIOMMIOQueueStatus {
     }
 }
 
-pub(crate) struct VirtIOMMIO {
+pub struct VirtIOMMIO {
     device: Box<UnsafeCell<dyn VirtIODeviceTrait>>,
     host_features_sel: u32,
     guest_features_sel: u32,

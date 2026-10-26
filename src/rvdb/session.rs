@@ -84,10 +84,7 @@ impl<B: Board> RvdbSession<B> {
         Ok(false)
     }
 
-    pub(super) fn execute_command(
-        &mut self,
-        cmd: RvdbCommand,
-    ) -> Result<RvdbCommandResponse, String> {
+    pub fn execute_command(&mut self, cmd: RvdbCommand) -> Result<RvdbCommandResponse, String> {
         let output = self.handle_command(cmd)?;
 
         Ok(RvdbCommandResponse {
@@ -96,7 +93,7 @@ impl<B: Board> RvdbSession<B> {
         })
     }
 
-    pub(super) fn render_output(&self, output: &CommandOutput) -> String {
+    pub fn render_output(&self, output: &CommandOutput) -> String {
         self.printer.render(output)
     }
 

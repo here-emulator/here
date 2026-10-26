@@ -35,11 +35,7 @@ impl Ord for MemoryMapItem {
 }
 
 impl MemoryMapItem {
-    pub(crate) fn new<D: DeviceTrait>(
-        start: WordType,
-        size: WordType,
-        device: DeviceHandle<D>,
-    ) -> Self {
+    pub fn new<D: DeviceTrait>(start: WordType, size: WordType, device: DeviceHandle<D>) -> Self {
         Self {
             start,
             size,
@@ -65,7 +61,7 @@ pub struct MemoryMapIO {
 }
 
 impl MemoryMapIO {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn from_ram(ram: Rc<UnsafeCell<Ram>>) -> Self {
         Self {
             map: Vec::new(),
@@ -78,7 +74,7 @@ impl MemoryMapIO {
     ///
     /// `devices` must remain valid for the lifetime of this `MemoryMapIO` and
     /// access to the arena must be serialized with MMIO operations.
-    pub(crate) unsafe fn from_mmio_items(
+    pub unsafe fn from_mmio_items(
         ram: Rc<UnsafeCell<Ram>>,
         devices: NonNull<DeviceArena>,
         mut map: Vec<MemoryMapItem>,

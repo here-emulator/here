@@ -344,13 +344,13 @@ impl Vector {
 
     // This method will ignore segment argument, so DO NOT use this in load/store instruction.
     #[inline]
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn write_as_type<T>(&mut self, lmul: u8, idx: u8, value: &[T]) {
         self.vector_regfile.write(lmul, idx, value, 1).unwrap();
     }
 
     #[inline]
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn read_with_seg(
         &self,
         idx: u8,

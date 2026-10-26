@@ -28,10 +28,10 @@ pub use nostd_repl::{AsyncREPL, REPLResponse, RvdbChannelRx, RvdbChannelTx, Rvdb
 #[cfg(feature = "native-cli")]
 pub use sync_repl::SyncREPL;
 
-const PROMPT: &str = "(rvdb) ";
+pub const PROMPT: &str = "(rvdb) ";
 
 #[derive(clap::ValueEnum, Debug, Clone, PartialEq, Eq)]
-enum ClapAccessType {
+pub enum ClapAccessType {
     Read,
     Write,
 }
@@ -54,14 +54,14 @@ impl From<ClapAccessType> for AccessType {
     }
 }
 
-fn is_clap_display(error: &clap::Error) -> bool {
+pub fn is_clap_display(error: &clap::Error) -> bool {
     matches!(
         error.kind(),
         ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
     )
 }
 
-fn format_clap_error(error: clap::Error) -> String {
+pub fn format_clap_error(error: clap::Error) -> String {
     let message = error.to_string();
     message
         .strip_prefix("error: ")
@@ -75,7 +75,7 @@ fn format_clap_error(error: clap::Error) -> String {
     about = "Inspect and control a running RISC-V guest.",
     after_help = "Addresses are physical unless --virt is specified.\nEnter an empty line to repeat the previous command."
 )]
-enum RvdbCommand {
+pub enum RvdbCommand {
     /// Print registers, memory, and other CPU state.
     #[command(visible_alias = "p", subcommand)]
     Print(PrintCmd),
@@ -162,7 +162,7 @@ enum RvdbCommand {
 }
 
 #[derive(Debug, PartialEq, Eq, Subcommand)]
-enum PrintCmd {
+pub enum PrintCmd {
     /// Print the current program counter.
     Pc,
 
@@ -227,7 +227,7 @@ enum PrintCmd {
 }
 
 #[derive(Debug, PartialEq, Eq, Subcommand)]
-enum InfoCmd {
+pub enum InfoCmd {
     /// List active breakpoints.
     #[command(visible_aliases = ["b", "bp", "break"])]
     Breakpoints,
@@ -238,7 +238,7 @@ enum InfoCmd {
 }
 
 #[derive(Debug, PartialEq, Eq, Subcommand)]
-enum FTraceCmd {
+pub enum FTraceCmd {
     /// Start recording function calls and returns.
     Start,
 
@@ -269,7 +269,7 @@ pub(crate) enum PrintObject {
 }
 
 #[derive(Debug, PartialEq)]
-pub(crate) struct DbgInstrLine {
+pub struct DbgInstrLine {
     pub addr: u64,
     pub raw: Option<RawInstr>,
     pub decoded: Option<DecodeInstr>,
@@ -278,7 +278,7 @@ pub(crate) struct DbgInstrLine {
 }
 
 #[derive(Debug, PartialEq)]
-pub(crate) enum CommandOutput {
+pub enum CommandOutput {
     None,
     Exit,
 

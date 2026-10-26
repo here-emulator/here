@@ -12,7 +12,7 @@ const _: () = assert!(VIRT_MAX_CONTEXTS <= PLIC_SPEC_MAX_CONTEXTS);
 
 pub(super) type PlicPriority = u32;
 pub(super) type PlicRegisterWord = u32;
-pub(crate) type PlicContextId = usize;
+pub type PlicContextId = usize;
 pub(super) type PlicRegisterIndex = usize;
 
 pub(super) const REGISTER_BYTES: WordType = size_of::<PlicRegisterWord>() as WordType;

@@ -7,7 +7,7 @@ use crate::{
 };
 
 pub mod address;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub mod cpu_tester;
 pub mod csr_reg;
 mod debug_target;

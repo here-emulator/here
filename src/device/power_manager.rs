@@ -4,7 +4,7 @@ use crate::{
 };
 use std::sync::atomic::AtomicU16;
 
-pub(crate) const POWER_OFF_CODE: u16 = 0x5555;
+pub const POWER_OFF_CODE: u16 = 0x5555;
 pub static POWER_STATUS: AtomicU16 = AtomicU16::new(0);
 
 /// MMIO region size for the power manager device.

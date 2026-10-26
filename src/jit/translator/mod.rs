@@ -564,7 +564,7 @@ impl Translator {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub struct MockInstrStream {
     insts: Vec<DecodeInstr>,
     idx: usize,
@@ -573,7 +573,7 @@ pub struct MockInstrStream {
     guest_bytes: u64,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl MockInstrStream {
     pub fn new(pc: WordType, insts: Vec<DecodeInstr>) -> Self {
         Self {
@@ -590,7 +590,7 @@ impl MockInstrStream {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl InstrStream for MockInstrStream {
     fn peek(&mut self) -> Option<DecodeInstr> {
         self.insts.get(self.idx).copied()
@@ -627,7 +627,7 @@ impl InstrStream for MockInstrStream {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl Translator {
     pub fn translate_single_instruction(
         &self,
