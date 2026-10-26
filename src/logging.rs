@@ -65,7 +65,6 @@ fn format_msg_elapsed_time(
 #[must_use]
 pub fn init(level: LogLevel) -> LoggerHandle {
     let mut builder = LogSpecBuilder::new();
-    builder.module("rustyline", log::LevelFilter::Warn);
     builder.default(level.to_level_filter());
 
     Logger::with(builder.build())

@@ -9,8 +9,7 @@ use std::{
 pub use crate::device::uart16550a::{UartIoError, UartIoMode};
 
 use crate::{
-    DeviceConfig,
-    board::{Board, BoardStatus, VirtBoardPlicContextId, builder::RVBoardBuilder},
+    board::{Board, BoardStatus, DeviceConfig, VirtBoardPlicContextId, builder::RVBoardBuilder},
     clock::{Timer, VirtualClock},
     config::arch_config::WordType,
     device::{

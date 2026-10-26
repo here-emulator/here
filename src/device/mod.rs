@@ -50,6 +50,8 @@ pub(crate) mod plic;
 pub(crate) mod power_manager;
 #[cfg(all(feature = "test-device", not(target_arch = "wasm32")))]
 pub(crate) mod sample_timer;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod task;
 pub(crate) mod virtio;
 
 #[allow(unused)]

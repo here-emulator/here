@@ -15,8 +15,10 @@ use here::isa::riscv::decoder::Decoder;
 use here::isa::riscv::isa_builder::DEFAULT_ISA;
 use here::rvdb::{Printer, RvdbSession, SyncREPL};
 use here::{
-    DeviceConfig,
-    board::virt::{ExecutorBackendKind, MemoryImage, UartIoMode, VirtBoard, VirtBoardConfig},
+    board::{
+        DeviceConfig,
+        virt::{ExecutorBackendKind, MemoryImage, UartIoMode, VirtBoard, VirtBoardConfig},
+    },
     config::arch_config::WordType,
 };
 

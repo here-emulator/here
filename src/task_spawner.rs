@@ -1,25 +1,9 @@
-use std::{pin::Pin, thread::JoinHandle};
+use std::thread::JoinHandle;
 
 use tokio::runtime::Builder;
 use tokio::sync::watch;
 
-type TaskFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
-
-/// Choose [`DeviceTask::run`] when you need cancel control (e.g. flush file writes).
-pub trait DeviceTask: Send + Sized + 'static {
-    fn run(self, mut cancel: watch::Receiver<bool>) -> impl Future<Output = ()> + Send + 'static {
-        async move {
-            tokio::select! {
-                _ = cancel.changed() => {}
-                _ = self.run_simple() => {}
-            }
-        }
-    }
-
-    fn run_simple(self) -> impl Future<Output = ()> + Send + 'static {
-        async move {}
-    }
-}
+use crate::device::task::{DeviceTask, TaskFuture};
 
 pub struct TaskSpawner {
     tasks: Vec<TaskFuture>,

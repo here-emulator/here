@@ -8,10 +8,8 @@ use rustc_apfloat::{
 use rustc_apfloat::Round as APFloatRound;
 
 use crate::{
-    fpu::{Classification, Round},
-    utils::{
-        BinaryOp, CmpOp, FloatPoint, InFloat, SignedInteger, TruncateFrom, WordTrait, make_mask,
-    },
+    fpu::{BinaryOp, Classification, CmpOp, FloatPoint, InFloat, Round},
+    utils::{SignedInteger, TruncateFrom, WordTrait, make_mask},
 };
 
 impl Into<APFloatRound> for Round {

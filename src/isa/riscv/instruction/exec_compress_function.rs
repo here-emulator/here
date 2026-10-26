@@ -4,6 +4,7 @@
 use crate::{
     config::arch_config::WordType,
     debug_unreachable,
+    fpu::FloatPoint,
     isa::riscv::{
         csr_reg::csr_macro::Minstret,
         executor::RVCPU,
@@ -14,7 +15,7 @@ use crate::{
         },
         trap::Exception,
     },
-    utils::{FloatPoint, TruncateTo, UnsignedInteger, wrapping_add_as_signed},
+    utils::{TruncateTo, UnsignedInteger, wrapping_add_as_signed},
 };
 
 pub(super) fn exec_compress_arith<F>(info: RVInstrInfo, cpu: &mut RVCPU) -> Result<(), Exception>

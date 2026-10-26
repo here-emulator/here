@@ -4,7 +4,7 @@ use tokio::sync::mpsc::{
 };
 
 #[cfg(feature = "native-cli")]
-use crate::task_spawner::DeviceTask;
+use crate::device::task::DeviceTask;
 
 pub const UART_INPUT_CAPACITY: usize = 1024;
 

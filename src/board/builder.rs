@@ -360,7 +360,7 @@ mod native {
     use super::*;
 
     use crate::{
-        DeviceConfig,
+        board::DeviceConfig,
         device::virtio::{
             virtio_block::VirtIOBlkDeviceBuilder, virtio_device::VirtIODeviceEnum,
             virtio_mmio::VirtIOMMIO,
@@ -432,7 +432,7 @@ mod native_tests {
     use crate::board::virt::*;
     use crate::device::virtio::virtio_block::init_block_file;
     use crate::device::{aclint::CLINT_SIZE, plic::PLIC_SIZE, power_manager::POWER_MANAGER_SIZE};
-    use crate::{DeviceConfig, device::virtio::virtio_device::VirtIODeviceEnum};
+    use crate::{board::DeviceConfig, device::virtio::virtio_device::VirtIODeviceEnum};
 
     fn add_default_mmio_devices(builder: RVBoardBuilder) -> RVBoardBuilder {
         builder

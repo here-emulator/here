@@ -2,10 +2,9 @@ mod commands;
 mod printer;
 mod session;
 
+#[cfg(target_arch = "wasm32")]
 mod nostd_repl;
 
-#[cfg(feature = "native-cli")]
-mod native_repl;
 #[cfg(feature = "native-cli")]
 mod sync_repl;
 
@@ -23,10 +22,9 @@ use std::fmt;
 pub use printer::Printer;
 pub use session::{RvdbCommandResponse, RvdbSession};
 
+#[cfg(target_arch = "wasm32")]
 pub use nostd_repl::{AsyncREPL, REPLResponse, RvdbChannelRx, RvdbChannelTx, RvdbChannels};
 
-#[cfg(feature = "native-cli")]
-pub use native_repl::RustylineREPL;
 #[cfg(feature = "native-cli")]
 pub use sync_repl::SyncREPL;
 

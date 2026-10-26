@@ -1,7 +1,8 @@
 use crate::{
     config::arch_config::WordType,
+    fpu::FloatPoint,
     isa::riscv::{executor::RVCPU, trap::Exception},
-    utils::{FloatPoint, TruncateTo, UnsignedInteger, sign_extend},
+    utils::{TruncateTo, UnsignedInteger, sign_extend},
 };
 
 #[inline(always)]

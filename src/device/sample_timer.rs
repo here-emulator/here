@@ -13,8 +13,7 @@ use tokio::{sync::watch, time::Instant};
 
 use crate::{
     config::arch_config::WordType,
-    device::{DeviceTrait, MemError, PlicDevice, plic::PeriphIrqId},
-    task_spawner::DeviceTask,
+    device::{DeviceTrait, MemError, PlicDevice, plic::PeriphIrqId, task::DeviceTask},
 };
 
 pub const SAMPLE_TIMER_INTERRUPT_ID: PeriphIrqId = 63;

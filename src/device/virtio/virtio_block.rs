@@ -22,14 +22,14 @@ use tokio::{
     sync::{mpsc, watch},
 };
 
-use crate::{
-    device::virtio::{
+use crate::device::{
+    task::DeviceTask,
+    virtio::{
         config::{VIRTQUEUE_MAX_SIZE, VirtIOFeatureSet, virtio_reserved_feature},
         virtio_device::VirtIODeviceTrait,
         virtio_mmio::{VIRTIO_DEVICE_ID_BLOCK, VirtIODeviceStatus},
         virtio_queue::{VirtQueue, VirtQueueCompletion, VirtQueueDesc},
     },
-    task_spawner::DeviceTask,
 };
 
 pub(super) const SECTOR_SIZE: usize = 512;
@@ -819,13 +819,17 @@ mod test {
     };
 
     use crate::{
-        device::virtio::virtio_queue::{
-            VirtQueueAvail, VirtQueueAvailFlag, VirtQueueDescFlag, VirtQueueUsed, VirtQueueUsedFlag,
+        device::{
+            task::DeviceTask,
+            virtio::virtio_queue::{
+                VirtQueueAvail, VirtQueueAvailFlag, VirtQueueDescFlag, VirtQueueUsed,
+                VirtQueueUsedFlag,
+            },
         },
         ram::Ram,
         ram_config,
-        task_spawner::TaskSpawner,
     };
+    use tokio::sync::watch;
 
     use super::*;
     const QUEUE_NUM: usize = 8;
@@ -903,9 +907,13 @@ mod test {
         let mut ram = Ram::new();
         let ram_base = &mut ram[0] as *mut u8;
         let (mut virt_device, worker) = VirtIOBlkDeviceBuilder::new(ram_base, file_name).build();
-        let mut spawner = TaskSpawner::new();
-        spawner.register(worker);
-        let _task_handle = spawner.start();
+        let (cancel_tx, cancel_rx) = watch::channel(false);
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        let worker_task = runtime.spawn(worker.run(cancel_rx));
         virt_device.set_queue_num(QUEUE_NUM as u32);
 
         let virtq_desc_base = 0x8000_2000 as u64;
@@ -1002,6 +1010,9 @@ mod test {
         let used_elem = used_ring.ring(QUEUE_NUM as u32)[0];
         assert_eq!(used_elem.get_len(), 0x201);
         assert_eq!(used_elem.get_id(), 0);
+
+        let _ = cancel_tx.send(true);
+        runtime.block_on(worker_task).unwrap();
     }
 
     #[test]

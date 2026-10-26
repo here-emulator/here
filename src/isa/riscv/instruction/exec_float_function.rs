@@ -4,14 +4,11 @@ use super::normal_float_exec;
 use crate::{
     config::arch_config::WordType,
     debug_unreachable,
-    fpu::{Round, soft_float::*},
+    fpu::{BinaryOp, CmpOp, FloatPoint, Round, soft_float::*},
     isa::riscv::{
         csr_reg::csr_macro::Fcsr, executor::RVCPU, instruction::RVInstrInfo, trap::Exception,
     },
-    utils::{
-        BinaryOp, CmpOp, FloatPoint, TruncateTo, TruncateToBits, WordTrait, sign_extend,
-        wrapping_add_as_signed,
-    },
+    utils::{TruncateTo, TruncateToBits, WordTrait, sign_extend, wrapping_add_as_signed},
 };
 
 fn rm_to_round(cpu: &mut RVCPU, rm: u8) -> Round {
