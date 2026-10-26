@@ -14,12 +14,30 @@ use crate::nostd_repl::RvdbChannelTx;
 use crate::nostd_repl::RvdbChannels;
 use here_board::Board;
 use here_board::BoardStatus;
+use here_board::builder::RVBoardBuilder;
 use here_board::load::ELFLoader;
 use here_board::load::SymTab;
+use here_board::load::load_bin;
+use here_board::virt::UartIoMode;
 use here_board::virt::VirtBoard;
+use here_board::virt::config::*;
+use here_device::aclint::CLINT_SIZE;
+use here_device::plic::PLIC_SIZE;
+use here_device::power_manager::POWER_MANAGER_SIZE;
+use here_device::ram::Ram;
 use here_device::uart16550a::UartBytePort;
 use here_isa::DebugTarget;
 use here_types::REGFILE_CNT;
+
+/// Assembles the standard virt board used by the wasm frontend.
+fn build_board(ram: Ram) -> VirtBoard {
+    RVBoardBuilder::new(ram)
+        .add_power_manager(POWER_MANAGER_BASE, POWER_MANAGER_SIZE)
+        .add_clint(CLINT_BASE, CLINT_SIZE)
+        .add_plic(PLIC_BASE, PLIC_SIZE)
+        .add_uart(UART_BASE, UART_SIZE, UART_IRQ, UartIoMode::External)
+        .build()
+}
 
 #[wasm_bindgen(start)]
 fn init_on_wasm() {
@@ -36,8 +54,12 @@ pub struct WasmEmulator {
 #[wasm_bindgen]
 impl WasmEmulator {
     pub fn from_elf_bytes(bytes: &[u8]) -> Result<Self, JsValue> {
-        let mut inner = VirtBoard::from_elf(bytes.to_vec())
-            .map_err(|e| JsValue::from_str(&format!("ELF load failed: {e}")))?;
+        let loader = ELFLoader::try_new(bytes.to_vec())
+            .ok_or_else(|| JsValue::from_str("ELF load failed: Invalid ELF file"))?;
+        let mut ram = Ram::new();
+        loader.load_to_ram(&mut ram);
+        let mut inner = build_board(ram);
+        inner.loader = Some(loader);
         let uart_port = inner
             .take_uart_port()
             .expect("WASM boards use External UART I/O");
@@ -48,8 +70,9 @@ impl WasmEmulator {
     }
 
     pub fn from_bin_bytes(bytes: &[u8]) -> Result<Self, JsValue> {
-        let mut inner = VirtBoard::from_binary_with(bytes, Default::default())
-            .map_err(|e| JsValue::from_str(&format!("binary load failed: {e}")))?;
+        let mut ram = Ram::new();
+        load_bin(&mut ram, bytes);
+        let mut inner = build_board(ram);
         let uart_port = inner
             .take_uart_port()
             .expect("WASM boards use External UART I/O");

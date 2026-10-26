@@ -1,0 +1,21 @@
+[package]
+name = "here-test-support"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+default = ["riscv64"]
+riscv32 = ["here-board/riscv32", "here-jit/riscv32"]
+riscv64 = ["here-board/riscv64", "here-jit/riscv64"]
+
+[dependencies]
+here-board = { workspace = true, features = ["native"] }
+here-device = { workspace = true }
+here-isa = { workspace = true }
+here-jit = { workspace = true }
+
+[dev-dependencies]
+crossterm.workspace = true
+here-types = { workspace = true }

@@ -12,6 +12,7 @@ members = [
     "crates/here-dbg",
     "crates/here-bin",
     "crates/here-wasm",
+    "crates/here-test-support",
 ]
 
 [workspace.package]
@@ -25,7 +26,8 @@ here-board = { path = "crates/here-board", default-features = false }
 here-dbg = { path = "crates/here-dbg", default-features = false }
 here-device = { path = "crates/here-device", default-features = false }
 here-isa = { path = "crates/here-isa", default-features = false }
-here-jit = { path = "crates/here-jit" }
+here-jit = { path = "crates/here-jit", default-features = false }
+here-test-support = { path = "crates/here-test-support" }
 here-types = { path = "crates/here-types" }
 
 xmas-elf = "0.7.0"

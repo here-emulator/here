@@ -229,11 +229,12 @@ impl<B: Board> target::ext::base::singlethread::SingleThreadSingleStep for GdbDe
 mod tests {
     use super::*;
     use gdbstub::target::ext::base::singlethread::SingleThreadBase;
-    use here_board::virt::VirtBoard;
+    use here_board::virt::UartIoMode;
+    use here_test_support::empty_board;
 
     #[test]
     fn read_addrs_fails_when_any_byte_is_unreadable() {
-        let board = VirtBoard::from_binary_with(&[], Default::default()).unwrap();
+        let board = empty_board(UartIoMode::External);
         let mut debugger = GdbDebugger::new(board);
         let mut data = [0xaa; 4];
 

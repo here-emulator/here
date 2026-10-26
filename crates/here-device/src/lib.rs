@@ -51,7 +51,7 @@ pub mod mmio;
 pub mod plic;
 pub mod power_manager;
 pub mod ram;
-#[cfg(all(feature = "test-device", feature = "native"))]
+#[cfg(feature = "native")]
 pub mod sample_timer;
 #[cfg(feature = "native")]
 pub mod task;

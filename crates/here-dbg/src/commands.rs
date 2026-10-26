@@ -480,7 +480,14 @@ fn parse_csr(s: &str) -> Result<WordType, String> {
 mod tests {
     use super::*;
 
+    use here_board::virt::UartIoMode;
     use here_board::virt::VirtBoard;
+    use here_test_support::board_from_binary;
+    use here_test_support::empty_board;
+
+    fn empty_ext_board() -> VirtBoard {
+        empty_board(UartIoMode::External)
+    }
 
     #[test]
     #[cfg(feature = "riscv64")]
@@ -497,7 +504,7 @@ mod tests {
     #[test]
     #[cfg(feature = "riscv64")]
     fn test_regs_range_does_not_overflow() {
-        let board = VirtBoard::from_binary_with(&[], Default::default()).unwrap();
+        let board = empty_ext_board();
         let mut session = RvdbSession::new(board);
         assert!(matches!(
             session.handle_command(RvdbCommand::Print(PrintCmd::Regs {
@@ -513,7 +520,7 @@ mod tests {
         for half in instrs {
             bytes.extend_from_slice(&half.to_le_bytes());
         }
-        VirtBoard::from_binary_with(&bytes, Default::default()).unwrap()
+        board_from_binary(&bytes, UartIoMode::External)
     }
 
     #[test]
@@ -571,7 +578,7 @@ mod tests {
 
     #[test]
     fn test_breakpoint_ops() {
-        let board = VirtBoard::from_binary_with(&[], Default::default()).unwrap();
+        let board = empty_ext_board();
         let mut session = RvdbSession::new(board);
 
         const ADDR: WordType = 0x80001000;
@@ -630,7 +637,7 @@ mod tests {
 
     #[test]
     fn test_info_breakpoints_preserves_address_space() {
-        let board = VirtBoard::from_binary_with(&[], Default::default()).unwrap();
+        let board = empty_ext_board();
         let mut session = RvdbSession::new(board);
 
         const ADDR: WordType = 0x80001000;
@@ -671,7 +678,7 @@ mod tests {
 
     #[test]
     fn parse_commands() {
-        let board = VirtBoard::from_binary_with(&[], Default::default()).unwrap();
+        let board = empty_ext_board();
         let session = RvdbSession::new(board);
         assert_eq!(
             session.parse_line("p pc").unwrap(),

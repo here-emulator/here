@@ -15,21 +15,38 @@ use crate::sync_repl::SyncREPL;
 use clap::Parser;
 use here_board::Board;
 use here_board::DeviceConfig;
-use here_board::virt::ExecutorBackendKind;
-use here_board::virt::MemoryImage;
+use here_board::builder::RVBoardBuilder;
+use here_board::load::ELFLoader;
+use here_board::load::load_bin;
 use here_board::virt::UartIoMode;
 use here_board::virt::VirtBoard;
-use here_board::virt::VirtBoardConfig;
+use here_board::virt::config::*;
 use here_dbg::Printer;
 use here_dbg::RvdbSession;
+use here_device::aclint::CLINT_SIZE;
+use here_device::plic::PLIC_SIZE;
+use here_device::power_manager::POWER_MANAGER_SIZE;
+use here_device::ram::Ram;
+use here_device::sample_timer::SAMPLE_TIMER_INTERRUPT_ID;
+use here_device::sample_timer::SAMPLE_TIMER_SIZE;
 use here_isa::DebugTarget;
 use here_isa::riscv::address::Address;
 use here_isa::riscv::decoder::Decoder;
+use here_isa::riscv::executor::ExecutorBackend;
+use here_isa::riscv::executor::InterpreterBackend;
 use here_isa::riscv::isa_builder::DEFAULT_ISA;
 use here_types::WordType;
+use here_types::ram_config;
 
 use crate::logging::LogLevel;
 use crate::welcome::display_welcome_message;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
+enum ExecutorBackendKind {
+    #[default]
+    Interpreter,
+    Jit,
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, clap::ValueEnum)]
 enum TargetFormat {
@@ -204,6 +221,10 @@ struct Args {
     #[arg(long = "dtb", value_name = "FILE")]
     dtb: Option<std::path::PathBuf>,
 
+    /// Attach the sample millisecond timer at this MMIO base address.
+    #[arg(long = "sample-timer", value_name = "ADDRESS", value_parser = parse_address)]
+    sample_timer: Option<WordType>,
+
     /// Load --dtb at this guest physical address (default: 0x9f000000).
     #[arg(
         long = "dtb-address",
@@ -326,46 +347,26 @@ fn dump_signature(
     Ok(())
 }
 
-fn build_board(args: &Args) -> Result<VirtBoard, String> {
-    let decoder = Decoder::from_isa_str(&args.isa).unwrap_or_else(|e| {
-        eprintln!("Invalid ISA string {:?}: {}", args.isa, e);
-        std::process::exit(2);
-    });
-    if args.executor != ExecutorBackendKind::Jit && (args.dump_jit.is_some() || args.jit_stats) {
-        eprintln!("--dump-jit and --jit-stats require --executor jit");
-        std::process::exit(2);
-    }
-
-    let mut board_config = VirtBoardConfig::new()
-        .with_decoder(decoder)
-        .with_virtio_devices(args.devices.clone())
-        .with_uart_io(UartIoMode::Stdio)
-        .with_executor_backend(args.executor);
-
-    if let Some(dump_path) = &args.dump_jit {
-        board_config = board_config.with_dump_jit(dump_path);
-    }
-
-    if let Some(dtb_path) = &args.dtb {
-        let dtb_address = args.dtb_address.unwrap_or(DEFAULT_DTB_ADDRESS);
-        assert!(
-            dtb_address.is_multiple_of(8),
-            "DTB address 0x{dtb_address:x} must be 8-byte aligned"
-        );
-        let dtb = std::fs::read(dtb_path)
-            .unwrap_or_else(|error| panic!("Failed to read DTB {}: {error}", dtb_path.display()));
-        board_config = board_config
-            .with_memory_image(MemoryImage::new(dtb_address, dtb))
-            .with_reg(11, dtb_address);
-
-        if args.verbose {
-            println!(
-                "DTB {} will be loaded at 0x{dtb_address:x} and passed in a1\r",
-                dtb_path.display()
-            );
+fn build_executor_backend(args: &Args) -> Result<Box<dyn ExecutorBackend>, String> {
+    match args.executor {
+        ExecutorBackendKind::Interpreter => Ok(Box::new(InterpreterBackend)),
+        ExecutorBackendKind::Jit => {
+            let mut jit = here_jit::JitRuntime::try_new().map_err(|error| error.to_string())?;
+            if let Some(path) = &args.dump_jit {
+                jit.enable_dump(path).map_err(|error| {
+                    format!(
+                        "failed to initialize JIT dump to {}: {error}",
+                        path.display()
+                    )
+                })?;
+            }
+            Ok(Box::new(jit))
         }
     }
+}
 
+/// Loads the target image into fresh guest RAM, plus its ELF loader when applicable.
+fn load_program(args: &Args) -> Result<(Ram, Option<ELFLoader>), String> {
     let ext = args
         .path
         .extension()
@@ -378,7 +379,10 @@ fn build_board(args: &Args) -> Result<VirtBoard, String> {
                 println!("ELF file detected\r");
             }
             let bytes = std::fs::read(args.path.clone()).expect("Failed to read target file");
-            VirtBoard::from_elf_with(bytes, board_config)
+            let loader = ELFLoader::try_new(bytes).ok_or_else(|| "Invalid ELF file".to_string())?;
+            let mut ram = Ram::new();
+            loader.load_to_ram(&mut ram);
+            Ok((ram, Some(loader)))
         }
 
         (TargetFormat::Bin, _) | (TargetFormat::Auto, "bin") => {
@@ -386,11 +390,82 @@ fn build_board(args: &Args) -> Result<VirtBoard, String> {
                 println!("Binary file detected\r");
             }
             let bytes = std::fs::read(args.path.clone()).expect("Failed to read target file");
-            VirtBoard::from_binary_with(&bytes, board_config)
+            let mut ram = Ram::new();
+            load_bin(&mut ram, &bytes);
+            Ok((ram, None))
         }
 
         _ => Err("Format is not supported at present.".to_string()),
     }
+}
+
+fn build_board(args: &Args) -> Result<VirtBoard, String> {
+    let decoder = Decoder::from_isa_str(&args.isa).unwrap_or_else(|e| {
+        eprintln!("Invalid ISA string {:?}: {}", args.isa, e);
+        std::process::exit(2);
+    });
+    if args.executor != ExecutorBackendKind::Jit && (args.dump_jit.is_some() || args.jit_stats) {
+        eprintln!("--dump-jit and --jit-stats require --executor jit");
+        std::process::exit(2);
+    }
+
+    let executor_backend = build_executor_backend(args)?;
+    let (mut ram, loader) = load_program(args)?;
+
+    let mut initial_registers = Vec::new();
+    if let Some(dtb_path) = &args.dtb {
+        let dtb_address = args.dtb_address.unwrap_or(DEFAULT_DTB_ADDRESS);
+        assert!(
+            dtb_address.is_multiple_of(8),
+            "DTB address 0x{dtb_address:x} must be 8-byte aligned"
+        );
+        let dtb = std::fs::read(dtb_path)
+            .unwrap_or_else(|error| panic!("Failed to read DTB {}: {error}", dtb_path.display()));
+        let offset = dtb_address
+            .checked_sub(ram_config::BASE_ADDR)
+            .ok_or_else(|| {
+                format!(
+                    "DTB address 0x{dtb_address:x} is below RAM base 0x{:x}",
+                    ram_config::BASE_ADDR
+                )
+            })?;
+        ram.try_insert_section(&dtb, offset)
+            .map_err(|error| format!("failed to load DTB at 0x{dtb_address:x}: {error}"))?;
+        initial_registers.push((11, dtb_address));
+
+        if args.verbose {
+            println!(
+                "DTB {} will be loaded at 0x{dtb_address:x} and passed in a1\r",
+                dtb_path.display()
+            );
+        }
+    }
+
+    let mut builder = RVBoardBuilder::new(ram)
+        .with_decoder(decoder)
+        .with_initial_registers(initial_registers)
+        .with_executor_backend(executor_backend)
+        .add_power_manager(POWER_MANAGER_BASE, POWER_MANAGER_SIZE)
+        .add_clint(CLINT_BASE, CLINT_SIZE)
+        .add_plic(PLIC_BASE, PLIC_SIZE)
+        .add_uart(UART_BASE, UART_SIZE, UART_IRQ, UartIoMode::Stdio);
+
+    for device in &args.devices {
+        builder = builder.add_virtio_device(
+            VIRTIO_MMIO_BASE,
+            VIRTIO_MMIO_SIZE,
+            VIRTIO_IRQ_BASE,
+            device.clone(),
+        );
+    }
+
+    if let Some(base) = args.sample_timer {
+        builder = builder.add_sample_timer(base, SAMPLE_TIMER_SIZE, SAMPLE_TIMER_INTERRUPT_ID);
+    }
+
+    let mut board = builder.build();
+    board.loader = loader;
+    Ok(board)
 }
 
 fn run_rvdb(board: &mut VirtBoard, args: &Args, interactive: bool) {

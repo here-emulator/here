@@ -52,9 +52,19 @@ pub struct InstrMeta {
     pub guest_cnt: u32,
 }
 
-/// Info that is immutable during translation.
+/// Immutable info for one translation pass.
+#[derive(Clone, Copy, Debug)]
 pub struct TranslatorContext {
     pub ialign: WordType,
+}
+
+impl TranslatorContext {
+    /// Snapshot of the CPU state that affects translation (currently `misa` C).
+    pub fn from_cpu(cpu: &mut RVCPU) -> Self {
+        Self {
+            ialign: cpu.instruction_alignment(),
+        }
+    }
 }
 
 /// Abstract instruction stream that supports peeking the next instruction.
@@ -157,23 +167,18 @@ struct BranchTerminator {
     else_pc: u64,
 }
 
-pub struct Translator {
-    trans_context: TranslatorContext,
-}
+pub struct Translator;
 
 // TODO: Remove `len` on `DecodeInstr`, and use that instead of `InstAndInfo`.
 type InstrAndInfo = (RiscvInstr, RVInstrInfo);
 
 impl Translator {
-    pub fn new(trans_context: TranslatorContext) -> Self {
-        Self { trans_context }
-    }
-
     fn translate_jmp(
         &self,
         builder: &mut IRBuilder,
         inst: &InstrAndInfo,
         meta: &InstrMeta,
+        ctx: &TranslatorContext,
     ) -> Option<(Value, BlockStopReason)> {
         use RVInstrInfo as Info;
         use RiscvInstr::*;
@@ -195,7 +200,7 @@ impl Translator {
             (target, BlockStopReason::DynamicJump(inst.0))
         } else {
             let target = meta.instr_pc.wrapping_add(offset);
-            if (target & (self.trans_context.ialign - 1)) != 0 {
+            if (target & (ctx.ialign - 1)) != 0 {
                 return None;
             }
             (target.into(), BlockStopReason::DirectJump(inst.0))
@@ -215,6 +220,7 @@ impl Translator {
         builder: &mut IRBuilder,
         inst: &InstrAndInfo,
         meta: &InstrMeta,
+        ctx: &TranslatorContext,
     ) -> Option<BranchTerminator> {
         use RVInstrInfo as Info;
         use RiscvInstr::*;
@@ -240,7 +246,7 @@ impl Translator {
         let target = meta.instr_pc.wrapping_add(offset);
         let fallthrough = meta.next_pc;
 
-        if (target & (self.trans_context.ialign - 1)) != 0 {
+        if (target & (ctx.ialign - 1)) != 0 {
             return None;
         }
 
@@ -479,6 +485,7 @@ impl Translator {
         stream: &mut S,
         pc: WordType,
         mut builder: IRBuilder,
+        ctx: &TranslatorContext,
     ) -> Result<TranslateResult, BlockStopReason> {
         let (ir_block, stop_reason) = loop {
             if stream.guest_cnt() >= MAX_BLOCK_INSTRUCTIONS {
@@ -516,12 +523,13 @@ impl Translator {
                 }
             }
 
-            if let Some((target, reason)) = self.translate_jmp(&mut builder, &inst_info, &meta) {
+            if let Some((target, reason)) = self.translate_jmp(&mut builder, &inst_info, &meta, ctx)
+            {
                 stream.consume_one();
                 break (builder.build_jmp(target), reason);
             }
 
-            if let Some(b) = self.translate_branch(&mut builder, &inst_info, &meta) {
+            if let Some(b) = self.translate_branch(&mut builder, &inst_info, &meta, ctx) {
                 stream.consume_one();
                 break (
                     builder.build_branch(b.cmp, b.src1, b.src2, b.then_pc, b.else_pc),
@@ -557,8 +565,11 @@ impl Translator {
         cpu: &mut RVCPU,
         pc: WordType,
     ) -> Result<TranslateResult, BlockStopReason> {
+        // The context follows the live `misa` state, so a guest that toggles
+        // the compressed extension changes how jump targets are validated.
+        let ctx = TranslatorContext::from_cpu(cpu);
         let mut stream = CpuInstrStream::new(cpu, pc);
-        self.translate_stream(&mut stream, pc, IRBuilder::new())
+        self.translate_stream(&mut stream, pc, IRBuilder::new(), &ctx)
     }
 }
 
@@ -631,9 +642,10 @@ impl Translator {
         &self,
         pc: WordType,
         decoded: DecodeInstr,
+        ctx: &TranslatorContext,
     ) -> Option<(IRBlock, IRBlockMeta)> {
         let mut stream = MockInstrStream::single(pc, decoded);
-        self.translate_stream(&mut stream, pc, IRBuilder::new())
+        self.translate_stream(&mut stream, pc, IRBuilder::new(), ctx)
             .ok()
             .map(|res| (res.ir_block, res.meta))
     }
@@ -653,33 +665,36 @@ mod tests {
 
     #[test]
     fn test_ialign_checks_jal_and_branch() {
-        let translator_align4 = Translator::new(TranslatorContext { ialign: 4 });
-
-        let translator_align2 = Translator::new(TranslatorContext { ialign: 2 });
+        let translator = Translator;
+        let ctx4 = TranslatorContext { ialign: 4 };
+        let ctx2 = TranslatorContext { ialign: 2 };
 
         // 1. JAL aligned to 4 bytes: PC = 0x1000, imm = 8 => target = 0x1008 (aligned)
-        let res = translator_align4.translate_single_instruction(
+        let res = translator.translate_single_instruction(
             0x1000,
             decoded(RiscvInstr::JAL, RVInstrInfo::J { rd: 1, imm: 8 }),
+            &ctx4,
         );
         assert!(res.is_some());
 
         // 2. JAL not aligned to 4 bytes: PC = 0x1000, imm = 2 => target = 0x1002 (misaligned when ialign=4)
-        let res = translator_align4.translate_single_instruction(
+        let res = translator.translate_single_instruction(
             0x1000,
             decoded(RiscvInstr::JAL, RVInstrInfo::J { rd: 1, imm: 2 }),
+            &ctx4,
         );
         assert!(res.is_none());
 
         // 3. JAL with imm = 2 is valid when ialign = 2 (C extension)
-        let res = translator_align2.translate_single_instruction(
+        let res = translator.translate_single_instruction(
             0x1000,
             decoded(RiscvInstr::JAL, RVInstrInfo::J { rd: 1, imm: 2 }),
+            &ctx2,
         );
         assert!(res.is_some());
 
         // 4. Branch not aligned to 4 bytes: PC = 0x1000, imm = 2 => target = 0x1002 (misaligned when ialign=4)
-        let res = translator_align4.translate_single_instruction(
+        let res = translator.translate_single_instruction(
             0x1000,
             decoded(
                 RiscvInstr::BEQ,
@@ -689,11 +704,12 @@ mod tests {
                     imm: 2,
                 },
             ),
+            &ctx4,
         );
         assert!(res.is_none());
 
         // 5. Branch aligned to 4 bytes: PC = 0x1000, imm = 4 => target = 0x1004 (valid)
-        let res = translator_align4.translate_single_instruction(
+        let res = translator.translate_single_instruction(
             0x1000,
             decoded(
                 RiscvInstr::BEQ,
@@ -703,13 +719,15 @@ mod tests {
                     imm: 4,
                 },
             ),
+            &ctx4,
         );
         assert!(res.is_some());
     }
 
     #[test]
     fn test_translate_single_instruction_common_fallthrough() {
-        let translator = Translator::new(TranslatorContext { ialign: 4 });
+        let translator = Translator;
+        let ctx = TranslatorContext { ialign: 4 };
 
         let res = translator.translate_single_instruction(
             0x1000,
@@ -721,6 +739,7 @@ mod tests {
                     imm: 42,
                 },
             ),
+            &ctx,
         );
         let (block, meta) = res.expect("ADDI single instruction should translate successfully");
         assert_eq!(meta.start_pc, 0x1000);
@@ -733,7 +752,8 @@ mod tests {
 
     #[test]
     fn test_stream_multi_instruction_block() {
-        let translator = Translator::new(TranslatorContext { ialign: 4 });
+        let translator = Translator;
+        let ctx = TranslatorContext { ialign: 4 };
 
         let mut stream = MockInstrStream::new(
             0x1000,
@@ -765,7 +785,7 @@ mod tests {
         );
 
         let res = translator
-            .translate_stream(&mut stream, 0x1000, IRBuilder::new())
+            .translate_stream(&mut stream, 0x1000, IRBuilder::new(), &ctx)
             .expect("should translate multi-instruction block");
 
         assert_eq!(res.meta.guest_cnt, 3);

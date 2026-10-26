@@ -1,5 +1,6 @@
-//! Integration tests for the [`riscv-tests`] repo. Need feature `riscv-tests`.
-//! You MUST compile the tests before using this, checkout the repo.
+//! Integration tests for the [`riscv-tests`] repo.
+//!
+//! Build the `riscv-tests` submodule first; see the repository README.
 //!
 //! [`riscv-tests`]: https://github.com/riscv-software-src/riscv-tests
 
@@ -10,9 +11,10 @@ use std::path::PathBuf;
 use crossterm::style::Stylize;
 use here_board::Board;
 use here_board::BoardStatus;
-use here_board::virt::VirtBoard;
+use here_board::virt::UartIoMode;
 use here_isa::DebugTarget;
 use here_isa::riscv::address::Address;
+use here_test_support::board_from_elf;
 use here_types::WordType;
 
 fn find_tests_exclude(prefix: &str, exclude_names: &[&str]) -> Vec<PathBuf> {
@@ -46,7 +48,8 @@ fn run_test(elf_path: &Path) -> bool {
     let result = std::panic::catch_unwind(|| {
         let mut timeout = false;
         let mut run_result = false;
-        let mut board = VirtBoard::from_elf(std::fs::read(elf_path).unwrap()).unwrap();
+        let mut board = board_from_elf(&fs::read(elf_path).unwrap(), UartIoMode::External)
+            .expect("invalid ELF file");
         let tohost: WordType = board.loader().unwrap().get_section_addr(".tohost").unwrap();
 
         while board.status() != BoardStatus::Halt {

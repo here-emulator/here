@@ -15,6 +15,8 @@ use super::backend::PatchLoc;
 use super::jit_buffer::JitBuffer;
 use super::translator::TranslateResult;
 use super::translator::Translator;
+#[cfg(any(test, feature = "test-support"))]
+use super::translator::TranslatorContext;
 
 pub mod jit_function;
 
@@ -65,15 +67,14 @@ pub struct JitRuntime {
 }
 
 impl JitRuntime {
-    pub fn try_new(cpu: &mut RVCPU) -> Result<Self, JitError> {
+    /// Creates a runtime. Instruction alignment is read from the CPU at each
+    /// translation, so toggling the compressed extension changes jump checks.
+    pub fn try_new() -> Result<Self, JitError> {
         let backend = NativeCodeGen::try_new().ok_or(JitError::Unsupported)?;
         let jit_ctx = Box::new(JitContext::default());
-        let trans_ctx = translator::TranslatorContext {
-            ialign: cpu.instruction_alignment(),
-        };
 
         Ok(Self {
-            frontend: Translator::new(trans_ctx),
+            frontend: Translator,
             backend,
             context: jit_ctx,
             icache_epoch: 0,
@@ -199,7 +200,10 @@ impl JitRuntime {
         cpu: &mut RVCPU,
         decoded: DecodeInstr,
     ) -> bool {
-        let Some((ir_block, meta)) = self.frontend.translate_single_instruction(cpu.pc, decoded)
+        let ctx = TranslatorContext::from_cpu(cpu);
+        let Some((ir_block, meta)) = self
+            .frontend
+            .translate_single_instruction(cpu.pc, decoded, &ctx)
         else {
             return false;
         };
@@ -447,7 +451,7 @@ mod tests {
             .mem_base(20, 0x0000_006f_u32)
             .build();
 
-        let Ok(mut jit) = JitRuntime::try_new(&mut cpu) else {
+        let Ok(mut jit) = JitRuntime::try_new() else {
             return;
         };
         // Run 4 cycles: executes Block 1 (2 insts) and Block 2 (2 insts).
@@ -488,7 +492,7 @@ mod tests {
             .mem_base(12, 0x0000_006f_u32)
             .build();
 
-        let Ok(mut jit) = JitRuntime::try_new(&mut cpu) else {
+        let Ok(mut jit) = JitRuntime::try_new() else {
             return;
         };
         // Compile and run Block 2 first:
@@ -521,7 +525,7 @@ mod tests {
             .mem_base(12, 0x0000_006f_u32)
             .build();
 
-        let Ok(mut jit) = JitRuntime::try_new(&mut cpu) else {
+        let Ok(mut jit) = JitRuntime::try_new() else {
             return;
         };
         // 50 iterations * 2 insts + 1 fallthrough inst (addi x2) + 1 (jal x0, 0) = 102 cycles
@@ -547,7 +551,7 @@ mod tests {
             .mem_base(4, 0xfe00_9ee3_u32)
             .build();
 
-        let Ok(mut jit) = JitRuntime::try_new(&mut cpu) else {
+        let Ok(mut jit) = JitRuntime::try_new() else {
             return;
         };
         // Run with budget = 25 cycles (odd number of cycles).
@@ -578,7 +582,7 @@ mod tests {
             .mem_base(12, 0x0000_006f_u32)
             .build();
 
-        let Ok(mut jit) = JitRuntime::try_new(&mut cpu) else {
+        let Ok(mut jit) = JitRuntime::try_new() else {
             return;
         };
 
@@ -610,7 +614,7 @@ mod tests {
             .mem_base(8, 0x0000_006f_u32) // jal x0, 0
             .build();
 
-        let Ok(mut jit) = JitRuntime::try_new(&mut cpu) else {
+        let Ok(mut jit) = JitRuntime::try_new() else {
             return;
         };
         jit.step_batch(&mut cpu, 2);

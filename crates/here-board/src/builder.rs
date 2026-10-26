@@ -2,7 +2,6 @@ use std::any::TypeId;
 use std::cell::Cell;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
@@ -10,7 +9,6 @@ use crate::BoardStatus;
 use crate::VirtBoardPlicContextId;
 #[cfg(feature = "native")]
 use crate::task_spawner::TaskSpawner;
-use crate::virt::ExecutorBackendKind;
 use crate::virt::UartIoMode;
 use crate::virt::VirtBoard;
 use here_device::DeviceTrait;
@@ -58,8 +56,7 @@ pub struct RVBoardBuilder {
     uart_port: Option<UartBytePort>,
 
     // executor
-    executor_backend: ExecutorBackendKind,
-    dump_jit: Option<PathBuf>,
+    executor_backend: Box<dyn ExecutorBackend>,
 
     // mmio info
     clint_mmio: Option<(WordType, WordType)>,
@@ -91,8 +88,7 @@ impl RVBoardBuilder {
             uart_port: None,
 
             // executor
-            executor_backend: ExecutorBackendKind::Interpreter,
-            dump_jit: None,
+            executor_backend: Box::new(InterpreterBackend),
 
             #[cfg(feature = "native")]
             spawner: TaskSpawner::new(),
@@ -111,13 +107,8 @@ impl RVBoardBuilder {
         self
     }
 
-    pub fn with_executor_backend(mut self, backend: ExecutorBackendKind) -> Self {
+    pub fn with_executor_backend(mut self, backend: Box<dyn ExecutorBackend>) -> Self {
         self.executor_backend = backend;
-        self
-    }
-
-    pub fn with_dump_jit(mut self, path: impl Into<PathBuf>) -> Self {
-        self.dump_jit = Some(path.into());
         self
     }
 
@@ -146,15 +137,6 @@ impl RVBoardBuilder {
         let (uart1, uart_port1) = Uart16550A::new();
         self.uart_port = Some(uart_port1);
         self.add_plic_device(Box::new(uart1), base, size, irq)
-    }
-
-    #[cfg(all(feature = "test-device", feature = "native"))]
-    pub fn add_sample_timer(mut self, base: WordType, size: WordType, irq: PeriphIrqId) -> Self {
-        use here_device::sample_timer::SampleTimerDevice;
-
-        let (device, task) = SampleTimerDevice::new();
-        self.spawner.register(task);
-        self.add_plic_device(Box::new(device), base, size, irq)
     }
 
     pub fn add_plic_device<D: PlicDevice + 'static>(
@@ -220,7 +202,7 @@ impl RVBoardBuilder {
         );
     }
 
-    pub fn build(mut self) -> Result<VirtBoard, String> {
+    pub fn build(mut self) -> VirtBoard {
         let cycles = Rc::new(Cell::new(0));
         let clock = VirtualClock::new(cycles.clone());
         let timer = Rc::new(UnsafeCell::new(Timer::new(clock.clone())));
@@ -300,18 +282,15 @@ impl RVBoardBuilder {
         // register rv interrupt.
         Self::register_rv_interrupt(&mut cpu, device_arena.as_mut(), &clint, &plic, clint_base);
 
-        let executor_backend =
-            create_executor_backend(self.executor_backend, self.dump_jit.take(), cpu.as_mut())?;
-
         #[cfg(feature = "native")]
         let task_handle = self.spawner.start();
 
-        Ok(VirtBoard {
+        VirtBoard {
             #[cfg(feature = "native")]
             task_handle,
             loader: None,
             cpu,
-            executor_backend,
+            executor_backend: self.executor_backend,
             cycles,
             clock,
             timer,
@@ -325,36 +304,6 @@ impl RVBoardBuilder {
 
             status: BoardStatus::Running,
             device_arena,
-        })
-    }
-}
-
-fn create_executor_backend(
-    kind: ExecutorBackendKind,
-    dump_jit: Option<PathBuf>,
-    cpu: &mut RVCPU,
-) -> Result<Box<dyn ExecutorBackend>, String> {
-    match kind {
-        ExecutorBackendKind::Interpreter => Ok(Box::new(InterpreterBackend)),
-        ExecutorBackendKind::Jit => {
-            #[cfg(feature = "native")]
-            {
-                let mut jit = here_jit::JitRuntime::try_new(cpu).map_err(|e| e.to_string())?;
-                if let Some(path) = dump_jit {
-                    jit.enable_dump(&path).map_err(|error| {
-                        format!(
-                            "failed to initialize JIT dump to {}: {error}",
-                            path.display()
-                        )
-                    })?;
-                }
-                Ok(Box::new(jit))
-            }
-            #[cfg(not(feature = "native"))]
-            {
-                let _ = (dump_jit, cpu);
-                Err("JIT executor backend is not supported on this platform".to_string())
-            }
         }
     }
 }
@@ -395,6 +344,17 @@ mod native {
             };
             let virtio_mmio_device = VirtIOMMIO::new(Box::new(UnsafeCell::new(virtio_device)));
             self.add_plic_device(Box::new(virtio_mmio_device), base, size, irq)
+        }
+
+        pub fn add_sample_timer(
+            mut self,
+            base: WordType,
+            size: WordType,
+            irq: PeriphIrqId,
+        ) -> Self {
+            let (device, task) = here_device::sample_timer::SampleTimerDevice::new();
+            self.spawner.register(task);
+            self.add_plic_device(Box::new(device), base, size, irq)
         }
     }
 }
@@ -448,8 +408,7 @@ mod native_tests {
     #[test]
     fn test_rvboard_builder_basic() {
         let ram = Ram::new();
-        let board = add_default_mmio_devices(RVBoardBuilder::new(ram)).build();
-        assert!(board.is_ok());
+        add_default_mmio_devices(RVBoardBuilder::new(ram)).build();
     }
 
     #[test]
@@ -482,8 +441,7 @@ mod native_tests {
                 config,
             );
         }
-        let board = builder.build();
-        assert!(board.is_ok());
+        builder.build();
 
         let _ = std::fs::remove_file(file_path1);
         let _ = std::fs::remove_file(file_path2);
@@ -497,7 +455,7 @@ mod native_tests {
         let _ = init_block_file(file_path.to_str().unwrap(), 1, |_| &buf);
 
         let ram = Ram::new();
-        let board = add_default_mmio_devices(RVBoardBuilder::new(ram))
+        add_default_mmio_devices(RVBoardBuilder::new(ram))
             .add_uart(UART_BASE, UART_SIZE, UART_IRQ, UartIoMode::External)
             .add_virtio_device(
                 VIRTIO_MMIO_BASE,
@@ -509,7 +467,6 @@ mod native_tests {
                 },
             )
             .build();
-        assert!(board.is_ok());
 
         let _ = std::fs::remove_file(file_path);
     }

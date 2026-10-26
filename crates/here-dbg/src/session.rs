@@ -132,14 +132,11 @@ mod tests {
 
     use super::*;
     use here_board::virt::UartIoMode;
-    use here_board::virt::VirtBoard;
-    use here_board::virt::VirtBoardConfig;
+    use here_test_support::empty_board;
 
     #[test]
     fn run_script_reports_errors_and_stops_on_exit() {
-        let board =
-            VirtBoard::from_binary_with(&[], VirtBoardConfig::new().with_uart_io(UartIoMode::None))
-                .unwrap();
+        let board = empty_board(UartIoMode::None);
         let mut session = RvdbSession::new(board);
         let lines = vec![
             "unknown-command".to_owned(),

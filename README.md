@@ -81,6 +81,7 @@ cargo run -- ./test_resources/bin/main.elf -g
 - `--max-cycles <COUNT>`: Stop after the requested number of emulated cycles (`0` disables the limit)
 - `--dtb <FILE>`: Load a DTB and pass its guest address to OpenSBI in register `a1`
 - `--dtb-address <ADDRESS>`: Set the guest physical address for `--dtb` (default: `0x9f000000`)
+- `--sample-timer <ADDRESS>`: Attach the sample millisecond timer at this MMIO base address
 
 During normal emulation, press `Ctrl+A`, release the keys, and then press `x` to exit emulator.
 
@@ -181,14 +182,14 @@ Additional device metadata is available under `/sys/block/vda/`.
 |       Device       | Address Base |    Address Length    | PLIC Interrupt ID |
 | :----------------: | :----------: | :------------------: | :---------------: |
 |  `power-manager`   | 0x0010_0000  |        0x1000        |         -         |
-|   `test-device`*   | 0x0010_1000  |         0x10         |       0x3f        |
+|   `sample-timer`*  | 0x0010_1000  |         0x10         |       0x3f        |
 |      `clint`       | 0x0200_0000  |       0x10000        |         -         |
 |       `plic`       | 0x0c00_0000  |      0x0400_0000     |         -         |
 |       `uart`       | 0x1000_0000  |         0x08         |       0x0a        |
 | `virtio-mmio[0]`** | 0x1000_1000  |        0x1000        |       0x01        |
 |       `ram`        | 0x8000_0000  | 0x2000_0000 (512 MiB) |         -         |
 
-\* `test-device` is mapped when the `test-device` Cargo feature is enabled; it is part of the default feature set.
+\* `sample-timer` is not part of the default board; attach it at the address of your choice with `--sample-timer <ADDRESS>`.
 
 \** Additional VirtIO MMIO transports use consecutive 0x1000-byte regions and interrupt IDs. Keep assigned IDs distinct from the UART interrupt ID 0x0a.
 

@@ -29,6 +29,6 @@ clap.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-here-board = { workspace = true, features = ["native", "test-device"] }
 here-isa = { workspace = true, features = ["test-support"] }
+here-test-support = { workspace = true }
 
