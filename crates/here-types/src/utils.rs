@@ -52,25 +52,7 @@ impl<K: Clone + Ord, V: Clone + Ord> BiMap<K, V> {
     }
 }
 
-fn rand_unique<T, F>(rd: F, cnt: usize) -> Vec<T>
-where
-    T: Copy + Eq + std::hash::Hash + std::fmt::Debug,
-    F: Fn() -> T,
-{
-    let mut set = std::collections::HashSet::new();
-    let mut result = Vec::with_capacity(cnt);
-
-    while result.len() < cnt {
-        let val = rd();
-        if set.insert(val) {
-            result.push(val);
-        }
-    }
-
-    result
-}
-
-#[inline(always)]
+#[inline]
 pub fn shift_amount<T>(value: T) -> u32
 where
     T: UnsignedInteger,
@@ -79,7 +61,7 @@ where
     (value as u32) & ((T::BITS as u32) - 1)
 }
 
-#[inline(always)]
+#[inline]
 pub fn as_signed_i128<T>(value: T) -> i128
 where
     T: UnsignedInteger + Into<u128>,
@@ -95,7 +77,7 @@ where
     }
 }
 
-#[inline(always)]
+#[inline]
 pub fn from_signed_i128<T>(value: i128) -> T
 where
     T: UnsignedInteger,
@@ -103,7 +85,7 @@ where
     T::truncate_from(value as u128)
 }
 
-#[inline(always)]
+#[inline]
 pub fn sign_extend(value: WordType, from_bits: u32) -> WordType {
     let sign_bit = XLEN as u32 - from_bits;
     ((value << sign_bit) as SignedWordType >> sign_bit) as WordType
@@ -130,28 +112,6 @@ pub fn wrapping_add_as_signed(lhs: WordType, rhs: WordType) -> WordType {
 #[inline]
 pub fn negative_of(value: WordType) -> WordType {
     (!value).wrapping_add(1)
-}
-
-#[macro_export]
-macro_rules! concat_bits {
-    // End case (only one argument)
-    ($t:ty; $last:expr) => {
-        ($last as u64)
-    };
-
-    // Recursive concatenation (left shift * number of bits)
-    ($t:ty; $head:expr, $($tail:expr),+) => {
-        (($head as u64) << (8 * $crate::count_args!($($tail),+))) |
-        concat_bits!($t; $($tail),+)
-    };
-}
-
-#[macro_export]
-macro_rules! count_args {
-    ($($x:expr),*) => {
-        <[()]>::len(&[$(count_args![@sub $x]),*])
-    };
-    (@sub $_:expr) => { () };
 }
 
 // ==================================
@@ -539,30 +499,6 @@ impl WordTrait for u64 {
     fn sign_extend_to_wordtype(self) -> WordType {
         self
     }
-}
-
-#[allow(unused)]
-pub fn set_bit<T>(data: &mut T, idx: u32)
-where
-    T: BitOrAssign + From<u8> + Shl<u32, Output = T> + Copy,
-{
-    *data |= T::from(1u8) << idx;
-}
-
-#[allow(unused)]
-pub fn clear_bit<T>(data: &mut T, idx: u32)
-where
-    T: BitAndAssign + From<u8> + Shl<u32, Output = T> + Copy + Not<Output = T>,
-{
-    *data &= !(T::from(1u8) << idx);
-}
-
-#[allow(unused)]
-pub fn read_bit<T>(data: &T, idx: u32) -> bool
-where
-    T: BitAnd<Output = T> + From<u8> + Shl<u32, Output = T> + Copy + Not<Output = T> + Eq,
-{
-    (*data & (T::from(1u8) << idx)) != T::from(0u8)
 }
 
 const fn gen_ones_array<const LEN: usize>() -> [WordType; LEN + 1] {

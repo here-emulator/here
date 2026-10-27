@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 #![feature(unsafe_cell_access)]
 
 use std::path::PathBuf;

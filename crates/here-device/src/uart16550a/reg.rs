@@ -488,7 +488,6 @@ impl Uart16550RegLayout {
         }
     }
 
-    #[allow(unused)]
     pub fn get_divisor(&self) -> u16 {
         (self.divisor_latch_register_l.data() as u16)
             + ((self.divisor_latch_register_h.data() as u16) << 8)

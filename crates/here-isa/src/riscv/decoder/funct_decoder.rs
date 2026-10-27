@@ -58,7 +58,6 @@ struct SmallMap<K, V> {
     data: SmallVec<[(K, V); MAP_LENGTH]>,
 }
 
-#[allow(unused)]
 impl<K: Ord + Copy, V> SmallMap<K, V> {
     fn new() -> Self {
         SmallMap {

@@ -14,10 +14,6 @@ pub trait CodeGenTrait: Sized {
         meta: &IRBlockMeta,
     ) -> CodeBlockRef<'a, Self::PatchKind>;
     unsafe fn patch(buf: *mut u8, loc: PatchLoc<Self::PatchKind>, imm: i64);
-
-    /// Enables assembly dumps for subsequent compilations.
-    #[allow(dead_code)]
-    fn set_dump_asm(&mut self, _enable: bool) {}
 }
 
 /// A struct that provides data needed by each implementation of [`CodeGenBackend`],

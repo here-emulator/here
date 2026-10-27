@@ -8,7 +8,7 @@ use crate::virtio::config::VirtIOFeatureSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
-#[allow(unused)]
+#[allow(dead_code)]
 pub enum VirtIODeviceEnum {
     Reserved = 0,
     VirtIONet = 1,

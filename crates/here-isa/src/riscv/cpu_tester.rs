@@ -5,6 +5,8 @@ use std::fmt::Debug;
 use std::rc::Rc;
 
 #[cfg(test)]
+use here_types::REGFILE_CNT;
+#[cfg(test)]
 use rand::Rng;
 #[cfg(test)]
 use rand::SeedableRng;
@@ -23,7 +25,6 @@ use crate::riscv::vector::types::Vlmul;
 use crate::riscv::vector::types::Vsew;
 use here_device::mmio::MemoryMapIO;
 use here_device::ram::Ram;
-use here_types::REGFILE_CNT;
 use here_types::UnsignedInteger;
 use here_types::WordType;
 use here_types::ram_config::BASE_ADDR;
@@ -236,15 +237,6 @@ impl<'a> CPUChecker<'a> {
         F: FnOnce(Self) -> Self,
     {
         f(self)
-    }
-}
-
-fn assert_register_state_eq(label: &str, expected: &RVCPU, actual: &RVCPU) {
-    for register in 0..REGFILE_CNT {
-        assert_eq!(
-            actual.reg_file[register], expected.reg_file[register],
-            "{label}: x{register} differs"
-        );
     }
 }
 

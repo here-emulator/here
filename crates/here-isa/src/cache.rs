@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use rustc_hash::FxHashMap;
 use std::cell::Cell;
 

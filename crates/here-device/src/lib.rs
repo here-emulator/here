@@ -57,7 +57,7 @@ pub mod sample_timer;
 pub mod task;
 pub mod virtio;
 
-#[allow(unused)]
+#[allow(dead_code)]
 pub(crate) mod spi;
 
 #[derive(Debug, PartialEq, Eq)]

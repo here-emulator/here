@@ -28,7 +28,6 @@ use here_isa::riscv::executor::RVCPU;
 #[cfg(feature = "native")]
 use crate::task_spawner::TaskHandle;
 
-#[allow(unused)]
 pub mod config {
     use here_types::WordType;
 

@@ -39,7 +39,6 @@ pub struct PageTableEntry {
     bits: WordType,
 }
 
-#[allow(unused)]
 impl PageTableEntry {
     pub fn new(bits: WordType) -> Self {
         PageTableEntry { bits }

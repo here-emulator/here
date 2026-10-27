@@ -17,19 +17,6 @@ impl<const MIN: WordType, const MAX: WordType> ValidateCond for RangeCond<MIN, M
     }
 }
 
-#[allow(unused)]
-macro_rules! make_enum_cond {
-    ($name:ident, $($valid:expr),+ $(,)?) => {
-    struct $name {}
-    impl ValidateCond for $name {
-            fn check(value: WordType, _ctx: &CsrContext) -> bool {
-                const VALID_VALUES: &[WordType] = &[$($valid),+];
-                VALID_VALUES.contains(&value)
-            }
-        }
-    }
-}
-
 #[inline]
 /// Make a validator that only write when the condition is satisfied, and do nothing otherwise.
 fn validate_with_cond<const L: usize, const R: usize, C: ValidateCond>(

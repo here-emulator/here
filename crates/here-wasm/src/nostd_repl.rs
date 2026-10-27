@@ -196,14 +196,6 @@ impl<B: Board> AsyncREPL<B> {
         )
     }
 
-    pub async fn execute_line(&mut self, line: &str) -> Result<REPLResponse, String> {
-        self.execute_line_with_hook(line, |_| {}).await
-    }
-
-    async fn run_continue(&mut self, total_steps: u64) -> Result<REPLResponse, String> {
-        self.run_continue_with_hook(total_steps, |_| {}).await
-    }
-
     pub async fn run_continue_with_hook<F>(
         &mut self,
         total_steps: u64,
@@ -315,10 +307,6 @@ impl<B: Board> AsyncREPL<B> {
         self.session.load_symbol_file_bytes(bytes)
     }
 
-    pub fn session(&self) -> &RvdbSession<B> {
-        &self.session
-    }
-
     pub fn session_mut(&mut self) -> &mut RvdbSession<B> {
         &mut self.session
     }
@@ -328,7 +316,6 @@ impl<B: Board> AsyncREPL<B> {
     }
 }
 
-#[cfg(not(feature = "native"))]
 fn yield_once() -> impl Future<Output = ()> {
     use js_sys::Promise;
     use wasm_bindgen_futures::JsFuture;
@@ -342,9 +329,4 @@ fn yield_once() -> impl Future<Output = ()> {
     async move {
         let _ = JsFuture::from(promise).await;
     }
-}
-
-#[cfg(feature = "native")]
-fn yield_once() -> impl Future<Output = ()> {
-    std::future::ready(())
 }
