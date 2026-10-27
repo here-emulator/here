@@ -236,11 +236,12 @@ impl<B: Board> AsyncREPL<B> {
         };
 
         if event != DebugEvent::StepCompleted {
-            let output = self.session.collect_stop_output(event.clone(), remain)?;
+            let output = self
+                .session
+                .collect_stop_output(event, total_steps - remain)?;
             let output = self.session.render_output(&output);
             self.channel.write(output.as_bytes()).await.unwrap();
         }
-
         Ok(REPLResponse {
             exit: false,
             cancel: false,
