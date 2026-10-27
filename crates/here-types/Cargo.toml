@@ -11,5 +11,4 @@ riscv64 = []
 
 [dependencies]
 num-traits.workspace = true
-seq-macro.workspace = true
 

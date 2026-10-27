@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 #![allow(incomplete_features)]
-#![feature(generic_const_exprs)]
 #![feature(likely_unlikely)]
 #![feature(macro_metavar_expr_concat)]
 #![feature(unsafe_cell_access)]

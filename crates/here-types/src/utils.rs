@@ -155,71 +155,6 @@ pub fn check_align<T>(addr: WordType) -> bool {
     (addr as WordType) & ALIGN_ILST[size_of_t] == 0
 }
 
-// ========================================
-//  gen_name_list ["a1", "a2", "a3", ... ]
-// ========================================
-
-/// # Examples
-/// ```
-/// # use here_types::{gen_name_list, gen_reg_name_list};
-/// assert_eq!(gen_name_list!("a"; 0, 5), ["a0", "a1", "a2", "a3", "a4", "a5"])
-/// ```
-#[macro_export]
-macro_rules! gen_name_list {
-    ($base:literal; $begin: literal, $end: literal) => {
-        $crate::seq_macro::seq!(N in $begin..= $end {
-            [ #(concat!($base, stringify!(N)),) *]
-        })
-    }
-}
-
-pub const fn concat_arrays<const SIZE1: usize, const SIZE2: usize>(
-    arr1: [&'static str; SIZE1],
-    arr2: [&'static str; SIZE2],
-) -> [&'static str; SIZE1 + SIZE2] {
-    let mut i = 0;
-    let mut j = 0;
-    let mut k = 0;
-    let mut ret: [&'static str; SIZE1 + SIZE2] = [""; SIZE1 + SIZE2];
-    while i < SIZE1 {
-        ret[k] = arr1[i];
-        i += 1;
-        k += 1;
-    }
-    while j < SIZE2 {
-        ret[k] = arr2[j];
-        j += 1;
-        k += 1;
-    }
-    ret
-}
-
-/// # NOTE
-/// make sure you have use [`crate::utils::gen_name_list`] in the same namespace.
-/// # Examples
-/// ```
-/// # use here_types::{gen_name_list, gen_reg_name_list};
-/// assert_eq!(gen_reg_name_list!("s", 0, 2; "t", 1, 3), ["s0", "s1", "s2", "t1", "t2", "t3"])
-/// ```
-#[macro_export]
-macro_rules! gen_reg_name_list {
-    ($base:literal, $begin: literal, $end: literal; $($rest:tt)*) => {
-        $crate::utils::concat_arrays($crate::gen_name_list!($base; $begin, $end), $crate::gen_reg_name_list!($($rest)*))
-    };
-
-    ($base:literal, $begin: literal, $end: literal) => {
-        $crate::gen_name_list!($base; $begin, $end)
-    };
-
-    ($name:literal; $($rest:tt)*) => {
-        $crate::utils::concat_arrays([$name], $crate::gen_reg_name_list!($($rest)*))
-    };
-
-    ($name:literal) => {
-        [$name]
-    };
-}
-
 pub fn concat_to_u64(high: u32, low: u32) -> u64 {
     (high as u64).wrapping_shl(32) | (low as u64)
 }
@@ -501,18 +436,16 @@ impl WordTrait for u64 {
     }
 }
 
-const fn gen_ones_array<const LEN: usize>() -> [WordType; LEN + 1] {
-    let mut arr: [WordType; LEN + 1] = [0; LEN + 1];
+pub const BIT_ONES_ARRAY: [WordType; XLEN + 1] = {
+    let mut arr = [0; XLEN + 1];
     let mut i = 0;
-    while i < LEN {
+    while i < XLEN {
         arr[i + 1] = arr[i] | ((1 as WordType) << i);
         i += 1;
     }
 
     arr
-}
-
-pub const BIT_ONES_ARRAY: [WordType; XLEN + 1] = gen_ones_array::<XLEN>();
+};
 
 #[inline]
 pub const fn make_mask(left: usize, right: usize) -> WordType {
