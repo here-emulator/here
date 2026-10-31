@@ -41,7 +41,7 @@ fn determine_data_access_privilege(csr: &mut CsrRegFile) -> AccessPrivilege {
                         }
                     }
                     PrivilegeLevel::U => AccessPrivilege::UserOnly,
-                    PrivilegeLevel::V => unreachable!(),
+                    PrivilegeLevel::HS => unreachable!(),
                 }
             }
         }
@@ -53,7 +53,7 @@ fn determine_data_access_privilege(csr: &mut CsrRegFile) -> AccessPrivilege {
             }
         }
         PrivilegeLevel::U => AccessPrivilege::UserOnly,
-        PrivilegeLevel::V => unreachable!(),
+        PrivilegeLevel::HS => unreachable!(),
     }
 }
 
@@ -136,7 +136,7 @@ fn resolve_ifetch_policy(csr: &CsrRegFile, side_effect: bool) -> AccessPolicy {
             effect,
             fault: MemError::LoadPageFault,
         },
-        PrivilegeLevel::V => unreachable!(),
+        PrivilegeLevel::HS => unreachable!(),
     }
 }
 

@@ -436,11 +436,11 @@ impl WordTrait for u64 {
     }
 }
 
-pub const BIT_ONES_ARRAY: [WordType; XLEN + 1] = {
-    let mut arr = [0; XLEN + 1];
+pub const BIT_ONES_ARRAY: [u64; 64 + 1] = {
+    let mut arr = [0; 64 + 1];
     let mut i = 0;
-    while i < XLEN {
-        arr[i + 1] = arr[i] | ((1 as WordType) << i);
+    while i < 64 {
+        arr[i + 1] = arr[i] | ((1 as u64) << i);
         i += 1;
     }
 
