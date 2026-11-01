@@ -1,3 +1,60 @@
+/// Generate bitfield getters, setters, and readonly mask helpers for a CSR register.
+macro_rules! gen_csr_bitfield {
+    (
+        $name:ident, $sub_regfile:ident, $field:ident, [
+            $( $bit:expr, $len:expr, $fname:ident );* $(;)?
+        ]
+    ) => {
+        impl $name {
+            #[allow(dead_code)]
+            pub const SHADOW_MASK: CsrDataType = 0 $( | Self::${concat($field, _, $fname, _mask)} )*;
+
+            $(
+                // Offset
+                #[allow(non_upper_case_globals)]
+                const ${concat($field, _, $fname, _offset)}: usize = if $bit >= 0 {
+                    ($bit as isize) as usize
+                } else {
+                    ((XLEN as isize) + ($bit as isize)) as usize
+                };
+
+                // Mask
+                #[allow(non_upper_case_globals)]
+                const ${concat($field, _, $fname, _mask)}: CsrDataType =
+                    BIT_ONES_ARRAY[$len as usize] << Self::${concat($field, _, $fname, _offset)};
+
+                // Get value
+                #[inline]
+                pub fn ${concat(get_, $fname)}(regfile: &mut CsrRegfile) -> CsrDataType {
+                    (Self::read(regfile) & Self::${concat($field, _, $fname, _mask)})
+                        >> Self::${concat($field, _, $fname, _offset)}
+                }
+
+                // Set value
+                #[inline]
+                pub fn ${concat(set_, $fname)}(
+                    regfile: &mut CsrRegfile,
+                    ${concat(new_, $fname)}: CsrDataType,
+                ) {
+                    let mut data = Self::read(regfile);
+                    data &= !Self::${concat($field, _, $fname, _mask)};
+                    let ${concat(new_, $fname)} = (${concat(new_, $fname)}
+                        << Self::${concat($field, _, $fname, _offset)})
+                        & Self::${concat($field, _, $fname, _mask)};
+                    data |= ${concat(new_, $fname)};
+                    Self::write(regfile, data);
+                }
+
+                // Set Read Only
+                #[inline]
+                pub fn ${concat(set_, $fname, _readonly)}(regfile: &mut CsrRegfile) {
+                    regfile.$sub_regfile.$field.mask &= !Self::${concat($field, _, $fname, _mask)};
+                }
+            )*
+        }
+    };
+}
+
 /// Generate a single CSR register.
 macro_rules! gen_csr_reg {
     (
@@ -35,48 +92,11 @@ macro_rules! gen_csr_reg {
             }
         }
 
-        impl $name {
-            $(
-                // Offset
-                #[allow(non_upper_case_globals)]
-                const ${concat($field, _, $fname, _offset)}: usize = if $bit >= 0 {
-                    ($bit as isize) as usize
-                } else {
-                    ((XLEN as isize) + ($bit as isize)) as usize
-                };
-
-                // Mask
-                #[allow(non_upper_case_globals)]
-                const ${concat($field, _, $fname, _mask)}: CsrDataType =
-                    BIT_ONES_ARRAY[$len as usize] << Self::${concat($field, _, $fname, _offset)};
-
-                // Get value
-                #[inline]
-                pub fn ${concat(get_, $fname)}(regfile: &mut CsrRegfile) -> CsrDataType {
-                    (regfile.$sub_regfile.$field.data & Self::${concat($field, _, $fname, _mask)})
-                        >> Self::${concat($field, _, $fname, _offset)}
-                }
-
-                // Set value
-                #[inline]
-                pub fn ${concat(set_, $fname)}(
-                    regfile: &mut CsrRegfile,
-                    ${concat(new_, $fname)}: CsrDataType,
-                ) {
-                    regfile.$sub_regfile.$field.data &= !Self::${concat($field, _, $fname, _mask)};
-                    let ${concat(new_, $fname)} = (${concat(new_, $fname)}
-                        << Self::${concat($field, _, $fname, _offset)})
-                        & Self::${concat($field, _, $fname, _mask)};
-                    regfile.$sub_regfile.$field.data |= ${concat(new_, $fname)};
-                }
-
-                // Set Read Only
-                #[inline]
-                pub fn ${concat(set_, $fname, _readonly)}(regfile: &mut CsrRegfile) {
-                    regfile.$sub_regfile.$field.mask &= !Self::${concat($field, _, $fname, _mask)};
-                }
-            )*
-        }
+        gen_csr_bitfield!(
+            $name, $sub_regfile, $field, [
+                $( $bit, $len, $fname );*
+            ]
+        );
     };
 
     (@impl_validator $name:ident, $sub_regfile:ident, $field:ident, @validate_custom) => {

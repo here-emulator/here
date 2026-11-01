@@ -11,29 +11,31 @@ use crate::riscv::{
 #[rustfmt::skip]
 #[derive(Default)]
 pub struct RVBasicCsrRegfile {
-    xstatus:        CsrItem,
-    misa:           CsrItem,
-    medeleg:        CsrItem,
-    mideleg:        CsrItem,
-    xie:            CsrItem,
-    mtvec:          CsrItem,
-    mcountinhibit:  CsrItem,
-    mscratch:       CsrItem,
-    mepc:           CsrItem,
-    mcause:         CsrItem,
-    mtval:          CsrItem,
-    xip:            CsrItem,
-    mcycle:         CsrItem,
-    minstret:       CsrItem,
-    mvendorid:      CsrItem,
-    marchid:        CsrItem,
-    mimpid:         CsrItem,
-    mhartid:        CsrItem,
+    pub(super) xstatus:        CsrItem,
+    pub(super) misa:           CsrItem,
+    pub(super) medeleg:        CsrItem,
+    pub(super) mideleg:        CsrItem,
+    pub(super) xie:            CsrItem,
+    pub(super) mtvec:          CsrItem,
+    pub(super) mcountinhibit:  CsrItem,
+    pub(super) mscratch:       CsrItem,
+    pub(super) mepc:           CsrItem,
+    pub(super) mcause:         CsrItem,
+    pub(super) mtval:          CsrItem,
+    pub(super) xip:            CsrItem,
+    pub(super) mcycle:         CsrItem,
+    pub(super) minstret:       CsrItem,
+    pub(super) mvendorid:      CsrItem,
+    pub(super) marchid:        CsrItem,
+    pub(super) mimpid:         CsrItem,
+    pub(super) mhartid:        CsrItem,
 }
 
 impl SubExtCsrRegfile for RVBasicCsrRegfile {
     fn register(regfile: &mut CsrRegfile) {
         Self::macro_register(regfile);
+        Cycle::register(regfile);
+        Instret::register(regfile);
     }
 }
 
@@ -196,3 +198,87 @@ gen_csr_regfile! {
         ];
     }
 }
+
+pub struct Cycle {}
+
+impl CsrValidator<Cycle> for Cycle {
+    fn validate(regfile: &mut CsrRegfile, new_value: CsrDataType) -> CsrDataType {
+        regfile.basic_csr.mcycle.mask & new_value
+    }
+}
+
+impl NamedCsr for Cycle {
+    const INDEX: CsrIndex = CsrIndex::Direct(0xC00);
+    const EXTENSION: Extension = Extension::Zicsr;
+
+    fn register(regfile: &mut CsrRegfile) {
+        registe_csr(regfile, Self::INDEX, (Self::read, Self::write));
+    }
+
+    #[inline(always)]
+    fn read(regfile: &mut CsrRegfile) -> CsrDataType {
+        Mcycle::read(regfile) & Self::SHADOW_MASK
+    }
+
+    #[inline(always)]
+    fn write(regfile: &mut CsrRegfile, new_value: CsrDataType) {
+        let old = Mcycle::read(regfile);
+        let merged = (old & !Self::SHADOW_MASK) | (new_value & Self::SHADOW_MASK);
+        Mcycle::write(regfile, merged);
+    }
+
+    #[inline(always)]
+    fn write_directly(regfile: &mut CsrRegfile, new_value: CsrDataType) {
+        let old = Mcycle::read(regfile);
+        let merged = (old & !Self::SHADOW_MASK) | (new_value & Self::SHADOW_MASK);
+        Mcycle::write_directly(regfile, merged);
+    }
+}
+
+gen_csr_bitfield!(
+    Cycle, basic_csr, mcycle, [
+        0, XLEN, cycle;
+    ]
+);
+
+pub struct Instret {}
+
+impl CsrValidator<Instret> for Instret {
+    fn validate(regfile: &mut CsrRegfile, new_value: CsrDataType) -> CsrDataType {
+        regfile.basic_csr.minstret.mask & new_value
+    }
+}
+
+impl NamedCsr for Instret {
+    const INDEX: CsrIndex = CsrIndex::Direct(0xC02);
+    const EXTENSION: Extension = Extension::Zicsr;
+
+    fn register(regfile: &mut CsrRegfile) {
+        registe_csr(regfile, Self::INDEX, (Self::read, Self::write));
+    }
+
+    #[inline(always)]
+    fn read(regfile: &mut CsrRegfile) -> CsrDataType {
+        Minstret::read(regfile) & Self::SHADOW_MASK
+    }
+
+    #[inline(always)]
+    fn write(regfile: &mut CsrRegfile, new_value: CsrDataType) {
+        let old = Minstret::read(regfile);
+        let merged = (old & !Self::SHADOW_MASK) | (new_value & Self::SHADOW_MASK);
+        Minstret::write(regfile, merged);
+    }
+
+    #[inline(always)]
+    fn write_directly(regfile: &mut CsrRegfile, new_value: CsrDataType) {
+        let old = Minstret::read(regfile);
+        let merged = (old & !Self::SHADOW_MASK) | (new_value & Self::SHADOW_MASK);
+        Minstret::write_directly(regfile, merged);
+    }
+}
+
+gen_csr_bitfield!(
+    Instret, basic_csr, minstret, [
+        0, XLEN, instret;
+    ]
+);
