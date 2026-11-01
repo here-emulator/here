@@ -6,8 +6,14 @@ use crate::riscv::{
 };
 
 pub type CsrDataType = u64;
-type CsrReadFn = fn(&mut CsrRegfile) -> u64;
-type CsrWriteFn = fn(&mut CsrRegfile, u64);
+pub type CsrMaskType = CsrDataType;
+pub struct CsrItem {
+    pub data: CsrDataType,
+    pub mask: CsrMaskType,
+}
+
+pub(super) type CsrReadFn = fn(&mut CsrRegfile) -> u64;
+pub(super) type CsrWriteFn = fn(&mut CsrRegfile, u64);
 
 pub(super) trait SubExtCsrRegfile: Default {
     fn register(regfile: &mut CsrRegfile);
@@ -20,14 +26,14 @@ pub struct CsrContext {
 
 #[derive(Default)]
 pub struct CsrRegfile {
-    pub(self) basic_csr: RVBasicCsrRegfile,
-    pub(self) rvs_csr: RVSExtCsrRegfile,
-    pub(self) rvf_csr: RVFExtCsrRegfile,
-    pub(self) rvv_csr: RVVExtCsrRegfile,
+    pub(super) basic_csr: RVBasicCsrRegfile,
+    pub(super) rvs_csr: RVSExtCsrRegfile,
+    pub(super) rvf_csr: RVFExtCsrRegfile,
+    pub(super) rvv_csr: RVVExtCsrRegfile,
 
-    pub(self) context: CsrContext,
+    pub(crate) context: CsrContext,
 
-    pub(self) map: BTreeMap<u64, (CsrReadFn, CsrWriteFn)>,
+    pub(super) map: BTreeMap<u64, (CsrReadFn, CsrWriteFn)>,
     // pub(self) m_indirect_map: BTreeMap<(u8, u64), (CsrReadFn, CsrWriteFn)>,
     // pub(self) s_indirect_map: BTreeMap<(u8, u64), (CsrReadFn, CsrWriteFn)>,
 }
