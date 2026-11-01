@@ -6,7 +6,6 @@ pub use extension::*;
 pub use regfile::{CsrContext, CsrDataType, CsrIndex, CsrItem, CsrMaskType, CsrRegfile, CsrValidator, NamedCsr};
 
 use here_types::WordType;
-
 #[repr(u8)]
 #[derive(Debug, PartialEq, PartialOrd, Ord, Eq, Clone, Copy)]
 pub enum PrivilegeLevel {
@@ -79,28 +78,16 @@ impl TryFrom<u8> for PrivilegeLevel {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashSet;
-
     use crate::riscv::{
         csr_reg::{
             CsrRegfile, Cycle, Fcsr, Mcause, Mcycle, Mepc, Mie, Mip, Mstatus, Mtvec, NamedCsr,
             PrivilegeLevel, Sie, Sip, Sstatus, Vcsr, Vxrm, Vxsat,
         },
-        isa_builder::Extension,
+        isa_builder::TEST_ISA,
     };
 
     fn new_all_ext_regfile() -> CsrRegfile {
-        CsrRegfile::new(HashSet::from([
-            Extension::I,
-            Extension::M,
-            Extension::A,
-            Extension::F,
-            Extension::D,
-            Extension::C,
-            Extension::V,
-            Extension::Zicsr,
-            Extension::Zifencei,
-        ]))
+        CsrRegfile::from_isa_str(TEST_ISA).expect("TEST_ISA must be valid")
     }
 
     #[test]
@@ -240,5 +227,17 @@ mod test {
         reg.context.extension |= misa_bit('S');
         Mstatus::set_mpp(&mut reg, PrivilegeLevel::S as u64);
         assert_eq!(Mstatus::get_mpp(&reg), PrivilegeLevel::S as u64);
+    }
+
+    #[test]
+    fn test_csr_name_map() {
+        let reg = new_all_ext_regfile();
+        assert_eq!(reg.addr_by_name("mstatus"), Some(Mstatus::as_addr()));
+        assert_eq!(reg.addr_by_name("MSTATUS"), Some(Mstatus::as_addr()));
+        assert_eq!(reg.name_by_addr(Mstatus::as_addr()), Some("mstatus"));
+        assert_eq!(reg.addr_by_name("fcsr"), Some(Fcsr::as_addr()));
+        assert_eq!(reg.name_by_addr(Fcsr::as_addr()), Some("fcsr"));
+        assert_eq!(reg.addr_by_name("sstatus"), Some(Sstatus::as_addr()));
+        assert_eq!(reg.name_by_addr(Sstatus::as_addr()), Some("sstatus"));
     }
 }

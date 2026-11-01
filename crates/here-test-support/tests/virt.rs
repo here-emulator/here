@@ -10,12 +10,9 @@ use here_device::clock::Clock;
 use here_device::ram::Ram;
 use here_isa::DebugTarget;
 use here_isa::riscv::address::Address;
-use here_isa::riscv::csr_reg::NamedCsrReg;
-use here_isa::riscv::csr_reg::csr_index;
-use here_isa::riscv::csr_reg::csr_macro::Mcause;
-use here_isa::riscv::csr_reg::csr_macro::Mcycle;
-use here_isa::riscv::csr_reg::csr_macro::Minstret;
-use here_isa::riscv::csr_reg::csr_macro::Satp;
+use here_isa::riscv::csr_reg::{
+    Mcause, Mcycle, Mie, Minstret, Mip, Mstatus, Mtvec, NamedCsr, Satp,
+};
 use here_isa::riscv::executor::ExecutionHook;
 use here_isa::riscv::executor::RVCPU;
 use here_test_support::board_from_binary;
@@ -38,7 +35,7 @@ fn create_test_board() -> VirtBoard {
             here_device::sample_timer::SAMPLE_TIMER_INTERRUPT_ID,
         )
         .build();
-    board.cpu.debug_csr(csr_index::mtvec, Some(0x8000_2000));
+    board.cpu.debug_csr(Mtvec::as_addr(), Some(0x8000_2000));
     board
 }
 
@@ -86,12 +83,12 @@ fn jit_backend_matches_interpreter_for_supported_block() {
     assert_eq!(jit.cpu.read_reg(3), interpreter.cpu.read_reg(3));
     assert_eq!(jit.cpu.read_reg(31), interpreter.cpu.read_reg(31));
     assert_eq!(
-        jit.cpu_mut().debug_csr(Mcycle::get_index(), None),
-        interpreter.cpu_mut().debug_csr(Mcycle::get_index(), None)
+        jit.cpu_mut().debug_csr(Mcycle::as_addr(), None),
+        interpreter.cpu_mut().debug_csr(Mcycle::as_addr(), None)
     );
     assert_eq!(
-        jit.cpu_mut().debug_csr(Minstret::get_index(), None),
-        interpreter.cpu_mut().debug_csr(Minstret::get_index(), None)
+        jit.cpu_mut().debug_csr(Minstret::as_addr(), None),
+        interpreter.cpu_mut().debug_csr(Minstret::as_addr(), None)
     );
 }
 
@@ -115,11 +112,11 @@ fn jit_fallback_executes_exactly_one_cycle_before_resuming_jit() {
     assert_eq!(board.cpu.read_pc(), ram_config::BASE_ADDR + 8);
     assert_eq!(board.cpu.read_reg(1), 13);
     assert_eq!(
-        board.cpu_mut().debug_csr(Mcycle::get_index(), None),
+        board.cpu_mut().debug_csr(Mcycle::as_addr(), None),
         Some(2)
     );
     assert_eq!(
-        board.cpu_mut().debug_csr(Minstret::get_index(), None),
+        board.cpu_mut().debug_csr(Minstret::as_addr(), None),
         Some(2)
     );
 }
@@ -136,7 +133,7 @@ fn satp_write_invalidates_cached_jit_blocks() {
         .cpu_mut()
         .write_memory(Address::Virt(ram_config::BASE_ADDR), 0x0020_8093_u32)
         .unwrap(); // addi x1, x1, 2
-    board.cpu_mut().write_csr(Satp::get_index(), 1).unwrap();
+    board.cpu_mut().write_csr(Satp::as_addr(), 1).unwrap();
     board.cpu_mut().write_pc(ram_config::BASE_ADDR);
     assert_eq!(board.run_cycles(1), 1);
 
@@ -303,13 +300,13 @@ fn test_clint_timer_interrupt() {
     let interrupt_handler_addr = ram_config::BASE_ADDR + 0x1000;
     board
         .cpu_mut()
-        .debug_csr(csr_index::mtvec, Some(interrupt_handler_addr));
+        .debug_csr(Mtvec::as_addr(), Some(interrupt_handler_addr));
 
     // Enable MIE in mstatus
-    board.cpu_mut().debug_csr(csr_index::mstatus, Some(1 << 3));
+    board.cpu_mut().debug_csr(Mstatus::as_addr(), Some(1 << 3));
 
     // Enable MTIE
-    board.cpu_mut().debug_csr(csr_index::mie, Some(1 << 7));
+    board.cpu_mut().debug_csr(Mie::as_addr(), Some(1 << 7));
 
     let target_time = 5;
     {
@@ -335,7 +332,7 @@ fn test_clint_timer_interrupt() {
 
     assert!(reach_mtvec);
     assert_eq!(
-        board.cpu_mut().debug_csr(csr_index::mip, None),
+        board.cpu_mut().debug_csr(Mip::as_addr(), None),
         Some(1 << 7)
     );
     assert!(board.clock.now() >= target_time);
@@ -344,10 +341,10 @@ fn test_clint_timer_interrupt() {
     board.cpu_mut().write_pc(ram_config::BASE_ADDR);
 
     // Re-enable MIE in mstatus
-    board.cpu_mut().debug_csr(csr_index::mstatus, Some(1 << 3));
+    board.cpu_mut().debug_csr(Mstatus::as_addr(), Some(1 << 3));
 
     // Disable MTIE and enable MSIE
-    board.cpu_mut().debug_csr(csr_index::mie, Some(1 << 3));
+    board.cpu_mut().debug_csr(Mie::as_addr(), Some(1 << 3));
 
     {
         let clint_handle = board.clint;
@@ -360,7 +357,7 @@ fn test_clint_timer_interrupt() {
 
     let mcause = board
         .cpu_mut()
-        .debug_csr(Mcause::get_index(), None)
+        .debug_csr(Mcause::as_addr(), None)
         .unwrap();
     assert_eq!(mcause, (1u64 << (XLEN - 1)) | 0b11)
 }

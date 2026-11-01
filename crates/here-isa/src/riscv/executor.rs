@@ -16,6 +16,7 @@ use crate::riscv::decoder::Decoder;
 use crate::riscv::instruction::RVInstrInfo;
 use crate::riscv::instruction::exec_mapping::get_exec_func;
 use crate::riscv::instruction::instr_table::RiscvInstr;
+use crate::riscv::isa_builder::DEFAULT_ISA;
 use crate::riscv::mmu::VirtAddrManager;
 use crate::riscv::trap::Exception;
 use crate::riscv::trap::trap_controller::TrapController;
@@ -116,10 +117,13 @@ impl RVCPU {
     }
 
     pub fn from_decoder(decoder: Decoder, v_memory: VirtAddrManager) -> Self {
-        let mut csr = CsrRegfile::new(decoder.extensions());
+        let mut csr = CsrRegfile::from_isa_str(DEFAULT_ISA).expect("DEFAULT_ISA must be valid");
 
-        let ext = csr.context.extension;
-
+        let ext = decoder.extension_bits();
+        csr.context.extension = ext;
+        if (ext & (1 << (b'V' - b'A'))) != 0 && csr.addr_by_name("vcsr").is_none() {
+            crate::riscv::csr_reg::RVVExtCsrRegfile::register_into(&mut csr);
+        }
         let mxl = if WordType::BITS == 32 {
             1
         } else {

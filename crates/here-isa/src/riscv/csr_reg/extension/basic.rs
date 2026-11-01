@@ -229,6 +229,7 @@ gen_csr_regfile! {
     }
 }
 
+#[derive(Debug)]
 pub struct Cycle {}
 
 impl CsrValidator<Cycle> for Cycle {
@@ -242,7 +243,7 @@ impl NamedCsr for Cycle {
     const EXTENSION: Extension = Extension::Zicsr;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self::INDEX, (Self::read, Self::write), None);
+        registe_csr(regfile, Self {}, Self::INDEX, (Self::read, Self::write), None);
     }
 
     #[inline(always)]
@@ -272,6 +273,7 @@ gen_csr_bitfield!(
     ]
 );
 
+#[derive(Debug)]
 pub struct Instret {}
 
 impl CsrValidator<Instret> for Instret {
@@ -285,7 +287,7 @@ impl NamedCsr for Instret {
     const EXTENSION: Extension = Extension::Zicsr;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self::INDEX, (Self::read, Self::write), None);
+        registe_csr(regfile, Self {}, Self::INDEX, (Self::read, Self::write), None);
     }
 
     #[inline(always)]

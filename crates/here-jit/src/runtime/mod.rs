@@ -424,9 +424,7 @@ mod tests {
     use here_isa::DebugTarget;
     use here_isa::riscv::address::Address;
     use here_isa::riscv::cpu_tester::TestCPUBuilder;
-    use here_isa::riscv::csr_reg::NamedCsrReg;
-    use here_isa::riscv::csr_reg::csr_macro::Mcycle;
-    use here_isa::riscv::csr_reg::csr_macro::Minstret;
+    use here_isa::riscv::csr_reg::{Mcycle, Minstret, NamedCsr};
     use here_isa::riscv::trap::Exception;
     use here_types::ram_config::BASE_ADDR;
 
@@ -461,8 +459,8 @@ mod tests {
         assert_eq!(cpu.read_reg(1), 10);
         assert_eq!(cpu.read_reg(2), 20);
         assert_eq!(cpu.read_reg(3), 0);
-        assert_eq!(cpu.debug_csr(Mcycle::get_index(), None), Some(4));
-        assert_eq!(cpu.debug_csr(Minstret::get_index(), None), Some(4));
+        assert_eq!(cpu.debug_csr(Mcycle::as_addr(), None), Some(4));
+        assert_eq!(cpu.debug_csr(Minstret::as_addr(), None), Some(4));
 
         // Reset PC back to Block 1. Both blocks are now compiled and chained!
         cpu.pc = BASE_ADDR;
@@ -472,8 +470,8 @@ mod tests {
         assert_eq!(cpu.read_reg(1), 20);
         assert_eq!(cpu.read_reg(2), 40);
         assert_eq!(cpu.read_reg(3), 0);
-        assert_eq!(cpu.debug_csr(Mcycle::get_index(), None), Some(8));
-        assert_eq!(cpu.debug_csr(Minstret::get_index(), None), Some(8));
+        assert_eq!(cpu.debug_csr(Mcycle::as_addr(), None), Some(8));
+        assert_eq!(cpu.debug_csr(Minstret::as_addr(), None), Some(8));
     }
 
     #[test]
@@ -534,8 +532,8 @@ mod tests {
         assert_eq!(cpu.read_reg(1), 0);
         assert_eq!(cpu.read_reg(2), 100);
         assert_eq!(cpu.pc, BASE_ADDR + 12);
-        assert_eq!(cpu.debug_csr(Mcycle::get_index(), None), Some(102));
-        assert_eq!(cpu.debug_csr(Minstret::get_index(), None), Some(102));
+        assert_eq!(cpu.debug_csr(Mcycle::as_addr(), None), Some(102));
+        assert_eq!(cpu.debug_csr(Minstret::as_addr(), None), Some(102));
     }
 
     #[test]
@@ -565,8 +563,8 @@ mod tests {
         assert_eq!(cpu.read_reg(1), 37);
         // PC after interpreter runs addi at BASE_ADDR is BASE_ADDR + 4.
         assert_eq!(cpu.pc, BASE_ADDR + 4);
-        assert_eq!(cpu.debug_csr(Mcycle::get_index(), None), Some(25));
-        assert_eq!(cpu.debug_csr(Minstret::get_index(), None), Some(25));
+        assert_eq!(cpu.debug_csr(Mcycle::as_addr(), None), Some(25));
+        assert_eq!(cpu.debug_csr(Minstret::as_addr(), None), Some(25));
     }
 
     #[test]

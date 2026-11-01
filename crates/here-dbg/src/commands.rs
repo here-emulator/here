@@ -10,8 +10,6 @@ use here_board::load::ELFLoader;
 use here_isa::InstrLen;
 use here_isa::dispatch_integer_sew;
 use here_isa::riscv::address::Address;
-use here_isa::riscv::csr_reg::csr_macro::CSR_ADDRESS;
-use here_isa::riscv::csr_reg::csr_macro::CSR_NAME;
 use here_isa::riscv::mmu::AccessType;
 use here_types::FLOAT_REG_NAME;
 use here_types::REG_NAME;
@@ -120,9 +118,10 @@ impl<B: Board> RvdbSession<B> {
                 })
             }
             PrintCmd::Csr { addr } => {
-                let csr_addr = parse_csr(&addr)?;
-                let name = CSR_NAME
-                    .get(&csr_addr)
+                let csr_addr = self.parse_csr(&addr)?;
+                let name = self
+                    .dbg
+                    .csr_name_by_addr(csr_addr)
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| format!("0x{:03x}", csr_addr));
                 Ok(CommandOutput::Csr {
@@ -173,7 +172,7 @@ impl<B: Board> RvdbSession<B> {
             PrintCmd::Reg { reg } => PrintObject::Reg(parse_common_reg(&reg)?),
             PrintCmd::Regs { start, len } => PrintObject::Regs(start, len),
             PrintCmd::Mem { addr, len, virt } => PrintObject::Mem(parse_u64(&addr)?, len, virt),
-            PrintCmd::Csr { addr } => PrintObject::CSR(parse_csr(&addr)?),
+            PrintCmd::Csr { addr } => PrintObject::CSR(self.parse_csr(&addr)?),
             PrintCmd::FReg { reg } => PrintObject::FReg(parse_float_reg(&reg)?),
             PrintCmd::VReg { reg, .. } => PrintObject::VReg(parse_vector_reg(&reg)?),
             PrintCmd::Priv => PrintObject::Privilege,
@@ -188,7 +187,7 @@ impl<B: Board> RvdbSession<B> {
             PrintCmd::Reg { reg } => PrintObject::Reg(parse_common_reg(&reg)?),
             PrintCmd::Regs { start, len } => PrintObject::Regs(start, len),
             PrintCmd::Mem { addr, len, virt } => PrintObject::Mem(parse_u64(&addr)?, len, virt),
-            PrintCmd::Csr { addr } => PrintObject::CSR(parse_csr(&addr)?),
+            PrintCmd::Csr { addr } => PrintObject::CSR(self.parse_csr(&addr)?),
             PrintCmd::FReg { reg } => PrintObject::FReg(parse_float_reg(&reg)?),
             PrintCmd::VReg { reg, .. } => PrintObject::VReg(parse_vector_reg(&reg)?),
             PrintCmd::Priv => PrintObject::Privilege,
@@ -398,6 +397,19 @@ impl<B: Board> RvdbSession<B> {
             is_current_pc: addr == self.dbg.read_pc(),
         }
     }
+
+    fn parse_csr(&self, s: &str) -> Result<WordType, String> {
+        let t = s.trim();
+        if let Some(index) = self.dbg.csr_addr_by_name(t) {
+            return Ok(index);
+        }
+
+        if let Ok(n) = parse_word(s) {
+            return Ok(n);
+        }
+
+        Err(format!("invalid csr: {}", s))
+    }
 }
 
 #[cfg(feature = "native")]
@@ -461,19 +473,6 @@ fn parse_float_reg(s: &str) -> Result<u8, String> {
 
 fn parse_vector_reg(s: &str) -> Result<u8, String> {
     parse_reg(s, &VECTOR_REG_NAME, 'v')
-}
-
-fn parse_csr(s: &str) -> Result<WordType, String> {
-    let t = s.trim();
-    if let Some(index) = CSR_ADDRESS.get(t) {
-        return Ok(*index);
-    }
-
-    if let Ok(n) = parse_word(s) {
-        return Ok(n);
-    }
-
-    Err(format!("invalid csr: {}", s))
 }
 
 #[cfg(test)]

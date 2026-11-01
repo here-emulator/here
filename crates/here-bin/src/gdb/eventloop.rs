@@ -15,9 +15,7 @@ use std::path::Path;
 #[cfg(unix)]
 use std::path::PathBuf;
 
-use here_isa::riscv::csr_reg::NamedCsrReg;
-use here_isa::riscv::csr_reg::csr_macro::CSR_NAME;
-use here_isa::riscv::csr_reg::csr_macro::Misa;
+use here_isa::riscv::csr_reg::{Misa, NamedCsr};
 #[cfg(unix)]
 use std::os::unix::net::UnixListener;
 #[cfg(unix)]
@@ -160,12 +158,16 @@ pub enum Config {
 pub fn event_loop<B: Board>(board: B, cfg: Config) -> DynResult<()> {
     let mut gdb_debugger = GdbDebugger::new(board);
 
-    let misa = gdb_debugger.dbg.read_csr(Misa::get_index()).unwrap();
+    let misa = gdb_debugger.dbg.read_csr(Misa::as_addr()).unwrap();
     let with_f = ((misa >> ('F' as u32 - 'A' as u32)) & 1) != 0;
     let with_d = ((misa >> ('D' as u32 - 'A' as u32)) & 1) != 0;
 
-    let builder =
-        desc::DescBuilder::with_csrs(CSR_NAME.entries().map(|(addr, name)| (*addr, *name)));
+    let builder = desc::DescBuilder::with_csrs(
+        gdb_debugger
+            .dbg
+            .csr_names()
+            .map(|(name, addr)| (addr as u64, name.to_string())),
+    );
 
     let builder = if with_d {
         builder.with_d()

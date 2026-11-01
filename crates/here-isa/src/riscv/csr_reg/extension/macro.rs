@@ -94,6 +94,7 @@ macro_rules! gen_csr_reg {
             $( $bit:expr, $len:expr, $fname:ident $(, $ro:ident)? );* $(;)?
         ]
     ) => {
+        #[derive(Debug)]
         pub struct $name {}
 
         gen_csr_reg!(@impl_validator $name, $sub_regfile, $field $(, @$validate_tag)?);
@@ -109,6 +110,7 @@ macro_rules! gen_csr_reg {
                 );
                 registe_csr(
                     regfile,
+                    Self {},
                     Self::INDEX,
                     (Self::read, Self::write),
                     Some((unsafe { &mut *default_mask.0 }, default_mask.1)),

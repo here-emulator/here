@@ -80,7 +80,7 @@ impl Extension {
         }
     }
 
-    pub(crate) fn misa_letter(self) -> Option<char> {
+    fn misa_letter(self) -> Option<char> {
         use Extension::*;
         Some(match self {
             I => 'I',
@@ -116,17 +116,6 @@ pub(crate) fn misa_bit(letter: char) -> WordType {
     1 << (letter as u8 - b'A')
 }
 
-pub(crate) fn extensions_to_misa_bits<'a>(
-    extensions: impl IntoIterator<Item = &'a Extension>,
-) -> WordType {
-    let mut bits = misa_bit('S') | misa_bit('U');
-    for &ext in extensions {
-        if let Some(letter) = ext.misa_letter() {
-            bits |= misa_bit(letter);
-        }
-    }
-    bits
-}
 
 /// Builds the decoder's instruction set from a collection of [`Extension`]s.
 ///
@@ -160,10 +149,6 @@ impl ISABuilder {
 
     pub fn has(&self, ext: Extension) -> bool {
         self.extensions.contains(&ext)
-    }
-
-    pub fn extensions(&self) -> std::collections::HashSet<Extension> {
-        self.extensions.iter().copied().collect()
     }
 
     fn insert(&mut self, ext: Extension) {
@@ -204,7 +189,13 @@ impl ISABuilder {
     }
 
     pub fn extension_bits(&self) -> WordType {
-        extensions_to_misa_bits(&self.extensions)
+        let mut bits = misa_bit('S') | misa_bit('U');
+        for &ext in &self.extensions {
+            if let Some(letter) = ext.misa_letter() {
+                bits |= misa_bit(letter);
+            }
+        }
+        bits
     }
 }
 

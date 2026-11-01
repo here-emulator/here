@@ -90,13 +90,13 @@ impl<B: Board> RvdbSession<B> {
         let output = self.handle_command(cmd)?;
 
         Ok(RvdbCommandResponse {
-            text: self.printer.render(&output),
+            text: self.render_output(&output),
             exit: output == CommandOutput::Exit,
         })
     }
 
     pub fn render_output(&self, output: &CommandOutput) -> String {
-        self.printer.render(output)
+        self.printer.render(output, |addr| self.dbg.csr_name_by_addr(addr))
     }
 
     pub fn load_symbol_file_bytes(&mut self, bytes: Vec<u8>) -> Result<(), String> {

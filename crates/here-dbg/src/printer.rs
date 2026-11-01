@@ -4,7 +4,6 @@ use crate::debugger;
 use here_isa::riscv::RawInstr;
 use here_isa::riscv::address::Address;
 use here_isa::riscv::csr_reg::PrivilegeLevel;
-use here_isa::riscv::csr_reg::csr_macro::CSR_NAME;
 use here_isa::riscv::decoder::DecodeInstr;
 use here_isa::riscv::instruction::RVInstrInfo;
 use here_isa::riscv::instruction::instr_table::RiscvInstr;
@@ -152,11 +151,17 @@ impl Printer {
         }
     }
 
-    pub(crate) fn render(&self, output: &CommandOutput) -> String {
-        self.render_with_active_palette(output)
+    pub(crate) fn render<'a, F>(&self, output: &CommandOutput, csr_name: F) -> String
+    where
+        F: Fn(WordType) -> Option<&'a str> + Copy,
+    {
+        self.render_with_active_palette(output, csr_name)
     }
 
-    fn render_with_active_palette(&self, output: &CommandOutput) -> String {
+    fn render_with_active_palette<'a, F>(&self, output: &CommandOutput, csr_name: F) -> String
+    where
+        F: Fn(WordType) -> Option<&'a str> + Copy,
+    {
         use std::fmt::Write;
 
         let mut text = String::new();
@@ -276,7 +281,7 @@ impl Printer {
                         text,
                         "  [{}] {}",
                         palette.format_idx(i),
-                        palette.format_instr(line)
+                        palette.format_instr(line, csr_name)
                     )
                     .unwrap();
                 }
@@ -289,7 +294,7 @@ impl Printer {
                         text.push_str("  ");
                     }
 
-                    writeln!(text, "{}", palette.format_instr_detailed(line)).unwrap();
+                    writeln!(text, "{}", palette.format_instr_detailed(line, csr_name)).unwrap();
                 }
             }
             CommandOutput::Breakpoints(bps) => {
@@ -393,14 +398,14 @@ impl Printer {
             } => {
                 match event {
                     debugger::DebugEvent::StepCompleted => {
-                        writeln!(text, "Completed, next: {}", palette.format_instr(instr)).unwrap();
+                        writeln!(text, "Completed, next: {}", palette.format_instr(instr, csr_name)).unwrap();
                     }
                     debugger::DebugEvent::BreakpointHit => {
                         writeln!(
                             text,
                             "Breakpoint hit after {} steps: {}",
                             steps,
-                            palette.format_instr(instr)
+                            palette.format_instr(instr, csr_name)
                         )
                         .unwrap();
                     }
@@ -412,14 +417,14 @@ impl Printer {
                                 text,
                                 "Board halted after {} steps: {}",
                                 steps,
-                                palette.format_instr(instr)
+                                palette.format_instr(instr, csr_name)
                             )
                             .unwrap();
                         }
                     }
                 }
                 for res in watch_results {
-                    text.push_str(&self.render_with_active_palette(res));
+                    text.push_str(&self.render_with_active_palette(res, csr_name));
                 }
             }
 
@@ -481,30 +486,40 @@ impl OutputPalette {
         self.data(&format!("0x{:016x}", data)).to_string()
     }
 
-    fn format_instr(&self, instr: &DbgInstrLine) -> impl std::fmt::Display {
+    fn format_instr<'a, F>(&self, instr: &DbgInstrLine, csr_name: F) -> impl std::fmt::Display
+    where
+        F: Fn(WordType) -> Option<&'a str> + Copy,
+    {
         if let Some(symbol) = &instr.symbol {
             format!(
                 "{}: {} {}",
                 self.format_addr(instr.addr),
-                self.format_asm(instr.decoded),
+                self.format_asm(instr.decoded, csr_name),
                 self.identifier(&symbol)
             )
         } else {
             format!(
                 "{}: {}",
                 self.format_addr(instr.addr),
-                self.format_asm(instr.decoded)
+                self.format_asm(instr.decoded, csr_name)
             )
         }
     }
 
-    fn format_instr_detailed(&self, instr: &DbgInstrLine) -> impl std::fmt::Display {
+    fn format_instr_detailed<'a, F>(
+        &self,
+        instr: &DbgInstrLine,
+        csr_name: F,
+    ) -> impl std::fmt::Display
+    where
+        F: Fn(WordType) -> Option<&'a str> + Copy,
+    {
         if let Some(symbol) = &instr.symbol {
             format!(
                 "{}: {} {} {}",
                 self.format_addr(instr.addr),
                 self.format_raw(instr.raw),
-                self.format_asm(instr.decoded),
+                self.format_asm(instr.decoded, csr_name),
                 self.identifier(&symbol)
             )
         } else {
@@ -512,7 +527,7 @@ impl OutputPalette {
                 "{}: {} {}",
                 self.format_addr(instr.addr),
                 self.format_raw(instr.raw),
-                self.format_asm(instr.decoded)
+                self.format_asm(instr.decoded, csr_name)
             )
         }
     }
@@ -530,14 +545,25 @@ impl OutputPalette {
         self.data(&(imm as SignedWordType).to_string())
     }
 
-    fn format_csr_name(&self, addr: WordType) -> String {
-        match CSR_NAME.get(&addr) {
+    fn format_csr_name<'a, F>(&self, addr: WordType, csr_name: F) -> String
+    where
+        F: Fn(WordType) -> Option<&'a str>,
+    {
+        match csr_name(addr) {
             Some(name) => self.csr(name),
             None => self.csr(&format!("csr[0x{addr:03x}]")),
         }
     }
 
-    fn format_pseudo_asm(&self, instr: RiscvInstr, info: RVInstrInfo) -> Option<String> {
+    fn format_pseudo_asm<'a, F>(
+        &self,
+        instr: RiscvInstr,
+        info: RVInstrInfo,
+        csr_name: F,
+    ) -> Option<String>
+    where
+        F: Fn(WordType) -> Option<&'a str> + Copy,
+    {
         use RVInstrInfo as Info;
         use RiscvInstr::*;
 
@@ -604,7 +630,7 @@ impl OutputPalette {
                 Some(format!(
                     "{} {}, {}",
                     mnemonic(name),
-                    self.format_csr_name(imm),
+                    self.format_csr_name(imm, csr_name),
                     self.data(&rs1.to_string()),
                 ))
             }
@@ -612,7 +638,7 @@ impl OutputPalette {
                 "{} {}, {}",
                 mnemonic("csrr"),
                 reg(rd),
-                self.format_csr_name(imm),
+                self.format_csr_name(imm, csr_name),
             )),
             (CSRRW | CSRRS | CSRRC, Info::I { rd: 0, rs1, imm }) => {
                 let name = match instr {
@@ -624,7 +650,7 @@ impl OutputPalette {
                 Some(format!(
                     "{} {}, {}",
                     mnemonic(name),
-                    self.format_csr_name(imm),
+                    self.format_csr_name(imm, csr_name),
                     reg(rs1),
                 ))
             }
@@ -659,11 +685,18 @@ impl OutputPalette {
         }
     }
 
-    fn format_asm(&self, decode_instr: Option<DecodeInstr>) -> impl std::fmt::Display {
+    fn format_asm<'a, F>(
+        &self,
+        decode_instr: Option<DecodeInstr>,
+        csr_name: F,
+    ) -> impl std::fmt::Display
+    where
+        F: Fn(WordType) -> Option<&'a str> + Copy,
+    {
         let Some(DecodeInstr { instr, info, .. }) = decode_instr else {
             return self.invalid("<invalid instruction>");
         };
-        if let Some(pseudo) = self.format_pseudo_asm(instr, info) {
+        if let Some(pseudo) = self.format_pseudo_asm(instr, info, csr_name) {
             return pseudo;
         }
 
@@ -676,7 +709,7 @@ impl OutputPalette {
                         "{} {}, {}, {}",
                         self.instr(instr.name()),
                         self.reg(REG_NAME[rd as usize], 0),
-                        self.format_csr_name(imm),
+                        self.format_csr_name(imm, csr_name),
                         self.reg(REG_NAME[rs1 as usize], 0),
                     )
                 }
@@ -685,7 +718,7 @@ impl OutputPalette {
                         "{} {}, {}, {}",
                         self.instr(instr.name()),
                         self.reg(REG_NAME[rd as usize], 0),
-                        self.format_csr_name(imm),
+                        self.format_csr_name(imm, csr_name),
                         self.data(rs1.to_string().as_str()),
                     )
                 }
@@ -927,11 +960,14 @@ mod tests {
     fn asm(instr: RiscvInstr, info: Info) -> String {
         Printer::plain()
             .output_palette
-            .format_asm(Some(DecodeInstr {
-                instr,
-                info,
-                len: 4,
-            }))
+            .format_asm(
+                Some(DecodeInstr {
+                    instr,
+                    info,
+                    len: 4,
+                }),
+                |_| None,
+            )
             .to_string()
     }
 

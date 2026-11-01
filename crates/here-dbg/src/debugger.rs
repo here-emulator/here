@@ -10,9 +10,7 @@ use here_isa::ISATypes;
 use here_isa::riscv::RawInstr;
 use here_isa::riscv::RiscvTypes;
 use here_isa::riscv::address::Address;
-use here_isa::riscv::csr_reg::NamedCsrReg;
-use here_isa::riscv::csr_reg::PrivilegeLevel;
-use here_isa::riscv::csr_reg::csr_macro::Mcycle;
+use here_isa::riscv::csr_reg::{Mcycle, NamedCsr, PrivilegeLevel};
 use here_isa::riscv::decoder::DecodeInstr;
 use here_isa::riscv::executor::ExecutionHook;
 use here_isa::riscv::executor::RVCPU;
@@ -601,6 +599,18 @@ impl<B: Board> Debugger<B> {
         self.board.cpu_mut().debug_csr(addr, None)
     }
 
+    pub fn csr_addr_by_name(&self, name: &str) -> Option<WordType> {
+        self.board.cpu().csr.addr_by_name(name)
+    }
+
+    pub fn csr_name_by_addr(&self, addr: WordType) -> Option<&str> {
+        self.board.cpu().csr.name_by_addr(addr)
+    }
+
+    pub fn csr_names(&self) -> impl Iterator<Item = (&str, WordType)> {
+        self.board.cpu().csr.csr_names()
+    }
+
     pub fn write_csr(&mut self, addr: WordType, data: WordType) -> Result<(), DebugError> {
         self.board
             .cpu_mut()
@@ -614,7 +624,7 @@ impl<B: Board> Debugger<B> {
     }
 
     pub fn set_current_privilege(&mut self, priv_level: PrivilegeLevel) {
-        self.board.cpu_mut().csr.set_current_privileged(priv_level);
+        self.board.cpu_mut().set_current_privilege(priv_level);
     }
 
     pub fn decoded_info(&self, raw: RawInstr) -> Option<<RiscvTypes as ISATypes>::DecodeRst> {
@@ -630,11 +640,7 @@ impl<B: Board> Debugger<B> {
     }
 
     pub fn cycle(&mut self) -> WordType {
-        self.board
-            .cpu_mut()
-            .csr
-            .get_by_type_existing::<Mcycle>()
-            .data()
+        Mcycle::read(&self.board.cpu().csr) as WordType
     }
 }
 

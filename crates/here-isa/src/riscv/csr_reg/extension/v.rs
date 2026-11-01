@@ -29,6 +29,13 @@ impl SubExtCsrRegfile for RVVExtCsrRegfile {
     }
 }
 
+impl RVVExtCsrRegfile {
+    pub(crate) fn register_into(regfile: &mut CsrRegfile) {
+        <Self as SubExtCsrRegfile>::register(regfile);
+    }
+}
+
+#[derive(Debug)]
 pub struct Vcsr {}
 
 impl CsrValidator<Vcsr> for Vcsr {
@@ -44,7 +51,7 @@ impl NamedCsr for Vcsr {
     const EXTENSION: Extension = Extension::V;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self::INDEX, (Self::read, Self::write), None);
+        registe_csr(regfile, Self {}, Self::INDEX, (Self::read, Self::write), None);
     }
 
     #[inline(always)]

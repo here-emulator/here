@@ -19,6 +19,7 @@ pub use v::*;
 
 pub(self) fn registe_csr(
     regfile: &mut CsrRegfile,
+    name: impl std::fmt::Debug,
     addr: CsrIndex,
     io_func: (CsrReadFn, CsrWriteFn),
     default_mask: Option<(&mut CsrItem, CsrDataType)>,
@@ -29,6 +30,8 @@ pub(self) fn registe_csr(
 
     match addr {
         CsrIndex::Direct(addr) => {
+            let name_str = format!("{:?}", name).to_lowercase();
+            regfile.name_map.insert(name_str, addr);
             if regfile.map.insert(addr, (io_func.0, io_func.1)).is_some() {
                 let mes = format!(
                     "attempted to register two CSRs with the same address {:#x}",

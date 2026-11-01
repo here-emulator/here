@@ -37,6 +37,7 @@ impl SubExtCsrRegfile for RVSExtCsrRegfile {
     }
 }
 
+#[derive(Debug)]
 pub struct Sstatus {}
 
 impl CsrValidator<Sstatus> for Sstatus {
@@ -50,7 +51,7 @@ impl NamedCsr for Sstatus {
     const EXTENSION: Extension = Extension::Zicsr;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self::INDEX, (Self::read, Self::write), None);
+        registe_csr(regfile, Self {}, Self::INDEX, (Self::read, Self::write), None);
     }
 
     #[inline(always)]
@@ -92,6 +93,7 @@ gen_csr_bitfield!(
     ]
 );
 
+#[derive(Debug)]
 pub struct Sie {}
 
 impl CsrValidator<Sie> for Sie {
@@ -105,7 +107,7 @@ impl NamedCsr for Sie {
     const EXTENSION: Extension = Extension::Zicsr;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self::INDEX, (Self::read, Self::write), None);
+        registe_csr(regfile, Self {}, Self::INDEX, (Self::read, Self::write), None);
     }
 
     #[inline(always)]
@@ -140,6 +142,7 @@ gen_csr_bitfield!(
     ]
 );
 
+#[derive(Debug)]
 pub struct Sip {}
 
 impl CsrValidator<Sip> for Sip {
@@ -153,7 +156,7 @@ impl NamedCsr for Sip {
     const EXTENSION: Extension = Extension::Zicsr;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self::INDEX, (Self::read, Self::write), None);
+        registe_csr(regfile, Self {}, Self::INDEX, (Self::read, Self::write), None);
     }
 
     #[inline(always)]
