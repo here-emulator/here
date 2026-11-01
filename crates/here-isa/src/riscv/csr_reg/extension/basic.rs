@@ -9,7 +9,6 @@ use crate::riscv::{
 };
 
 #[rustfmt::skip]
-#[derive(Default)]
 pub struct RVBasicCsrRegfile {
     pub(super) xstatus:        CsrItem,
     pub(super) misa:           CsrItem,
@@ -57,7 +56,7 @@ gen_csr_regfile! {
             9,  2, vs;
             11, 2, mpp;
             13, 2, fs;
-            15, 2, xs;
+            15, 2, xs, RO;
             17, 1, mprv;
             18, 1, sum;
             19, 1, mxr;
@@ -66,8 +65,8 @@ gen_csr_regfile! {
             22, 1, tsr;
             23, 1, spelp;
             24, 1, sdt;
-            32, 2, uxl;  // TODO: We don't support changing XLEN yet.
-            34, 2, sxl;
+            32, 2, uxl, RO;  // TODO: We don't support changing XLEN yet.
+            34, 2, sxl, RO;
             36, 1, sbe;
             37, 1, mbe;
             38, 1, gva;
@@ -79,8 +78,8 @@ gen_csr_regfile! {
         ];
 
         Misa, Extension::Zicsr, basic_csr, misa, CsrIndex::Direct(0x301), [
-            0, 26, extension;  // TODO: We don't support changing extension yet.
-            -2, 2, mxl;
+            0, 26, extension, RO;  // TODO: We don't support changing extension yet.
+            -2, 2, mxl, RO;
         ];
 
         Medeleg, Extension::Zicsr, basic_csr, medeleg, CsrIndex::Direct(0x302), [
@@ -133,7 +132,7 @@ gen_csr_regfile! {
         ];
 
         Mcountinhibit, Extension::Zicsr, basic_csr, mcountinhibit, CsrIndex::Direct(0x320), [
-            0, XLEN, mcountinhibit;
+            0, XLEN, mcountinhibit, RO;
         ];
 
         Mscratch, Extension::Zicsr, basic_csr, mscratch, CsrIndex::Direct(0x340), [
@@ -182,19 +181,19 @@ gen_csr_regfile! {
         ];
 
         Mvendorid, Extension::Zicsr, basic_csr, mvendorid, CsrIndex::Direct(0xF11), [
-            0, XLEN, mvendorid;
+            0, XLEN, mvendorid, RO;
         ];
 
         Marchid, Extension::Zicsr, basic_csr, marchid, CsrIndex::Direct(0xF12), [
-            0, XLEN, marchid;
+            0, XLEN, marchid, RO;
         ];
 
         Mimpid, Extension::Zicsr, basic_csr, mimpid, CsrIndex::Direct(0xF13), [
-            0, XLEN, mimpid;
+            0, XLEN, mimpid, RO;
         ];
 
         Mhartid, Extension::Zicsr, basic_csr, mhartid, CsrIndex::Direct(0xF14), [
-            0, XLEN, mhartid;
+            0, XLEN, mhartid, RO;
         ];
     }
 }
@@ -212,7 +211,7 @@ impl NamedCsr for Cycle {
     const EXTENSION: Extension = Extension::Zicsr;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self::INDEX, (Self::read, Self::write));
+        registe_csr(regfile, Self::INDEX, (Self::read, Self::write), None);
     }
 
     #[inline(always)]
@@ -237,7 +236,7 @@ impl NamedCsr for Cycle {
 
 gen_csr_bitfield!(
     Cycle, basic_csr, mcycle, [
-        0, XLEN, cycle;
+        0, XLEN, cycle, RO;
     ]
 );
 
@@ -254,7 +253,7 @@ impl NamedCsr for Instret {
     const EXTENSION: Extension = Extension::Zicsr;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self::INDEX, (Self::read, Self::write));
+        registe_csr(regfile, Self::INDEX, (Self::read, Self::write), None);
     }
 
     #[inline(always)]
@@ -279,6 +278,6 @@ impl NamedCsr for Instret {
 
 gen_csr_bitfield!(
     Instret, basic_csr, minstret, [
-        0, XLEN, instret;
+        0, XLEN, instret, RO;
     ]
 );

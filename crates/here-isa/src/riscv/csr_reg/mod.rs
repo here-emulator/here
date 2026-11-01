@@ -75,7 +75,6 @@ impl TryFrom<u8> for PrivilegeLevel {
 }
 
 
-
 // #[cfg(test)]
 // mod test {
 //     use crate::riscv::csr_reg::CsrRegFile;

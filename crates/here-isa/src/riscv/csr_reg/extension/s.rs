@@ -14,7 +14,6 @@ use crate::riscv::{
 };
 
 #[rustfmt::skip]
-#[derive(Default)]
 pub struct RVSExtCsrRegfile {
     // S
     // @shadow sstatus:     CsrItem,
@@ -50,7 +49,7 @@ impl NamedCsr for Sstatus {
     const EXTENSION: Extension = Extension::Zicsr;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self::INDEX, (Self::read, Self::write));
+        registe_csr(regfile, Self::INDEX, (Self::read, Self::write), None);
     }
 
     #[inline(always)]
@@ -86,7 +85,7 @@ gen_csr_bitfield!(
         19, 1, mxr;
         23, 1, spelp;
         24, 1, sdt;
-        32, 2, uxl; // TODO: We don't support changing XLEN yet.
+        32, 2, uxl, RO; // TODO: We don't support changing XLEN yet.
         -1, 1, sd;
     ]
 );
@@ -104,7 +103,7 @@ impl NamedCsr for Sie {
     const EXTENSION: Extension = Extension::Zicsr;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self::INDEX, (Self::read, Self::write));
+        registe_csr(regfile, Self::INDEX, (Self::read, Self::write), None);
     }
 
     #[inline(always)]
@@ -151,7 +150,7 @@ impl NamedCsr for Sip {
     const EXTENSION: Extension = Extension::Zicsr;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self::INDEX, (Self::read, Self::write));
+        registe_csr(regfile, Self::INDEX, (Self::read, Self::write), None);
     }
 
     #[inline(always)]

@@ -11,7 +11,6 @@ use crate::riscv::{
 };
 
 #[rustfmt::skip]
-#[derive(Default)]
 pub struct RVVExtCsrRegfile {
     vstart:         CsrItem,
     vxsat:          CsrItem,
@@ -43,7 +42,7 @@ impl NamedCsr for Vcsr {
     const EXTENSION: Extension = Extension::V;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self::INDEX, (Self::read, Self::write));
+        registe_csr(regfile, Self::INDEX, (Self::read, Self::write), None);
     }
 
     #[inline(always)]
@@ -92,11 +91,11 @@ gen_csr_regfile! {
         ];
 
         Vtype, Extension::V, rvv_csr, vtype, CsrIndex::Direct(0xC21), [
-            0, 3, vlmul;
-            3, 3, vsew;
-            6, 1, vta;
-            7, 1, vma;
-            -1, 1, vill;
+            0, 3, vlmul, RO;
+            3, 3, vsew, RO;
+            6, 1, vta, RO;
+            7, 1, vma, RO;
+            -1, 1, vill, RO;
         ];
 
         Vlenb, Extension::V, rvv_csr, vlenb, CsrIndex::Direct(0xC22), [

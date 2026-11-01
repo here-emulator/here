@@ -15,7 +15,7 @@ pub struct CsrItem {
 pub(super) type CsrReadFn = fn(&mut CsrRegfile) -> u64;
 pub(super) type CsrWriteFn = fn(&mut CsrRegfile, u64);
 
-pub(super) trait SubExtCsrRegfile: Default {
+pub(super) trait SubExtCsrRegfile {
     fn register(regfile: &mut CsrRegfile);
 }
 

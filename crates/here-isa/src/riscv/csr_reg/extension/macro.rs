@@ -2,12 +2,16 @@
 macro_rules! gen_csr_bitfield {
     (
         $name:ident, $sub_regfile:ident, $field:ident, [
-            $( $bit:expr, $len:expr, $fname:ident );* $(;)?
+            $( $bit:expr, $len:expr, $fname:ident $(, $ro:ident)? );* $(;)?
         ]
     ) => {
         impl $name {
             #[allow(dead_code)]
             pub const SHADOW_MASK: CsrDataType = 0 $( | Self::${concat($field, _, $fname, _mask)} )*;
+
+            #[allow(dead_code)]
+            pub const DEFAULT_WRITABLE_MASK: CsrDataType =
+                0 $( | Self::${concat($field, _, $fname, _write_mask)} )*;
 
             $(
                 // Offset
@@ -22,6 +26,11 @@ macro_rules! gen_csr_bitfield {
                 #[allow(non_upper_case_globals)]
                 const ${concat($field, _, $fname, _mask)}: CsrDataType =
                     BIT_ONES_ARRAY[$len as usize] << Self::${concat($field, _, $fname, _offset)};
+
+                // Write Mask
+                #[allow(non_upper_case_globals)]
+                const ${concat($field, _, $fname, _write_mask)}: CsrDataType =
+                    gen_csr_bitfield!(@write_mask $field, $fname $(, $ro)?);
 
                 // Get value
                 #[inline]
@@ -53,6 +62,14 @@ macro_rules! gen_csr_bitfield {
             )*
         }
     };
+
+    (@write_mask $field:ident, $fname:ident, RO) => {
+        0
+    };
+
+    (@write_mask $field:ident, $fname:ident) => {
+        Self::${concat($field, _, $fname, _mask)}
+    };
 }
 
 /// Generate a single CSR register.
@@ -60,7 +77,7 @@ macro_rules! gen_csr_reg {
     (
         $name:ident, $extension:expr, $sub_regfile:ident, $field:ident, $index:expr,
         $(@$validate_tag:ident)? [
-            $( $bit:expr, $len:expr, $fname:ident );* $(;)?
+            $( $bit:expr, $len:expr, $fname:ident $(, $ro:ident)? );* $(;)?
         ]
     ) => {
         pub struct $name {}
@@ -72,7 +89,16 @@ macro_rules! gen_csr_reg {
             const EXTENSION: Extension = $extension;
 
             fn register(regfile: &mut CsrRegfile) {
-                registe_csr(regfile, Self::INDEX, (Self::read, Self::write));
+                let default_mask = (
+                    &mut regfile.$sub_regfile.$field as *mut CsrItem,
+                    Self::DEFAULT_WRITABLE_MASK,
+                );
+                registe_csr(
+                    regfile,
+                    Self::INDEX,
+                    (Self::read, Self::write),
+                    Some((unsafe { &mut *default_mask.0 }, default_mask.1)),
+                );
             }
 
             #[inline(always)]
@@ -94,7 +120,7 @@ macro_rules! gen_csr_reg {
 
         gen_csr_bitfield!(
             $name, $sub_regfile, $field, [
-                $( $bit, $len, $fname );*
+                $( $bit, $len, $fname $(, $ro)? );*
             ]
         );
     };
@@ -124,7 +150,7 @@ macro_rules! gen_csr_regfile {
             $(
                 $name:ident, $extension:expr, $sub_regfile:ident, $field:ident, $index:expr,
                 $(@$validate_tag:ident)? [
-                    $( $bit:expr, $len:expr, $fname:ident );* $(;)?
+                    $( $bit:expr, $len:expr, $fname:ident $(, $ro:ident)? );* $(;)?
                 ]
             );* $(;)?
         }
@@ -141,7 +167,7 @@ macro_rules! gen_csr_regfile {
             gen_csr_reg!(
                 $name, $extension, $sub_regfile, $field, $index,
                 $(@$validate_tag)? [
-                    $( $bit, $len, $fname );*
+                    $( $bit, $len, $fname $(, $ro)? );*
                 ]
             );
         )*
