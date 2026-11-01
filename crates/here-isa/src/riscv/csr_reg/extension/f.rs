@@ -11,6 +11,7 @@ use crate::riscv::{
 };
 
 #[rustfmt::skip]
+#[derive(Default)]
 pub struct RVFExtCsrRegfile {
     fflags:         CsrItem,
     frm:            CsrItem,
@@ -42,7 +43,7 @@ impl NamedCsr for Fcsr {
     }
 
     #[inline(always)]
-    fn read(regfile: &mut CsrRegfile) -> CsrDataType {
+    fn read(regfile: &CsrRegfile) -> CsrDataType {
         let fflags = Fflags::read(regfile) & 0b11111;
         let frm = Frm::read(regfile) & 0b111;
         (frm << 5) | fflags

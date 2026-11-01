@@ -1,6 +1,9 @@
 mod cpu;
-pub mod regfile;
 pub mod extension;
+pub mod regfile;
+
+pub use extension::*;
+pub use regfile::{CsrContext, CsrDataType, CsrIndex, CsrItem, CsrMaskType, CsrRegfile, CsrValidator, NamedCsr};
 
 use here_types::WordType;
 
@@ -74,142 +77,168 @@ impl TryFrom<u8> for PrivilegeLevel {
     }
 }
 
+#[cfg(test)]
+mod test {
+    use std::collections::HashSet;
 
-// #[cfg(test)]
-// mod test {
-//     use crate::riscv::csr_reg::CsrRegFile;
-//     use crate::riscv::csr_reg::NamedCsrReg;
-//     use crate::riscv::csr_reg::PrivilegeLevel;
-//     use crate::riscv::csr_reg::csr_index;
-//     use crate::riscv::csr_reg::csr_macro::*;
+    use crate::riscv::{
+        csr_reg::{
+            CsrRegfile, Cycle, Fcsr, Mcause, Mcycle, Mepc, Mie, Mip, Mstatus, Mtvec, NamedCsr,
+            PrivilegeLevel, Sie, Sip, Sstatus, Vcsr, Vxrm, Vxsat,
+        },
+        isa_builder::Extension,
+    };
 
-//     #[test]
-//     fn test_rw_by_addr() {
-//         let mut reg = CsrRegFile::new();
-//         assert!(reg.write_checked(csr_index::mcause, 3));
-//         assert!(reg.write_checked(csr_index::mepc, 0x1234_5678));
+    fn new_all_ext_regfile() -> CsrRegfile {
+        CsrRegfile::new(HashSet::from([
+            Extension::I,
+            Extension::M,
+            Extension::A,
+            Extension::F,
+            Extension::D,
+            Extension::C,
+            Extension::V,
+            Extension::Zicsr,
+            Extension::Zifencei,
+        ]))
+    }
 
-//         let mcause = reg.read_checked(csr_index::mcause).unwrap();
-//         let mepc = reg.read_checked(csr_index::mepc).unwrap();
+    #[test]
+    fn test_rw_by_addr() {
+        let mut reg = new_all_ext_regfile();
+        assert!(reg.write_checked(Mcause::as_addr(), 3, PrivilegeLevel::M));
+        assert!(reg.write_checked(Mepc::as_addr(), 0x1234_5678, PrivilegeLevel::M));
 
-//         assert_eq!(mcause, 3);
-//         assert_eq!(mepc, 0x1234_5678);
-//     }
+        let mcause = reg.read_checked(Mcause::as_addr(), PrivilegeLevel::M).unwrap();
+        let mepc = reg.read_checked(Mepc::as_addr(), PrivilegeLevel::M).unwrap();
 
-//     #[test]
-//     fn test_rw_by_type() {
-//         let mut reg = CsrRegFile::new();
-//         let mstatus = reg.get_by_type::<Mstatus>().unwrap();
+        assert_eq!(mcause, 3);
+        assert_eq!(mepc, 0x1234_5678);
+    }
 
-//         mstatus.set_mpp(3);
-//         mstatus.set_sie(1);
+    #[test]
+    fn test_rw_by_type() {
+        let mut reg = new_all_ext_regfile();
 
-//         assert_eq!(mstatus.get_mpp(), 3);
-//         assert_eq!(mstatus.get_sie(), 1);
-//         let mstatus_val = reg.read_checked(csr_index::mstatus).unwrap();
-//         assert_eq!(mstatus_val, (1 << 1 | 3 << 11));
+        Mstatus::set_mpp(&mut reg, 3);
+        Mstatus::set_sie(&mut reg, 1);
 
-//         mstatus.set_mpp(0b10);
-//         assert_eq!(mstatus.get_mpp(), 0b10);
+        assert_eq!(Mstatus::get_mpp(&reg), 3);
+        assert_eq!(Mstatus::get_sie(&reg), 1);
+        let mstatus_val = reg.read_checked(Mstatus::as_addr(), PrivilegeLevel::M).unwrap();
+        assert_eq!(mstatus_val, (1 << 1) | (3 << 11));
 
-//         let mtvec = reg.get_by_type::<Mtvec>().unwrap();
-//         assert!(reg.write_checked(csr_index::mtvec, 0x114514));
-//         assert_eq!(mtvec.get_base(), 0x114514 >> 2);
-//     }
+        Mstatus::set_mpp(&mut reg, 0b01);
+        assert_eq!(Mstatus::get_mpp(&reg), 0b01);
 
-//     #[test]
-//     fn test_read_privilege() {
-//         let mut reg = CsrRegFile::new();
-//         reg.set_current_privileged(PrivilegeLevel::M);
-//         assert!(reg.write_checked(csr_index::mcause, 0xFEFE));
-//         assert_eq!(
-//             reg.read_uncheck_privilege(csr_index::mcause).unwrap(),
-//             0xFEFE
-//         );
+        assert!(reg.write_checked(Mtvec::as_addr(), 0x114514, PrivilegeLevel::M));
+        assert_eq!(Mtvec::get_base(&reg), 0x114514 >> 2);
+    }
 
-//         reg.set_current_privileged(PrivilegeLevel::S);
-//         assert!(!reg.write_checked(csr_index::mcause, 0xFEFE));
-//         assert_eq!(
-//             reg.read_uncheck_privilege(csr_index::mcause).unwrap(),
-//             0xFEFE
-//         );
-//     }
+    #[test]
+    fn test_read_privilege() {
+        let mut reg = new_all_ext_regfile();
+        assert!(reg.write_checked(Mcause::as_addr(), 0xFEFE, PrivilegeLevel::M));
+        assert_eq!(
+            reg.read_uncheck_privilege(Mcause::as_addr()).unwrap(),
+            0xFEFE
+        );
 
-//     #[test]
-//     fn test_mcycle() {
-//         let mut reg = CsrRegFile::new();
+        assert!(!reg.write_checked(Mcause::as_addr(), 0xFEFE, PrivilegeLevel::S));
+        assert_eq!(
+            reg.read_uncheck_privilege(Mcause::as_addr()).unwrap(),
+            0xFEFE
+        );
+    }
 
-//         // `mcycle` is a normal writable CSR.
+    #[test]
+    fn test_mcycle() {
+        let mut reg = new_all_ext_regfile();
 
-//         // Test NamedCsr API.
-//         let mcycle = reg.get_by_type_existing::<Mcycle>();
-//         mcycle.set_mcycle(1);
-//         assert_eq!(mcycle.get_mcycle(), 1);
+        // `mcycle` is a normal writable CSR.
 
-//         // Test CsrRegfile API.
-//         assert_eq!(reg.read_uncheck_privilege(Mcycle::get_index()).unwrap(), 1);
-//         reg.write_uncheck_privilege(Mcycle::get_index(), 2);
-//         assert_eq!(reg.read_uncheck_privilege(Mcycle::get_index()).unwrap(), 2);
+        // Test NamedCsr API.
+        Mcycle::set_mcycle(&mut reg, 1);
+        assert_eq!(Mcycle::get_mcycle(&reg), 1);
 
-//         // `cycle` is a shadow CSR of `mcycle`.
+        // Test CsrRegfile API.
+        assert_eq!(reg.read_uncheck_privilege(Mcycle::as_addr()).unwrap(), 1);
+        reg.write_uncheck_privilege(Mcycle::as_addr(), 2);
+        assert_eq!(reg.read_uncheck_privilege(Mcycle::as_addr()).unwrap(), 2);
 
-//         // It's known that with NamedCsr API, shadow CSR's validator cannot work properly,
-//         // so only test CsrRegfile API.
-//         reg.write_uncheck_privilege(Cycle::get_index(), 3);
-//         assert_eq!(reg.read_uncheck_privilege(Cycle::get_index()).unwrap(), 2);
-//     }
+        // `cycle` is a shadow CSR of `mcycle`.
+        reg.write_uncheck_privilege(Cycle::as_addr(), 3);
+        assert_eq!(reg.read_uncheck_privilege(Cycle::as_addr()).unwrap(), 2);
+    }
 
-//     #[test]
-//     fn test_vector_fixed_point_shadow_csr() {
-//         let mut reg = CsrRegFile::new();
+    #[test]
+    fn test_vector_fixed_point_shadow_csr() {
+        let mut reg = new_all_ext_regfile();
 
-//         reg.write_uncheck_privilege(csr_index::vxrm, 0b10);
-//         reg.write_uncheck_privilege(csr_index::vxsat, 1);
+        reg.write_uncheck_privilege(Vxrm::as_addr(), 0b10);
+        reg.write_uncheck_privilege(Vxsat::as_addr(), 1);
 
-//         assert_eq!(reg.read_uncheck_privilege(csr_index::vxrm).unwrap(), 0b10);
-//         assert_eq!(reg.read_uncheck_privilege(csr_index::vxsat).unwrap(), 1);
-//         assert_eq!(reg.get_by_type_existing::<Vcsr>().get_vxrm(), 0b10);
-//         assert_eq!(reg.get_by_type_existing::<Vcsr>().get_vxsat(), 1);
-//         assert_eq!(reg.read_uncheck_privilege(Fcsr::get_index()).unwrap(), 0);
-//     }
+        assert_eq!(reg.read_uncheck_privilege(Vxrm::as_addr()).unwrap(), 0b10);
+        assert_eq!(reg.read_uncheck_privilege(Vxsat::as_addr()).unwrap(), 1);
+        assert_eq!(Vcsr::get_vxrm(&reg), 0b10);
+        assert_eq!(Vcsr::get_vxsat(&reg), 1);
+        assert_eq!(reg.read_uncheck_privilege(Fcsr::as_addr()).unwrap(), 0);
+    }
 
-//     #[test]
-//     fn test_xstatus() {
-//         let mut reg = CsrRegFile::new();
+    #[test]
+    fn test_xstatus() {
+        let mut reg = new_all_ext_regfile();
 
-//         let mstatus = reg.get_by_type_existing::<Mstatus>();
-//         let sstatus = reg.get_by_type_existing::<Sstatus>();
+        Mstatus::set_spp(&mut reg, 1);
+        assert_eq!(Mstatus::get_spp(&reg), 1);
+        assert_eq!(Sstatus::get_spp(&reg), 1);
 
-//         mstatus.set_spp(1);
-//         assert_eq!(mstatus.get_spp(), 1);
-//         assert_eq!(sstatus.get_spp(), 1);
+        reg.write_uncheck_privilege(Mstatus::as_addr(), 0x1802);
+        assert_eq!(
+            reg.read_uncheck_privilege(Sstatus::as_addr()).unwrap(),
+            0x02
+        );
+        assert_eq!(
+            reg.read_uncheck_privilege(Mstatus::as_addr()).unwrap(),
+            0x1802
+        );
+    }
 
-//         reg.write_uncheck_privilege(Mstatus::get_index(), 0x1002);
-//         assert_eq!(
-//             reg.read_uncheck_privilege(Sstatus::get_index()).unwrap(),
-//             0x02
-//         );
-//         assert_eq!(
-//             reg.read_uncheck_privilege(Mstatus::get_index()).unwrap(),
-//             0x1002
-//         );
-//     }
+    #[test]
+    fn test_s_mode_shadow_csr() {
+        let mut csr = new_all_ext_regfile();
 
-//     #[test]
-//     fn test_s_mode_shadow_csr() {
-//         let mut csr = CsrRegFile::new();
+        Mip::set_seip(&mut csr, 1);
+        assert_eq!(Sip::get_seip(&csr), 1);
+        Mip::set_meip(&mut csr, 1);
+        assert_eq!(csr.read_uncheck_privilege(Sip::as_addr()).unwrap(), 0x200);
+        assert_eq!(csr.read_uncheck_privilege(Mip::as_addr()).unwrap(), 0xa00);
 
-//         let mip = csr.get_by_type_existing::<Mip>();
-//         let sip = csr.get_by_type_existing::<Sip>();
-//         mip.set_seip(1);
-//         assert_eq!(sip.get_seip(), 1);
-//         mip.set_meip(1);
-//         assert_eq!(csr.read_uncheck_privilege(Sip::get_index()).unwrap(), 0x200);
-//         assert_eq!(csr.read_uncheck_privilege(Mip::get_index()).unwrap(), 0xa00);
+        Mie::set_seie(&mut csr, 1);
+        assert_eq!(Sie::get_seie(&csr), 1);
+    }
 
-//         let mie = csr.get_by_type_existing::<Mie>();
-//         let sie = csr.get_by_type_existing::<Sie>();
-//         mie.set_seie(1);
-//         assert_eq!(sie.get_seie(), 1);
-//     }
-// }
+    #[test]
+    fn test_mstatus_mpp_validation() {
+        use crate::riscv::isa_builder::misa_bit;
+
+        let mut reg = new_all_ext_regfile();
+        Mstatus::set_mpp(&mut reg, PrivilegeLevel::M as u64);
+        assert_eq!(Mstatus::get_mpp(&reg), PrivilegeLevel::M as u64);
+
+        // Disable U and S extensions in context
+        reg.context.extension &= !(misa_bit('U') | misa_bit('S'));
+
+        // Attempting to write U (0) or S (1) should preserve old MPP (M = 3)
+        Mstatus::set_mpp(&mut reg, PrivilegeLevel::U as u64);
+        assert_eq!(Mstatus::get_mpp(&reg), PrivilegeLevel::M as u64);
+
+        Mstatus::set_mpp(&mut reg, PrivilegeLevel::S as u64);
+        assert_eq!(Mstatus::get_mpp(&reg), PrivilegeLevel::M as u64);
+
+        // Re-enable S extension -> writing S succeeds
+        reg.context.extension |= misa_bit('S');
+        Mstatus::set_mpp(&mut reg, PrivilegeLevel::S as u64);
+        assert_eq!(Mstatus::get_mpp(&reg), PrivilegeLevel::S as u64);
+    }
+}

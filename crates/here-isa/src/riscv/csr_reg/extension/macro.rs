@@ -34,7 +34,7 @@ macro_rules! gen_csr_bitfield {
 
                 // Get value
                 #[inline]
-                pub fn ${concat(get_, $fname)}(regfile: &mut CsrRegfile) -> CsrDataType {
+                pub fn ${concat(get_, $fname)}(regfile: &CsrRegfile) -> CsrDataType {
                     (Self::read(regfile) & Self::${concat($field, _, $fname, _mask)})
                         >> Self::${concat($field, _, $fname, _offset)}
                 }
@@ -54,6 +54,20 @@ macro_rules! gen_csr_bitfield {
                     Self::write(regfile, data);
                 }
 
+                // Set value directly without validation
+                #[inline]
+                pub fn ${concat(set_, $fname, _directly)}(
+                    regfile: &mut CsrRegfile,
+                    ${concat(new_, $fname)}: CsrDataType,
+                ) {
+                    let mut data = Self::read(regfile);
+                    data &= !Self::${concat($field, _, $fname, _mask)};
+                    let ${concat(new_, $fname)} = (${concat(new_, $fname)}
+                        << Self::${concat($field, _, $fname, _offset)})
+                        & Self::${concat($field, _, $fname, _mask)};
+                    data |= ${concat(new_, $fname)};
+                    Self::write_directly(regfile, data);
+                }
                 // Set Read Only
                 #[inline]
                 pub fn ${concat(set_, $fname, _readonly)}(regfile: &mut CsrRegfile) {
@@ -102,14 +116,16 @@ macro_rules! gen_csr_reg {
             }
 
             #[inline(always)]
-            fn read(regfile: &mut CsrRegfile) -> CsrDataType {
+            fn read(regfile: &CsrRegfile) -> CsrDataType {
                 regfile.$sub_regfile.$field.data
             }
 
             #[inline(always)]
             fn write(regfile: &mut CsrRegfile, new_value: CsrDataType) {
                 let validated_value = Self::validate(regfile, new_value);
-                regfile.$sub_regfile.$field.data = validated_value;
+                let mask = regfile.$sub_regfile.$field.mask;
+                let old = regfile.$sub_regfile.$field.data;
+                regfile.$sub_regfile.$field.data = (old & !mask) | (validated_value & mask);
             }
 
             #[inline(always)]

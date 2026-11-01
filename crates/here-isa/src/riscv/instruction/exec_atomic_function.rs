@@ -2,7 +2,7 @@ use std::cmp;
 use std::sync::atomic;
 use std::sync::atomic::Ordering;
 
-use crate::riscv::csr_reg::csr_macro::Minstret;
+use crate::riscv::csr_reg::Minstret;
 use crate::riscv::executor::RVCPU;
 use crate::riscv::instruction::RVInstrInfo;
 use crate::riscv::trap::Exception;
@@ -256,7 +256,7 @@ where
     cpu.reg_file.write(rd, res);
 
     cpu.pc = cpu.pc.wrapping_add(4);
-    cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+    Minstret::wrapping_add(&mut cpu.csr, 1);
 
     Ok(())
 }
@@ -284,7 +284,7 @@ where
 
     cpu.reg_file.write(rd, res);
     cpu.pc = cpu.pc.wrapping_add(4);
-    cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+    Minstret::wrapping_add(&mut cpu.csr, 1);
     Ok(())
 }
 
@@ -300,7 +300,7 @@ where
 
         cpu.reg_file.write(rd, if success { 0 } else { 1 });
         cpu.pc = cpu.pc.wrapping_add(4);
-        cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+        Minstret::wrapping_add(&mut cpu.csr, 1);
         Ok(())
     } else {
         unreachable!()

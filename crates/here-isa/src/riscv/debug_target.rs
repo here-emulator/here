@@ -64,7 +64,7 @@ impl DebugTarget<RiscvTypes> for RVCPU {
     }
 
     fn get_current_privilege(&self) -> PrivilegeLevel {
-        self.csr.privelege_level()
+        self.privilege_level()
     }
 
     fn read_float_reg(&self, idx: u8) -> (f32, f64) {
@@ -83,7 +83,11 @@ impl DebugTarget<RiscvTypes> for RVCPU {
     ///     None => `Read Only`,
     /// }
     fn debug_csr(&mut self, addr: WordType, new_value: Option<WordType>) -> Option<WordType> {
-        self.csr.debug(addr, new_value)
+        let value = self.csr.read_uncheck_privilege(addr);
+        if let Some(new_val) = new_value {
+            self.csr.write_uncheck_privilege(addr, new_val);
+        }
+        value
     }
 
     fn decoded_instr(&self, instr: RawInstr) -> Option<DecodeInstr> {

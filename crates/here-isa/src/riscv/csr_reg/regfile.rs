@@ -1,24 +1,38 @@
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
 
+use here_types::{WordType, XLEN};
+
 use crate::riscv::{
-    csr_reg::extension::{basic::*, f::RVFExtCsrRegfile, s::RVSExtCsrRegfile, v::RVVExtCsrRegfile},
-    isa_builder::Extension,
+    csr_reg::{
+        CSR_PRIVILEGE_TABLE, PrivilegeLevel,
+        extension::{
+            basic::*,
+            f::RVFExtCsrRegfile,
+            s::{RVSExtCsrRegfile, Satp},
+            v::RVVExtCsrRegfile,
+        },
+    },
+    isa_builder::{Extension, extensions_to_misa_bits},
 };
 
 pub type CsrDataType = u64;
 pub type CsrMaskType = CsrDataType;
+
+#[derive(Default)]
 pub struct CsrItem {
     pub data: CsrDataType,
     pub mask: CsrMaskType,
 }
 
-pub(super) type CsrReadFn = fn(&mut CsrRegfile) -> u64;
+pub(super) type CsrReadFn = fn(&CsrRegfile) -> u64;
 pub(super) type CsrWriteFn = fn(&mut CsrRegfile, u64);
 
 pub(super) trait SubExtCsrRegfile {
     fn register(regfile: &mut CsrRegfile);
 }
 
+#[derive(Default)]
 pub struct CsrContext {
     pub extension: WordType, // Used in `misa`
     pub xlen: u8,            // 32 or 64
@@ -41,77 +55,88 @@ pub struct CsrRegfile {
 impl CsrRegfile {
     pub fn new(extensions: HashSet<Extension>) -> Self {
         let mut regfile = Self::default();
+        regfile.context = CsrContext {
+            extension: extensions_to_misa_bits(&extensions),
+            xlen: XLEN as u8,
+        };
+        RVBasicCsrRegfile::register(&mut regfile);
+        RVSExtCsrRegfile::register(&mut regfile);
 
-        todo!()
+        if extensions.contains(&Extension::F) || extensions.contains(&Extension::D) {
+            RVFExtCsrRegfile::register(&mut regfile);
+        }
+
+        if extensions.contains(&Extension::V) {
+            RVVExtCsrRegfile::register(&mut regfile);
+        }
+
+        regfile
     }
 
-    pub fn is_read_priv_legal(&mut self, csr_addr: WordType) -> bool {
-        todo!()
+    pub fn is_read_priv_legal(&self, csr_addr: WordType, priv_level: PrivilegeLevel) -> bool {
+        if csr_addr == Satp::as_addr()
+            && priv_level == PrivilegeLevel::S
+            && Mstatus::get_tvm(self) == 1
+        {
+            return false;
+        }
+
+        match CSR_PRIVILEGE_TABLE.binary_search_by(|&(k, _)| {
+            if k > csr_addr {
+                Ordering::Greater
+            } else if k == csr_addr {
+                Ordering::Equal
+            } else {
+                Ordering::Less
+            }
+        }) {
+            Ok(i) => priv_level >= CSR_PRIVILEGE_TABLE[i].1,
+            Err(i) => priv_level >= CSR_PRIVILEGE_TABLE[i - 1].1,
+        }
     }
 
-    pub fn is_write_priv_legal(&mut self, csr_addr: WordType) -> bool {
-        todo!()
+    pub fn is_write_priv_legal(&self, csr_addr: WordType, priv_level: PrivilegeLevel) -> bool {
+        if csr_addr >= 0xC00 {
+            false
+        } else {
+            self.is_read_priv_legal(csr_addr, priv_level)
+        }
     }
 
     #[must_use]
-    fn read_checked(&mut self, addr: WordType) -> Option<WordType> {
-        todo!()
+    pub fn read_checked(&self, addr: WordType, priv_level: PrivilegeLevel) -> Option<WordType> {
+        if !self.is_read_priv_legal(addr, priv_level) {
+            return None;
+        }
+        self.read_uncheck_privilege(addr)
     }
 
     #[must_use]
-    fn write_checked(&mut self, addr: WordType, data: WordType) -> bool {
-        todo!()
-    }
-
-    /// ONLY used in debugger. Read & write without side-effect.
-    /// TODO: Consider remove this.
-    pub fn debug(&mut self, addr: WordType, new_value: Option<WordType>) -> Option<WordType> {
-        todo!()
-    }
-
-    /// Write directly without any check or validation and have no other side effects.
-    #[must_use]
-    pub fn write_directly(&mut self, addr: WordType, data: WordType) -> bool {
-        todo!()
+    pub fn write_checked(
+        &mut self,
+        addr: WordType,
+        data: WordType,
+        priv_level: PrivilegeLevel,
+    ) -> bool {
+        if !self.is_write_priv_legal(addr, priv_level) {
+            return false;
+        }
+        self.write_uncheck_privilege(addr, data)
     }
 
     /// Write without check for privilege level, but still have validation.
-    /// If you want to write without any check or validation, use [`Self::write_directly`] instead.
-    pub fn write_uncheck_privilege(&mut self, addr: WordType, data: WordType) {
-        todo!()
+    pub fn write_uncheck_privilege(&mut self, addr: WordType, data: WordType) -> bool {
+        if let Some(&(_, write_fn)) = self.map.get(&(addr as u64)) {
+            write_fn(self, data as u64);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn read_uncheck_privilege(&self, addr: WordType) -> Option<WordType> {
-        todo!()
-    }
-
-    /// NOTE: Given that this the CSR type is known, so this function won't check privilege level.
-    /// If you ensure the CSR exists, use [`Self::get_by_type_existing`] instead for better performance.
-    pub fn get_by_type<T>(&mut self) -> Option<T>
-    where
-        T: NamedCsrReg,
-    {
-        todo!()
-    }
-
-    /// Similar to `get_by_type`, but this function assumes the CSR definitely exists.
-    ///
-    /// - In debug builds, this function will panic if the CSR does not exist.
-    /// - In release builds, this function will skip the runtime check for performance.
-    #[must_use]
-    pub fn get_by_type_existing<T>(&mut self) -> T
-    where
-        T: NamedCsrReg,
-    {
-        todo!()
-    }
-
-    pub fn privelege_level(&self) -> PrivilegeLevel {
-        todo!()
-    }
-
-    pub fn set_current_privileged(&mut self, new_level: PrivilegeLevel) {
-        todo!()
+        let &(read_fn, _) = self.map.get(&(addr as u64))?;
+        Some(read_fn(self) as WordType)
     }
 }
 
@@ -130,7 +155,15 @@ pub trait NamedCsr: Sized + CsrValidator<Self> {
     const INDEX: CsrIndex;
 
     fn register(regfile: &mut CsrRegfile);
-    fn read(regfile: &mut CsrRegfile) -> u64;
+    fn read(regfile: &CsrRegfile) -> u64;
     fn write(regfile: &mut CsrRegfile, new_value: u64);
     fn write_directly(regfile: &mut CsrRegfile, new_value: u64);
+
+    #[inline(always)]
+    fn as_addr() -> WordType {
+        match Self::INDEX {
+            CsrIndex::Direct(addr) => addr as WordType,
+            _ => panic!("CSR does not have a direct address"),
+        }
+    }
 }

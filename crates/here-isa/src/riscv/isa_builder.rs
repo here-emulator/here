@@ -33,7 +33,7 @@ pub(crate) const TEST_ISA: &str = "RV64GCV";
 pub(crate) const TEST_ISA: &str = "RV32GCV";
 
 /// A standard RISC-V extension this emulator knows how to decode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Extension {
     I,
     M,
@@ -80,7 +80,7 @@ impl Extension {
         }
     }
 
-    fn misa_letter(self) -> Option<char> {
+    pub(crate) fn misa_letter(self) -> Option<char> {
         use Extension::*;
         Some(match self {
             I => 'I',
@@ -112,8 +112,20 @@ fn xlen_tables(
 }
 
 /// `misa` bit for a single-letter extension: bit `letter - 'A'`.
-fn misa_bit(letter: char) -> WordType {
+pub(crate) fn misa_bit(letter: char) -> WordType {
     1 << (letter as u8 - b'A')
+}
+
+pub(crate) fn extensions_to_misa_bits<'a>(
+    extensions: impl IntoIterator<Item = &'a Extension>,
+) -> WordType {
+    let mut bits = misa_bit('S') | misa_bit('U');
+    for &ext in extensions {
+        if let Some(letter) = ext.misa_letter() {
+            bits |= misa_bit(letter);
+        }
+    }
+    bits
 }
 
 /// Builds the decoder's instruction set from a collection of [`Extension`]s.
@@ -148,6 +160,10 @@ impl ISABuilder {
 
     pub fn has(&self, ext: Extension) -> bool {
         self.extensions.contains(&ext)
+    }
+
+    pub fn extensions(&self) -> std::collections::HashSet<Extension> {
+        self.extensions.iter().copied().collect()
     }
 
     fn insert(&mut self, ext: Extension) {
@@ -188,13 +204,7 @@ impl ISABuilder {
     }
 
     pub fn extension_bits(&self) -> WordType {
-        let mut bits = misa_bit('S') | misa_bit('U');
-        for &ext in &self.extensions {
-            if let Some(letter) = ext.misa_letter() {
-                bits |= misa_bit(letter);
-            }
-        }
-        bits
+        extensions_to_misa_bits(&self.extensions)
     }
 }
 

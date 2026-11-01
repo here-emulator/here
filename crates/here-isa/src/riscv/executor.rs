@@ -7,10 +7,10 @@ use crate::cache::DirectCache;
 use crate::cpu::RegFile;
 use crate::fpu::soft_float::SoftFPU;
 use crate::riscv::RawInstr;
-use crate::riscv::csr_reg::CsrRegFile;
-use crate::riscv::csr_reg::NamedCsrReg;
-use crate::riscv::csr_reg::PrivilegeLevel;
-use crate::riscv::csr_reg::csr_macro::*;
+use crate::riscv::csr_reg::{
+    CsrDataType, CsrRegfile, Mcycle, Minstret, Mip, Misa, Mstatus, NamedCsr, PrivilegeLevel,
+    Sstatus,
+};
 use crate::riscv::decoder::DecodeInstr;
 use crate::riscv::decoder::Decoder;
 use crate::riscv::instruction::RVInstrInfo;
@@ -82,7 +82,8 @@ pub struct RVCPU {
     pub pc: WordType,
     pub(crate) memory: VirtAddrManager,
     pub(crate) decoder: Decoder,
-    pub csr: CsrRegFile,
+    pub csr: CsrRegfile,
+    cpl: PrivilegeLevel,
     pub(super) icache: Cache<DirectCache<DecodeInstr, 8192>>,
     icache_epoch: u64,
     pub fpu: SoftFPU,
@@ -115,10 +116,9 @@ impl RVCPU {
     }
 
     pub fn from_decoder(decoder: Decoder, v_memory: VirtAddrManager) -> Self {
-        let mut csr = CsrRegFile::new();
+        let mut csr = CsrRegfile::new(decoder.extensions());
 
-        let ext = decoder.extension_bits();
-        csr.ctx.extension = ext;
+        let ext = csr.context.extension;
 
         let mxl = if WordType::BITS == 32 {
             1
@@ -127,17 +127,14 @@ impl RVCPU {
             2
         };
 
-        csr.get_by_type_existing::<Misa>()
-            .set_extension_directly(ext);
-        csr.get_by_type_existing::<Misa>().set_mxl_directly(mxl);
-        csr.get_by_type_existing::<Mstatus>().set_sxl_directly(mxl);
-        csr.get_by_type_existing::<Mstatus>().set_uxl_directly(mxl);
+        Misa::set_extension_directly(&mut csr, ext as CsrDataType);
+        Misa::set_mxl_directly(&mut csr, mxl);
+        Mstatus::set_sxl_directly(&mut csr, mxl);
+        Mstatus::set_uxl_directly(&mut csr, mxl);
 
-        debug_assert!(csr.get_by_type_existing::<Mstatus>().get_uxl() == mxl);
-        debug_assert!(csr.get_by_type_existing::<Mstatus>().get_sxl() == mxl);
-        debug_assert!(csr.get_by_type_existing::<Sstatus>().get_uxl() == mxl);
-
-        csr.set_current_privileged(PrivilegeLevel::M);
+        debug_assert!(Mstatus::get_uxl(&csr) == mxl);
+        debug_assert!(Mstatus::get_sxl(&csr) == mxl);
+        debug_assert!(Sstatus::get_uxl(&csr) == mxl);
 
         let fpu = SoftFPU::from(true);
 
@@ -146,7 +143,8 @@ impl RVCPU {
             pc: DEFAULT_PC_VALUE,
             memory: v_memory,
             decoder,
-            csr: csr,
+            csr,
+            cpl: PrivilegeLevel::M,
             vector: Vector::new(),
             icache: Cache::new(),
             icache_epoch: 0,
@@ -154,6 +152,16 @@ impl RVCPU {
             time_addr: None,
             pending_tval: None,
         }
+    }
+
+    #[inline]
+    pub fn privilege_level(&self) -> PrivilegeLevel {
+        self.cpl
+    }
+
+    #[inline]
+    pub fn set_current_privilege(&mut self, new_level: PrivilegeLevel) {
+        self.cpl = new_level;
     }
 
     pub(in super::super) fn execute(
@@ -256,8 +264,8 @@ impl RVCPU {
     }
 
     fn increment_mcycle_by(&mut self, cycles: u64) {
-        let mcycle = self.csr.get_by_type_existing::<Mcycle>();
-        mcycle.set_mcycle_directly(mcycle.data().wrapping_add(cycles as WordType));
+        let next = Mcycle::read(&self.csr).wrapping_add(cycles);
+        Mcycle::set_mcycle_directly(&mut self.csr, next);
     }
 
     pub fn try_take_pending_interrupt(&mut self) -> bool {
@@ -277,9 +285,7 @@ impl RVCPU {
     ) {
         self.pc = next_pc;
         self.increment_mcycle_by(instr_count + u64::from(exception.is_some()));
-        self.csr
-            .get_by_type_existing::<Minstret>()
-            .wrapping_add(instr_count as WordType);
+        Minstret::wrapping_add(&mut self.csr, instr_count);
 
         if let Some((exception, tval)) = exception {
             // Memory helpers still call the interpreter-facing read/write APIs, which may leave
@@ -296,7 +302,7 @@ impl RVCPU {
     }
 
     pub fn instruction_alignment(&mut self) -> WordType {
-        if self.csr.get_by_type_existing::<Misa>().c_enabled() {
+        if Misa::c_enabled(&self.csr) {
             2
         } else {
             4
@@ -420,22 +426,21 @@ impl RVCPU {
 
 impl RiscvIRQHandler for RVCPU {
     fn handle_irq(&mut self, interrupt: Interrupt, level: bool) {
-        let mip = self.csr.get_by_type_existing::<Mip>();
-        let level = level as WordType;
+        let level = level as CsrDataType;
 
         match interrupt {
             Interrupt::MachineTimer => {
-                mip.set_mtip(level);
+                Mip::set_mtip(&mut self.csr, level);
             }
             Interrupt::MachineExternal => {
-                mip.set_meip(level);
+                Mip::set_meip(&mut self.csr, level);
             }
             Interrupt::SupervisorExternal => {
-                mip.set_seip(level);
+                Mip::set_seip(&mut self.csr, level);
             }
 
             Interrupt::MachineSoft => {
-                mip.set_msip(level);
+                Mip::set_msip(&mut self.csr, level);
             }
 
             _ => {

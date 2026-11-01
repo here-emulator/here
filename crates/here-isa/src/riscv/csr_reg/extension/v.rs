@@ -7,10 +7,12 @@ use crate::riscv::{
             CsrDataType, CsrIndex, CsrItem, CsrRegfile, CsrValidator, NamedCsr, SubExtCsrRegfile,
         },
     },
+    vector::VLEN_BYTE,
     isa_builder::Extension,
 };
 
 #[rustfmt::skip]
+#[derive(Default)]
 pub struct RVVExtCsrRegfile {
     vstart:         CsrItem,
     vxsat:          CsrItem,
@@ -46,7 +48,7 @@ impl NamedCsr for Vcsr {
     }
 
     #[inline(always)]
-    fn read(regfile: &mut CsrRegfile) -> CsrDataType {
+    fn read(regfile: &CsrRegfile) -> CsrDataType {
         let vxsat = Vxsat::read(regfile) & 0b1;
         let vxrm = Vxrm::read(regfile) & 0b11;
         (vxrm << 1) | vxsat
@@ -101,5 +103,35 @@ gen_csr_regfile! {
         Vlenb, Extension::V, rvv_csr, vlenb, CsrIndex::Direct(0xC22), [
             0, XLEN, vlenb;
         ];
+    }
+}
+
+impl Vtype {
+    /// If new vtype is supported return Some(vl). Otherwise return None.
+    pub fn vsetvl(regfile: &mut CsrRegfile, vtype: CsrDataType) -> Option<CsrDataType> {
+        let new_vlmul = vtype & 0b111;
+        let new_vsew = (vtype >> 3) & 0b111;
+
+        let lmul_legal = new_vlmul != 0b100;
+        let vsew_legal = new_vsew < 0b100;
+        let illegal = !(lmul_legal & vsew_legal);
+        Self::write_directly(regfile, vtype | ((illegal as CsrDataType) << (XLEN - 1)));
+
+        if illegal {
+            None
+        } else {
+            let part_vl = (VLEN_BYTE as CsrDataType) >> new_vsew;
+            let vl = match new_vlmul {
+                0b000 => part_vl,      // 1
+                0b001 => part_vl << 1, // 2
+                0b010 => part_vl << 2, // 4
+                0b011 => part_vl << 3, // 8
+                0b111 => part_vl >> 1, // 1 / 2
+                0b110 => part_vl >> 2, // 1 / 4
+                0b101 => part_vl >> 4, // 1 / 8
+                _ => 0,
+            };
+            Some(vl)
+        }
     }
 }

@@ -7,7 +7,7 @@ use crate::fpu::CmpOp;
 use crate::fpu::FloatPoint;
 use crate::fpu::Round;
 use crate::fpu::soft_float::*;
-use crate::riscv::csr_reg::csr_macro::Fcsr;
+use crate::riscv::csr_reg::{CsrDataType, Fcsr};
 use crate::riscv::executor::RVCPU;
 use crate::riscv::instruction::RVInstrInfo;
 use crate::riscv::trap::Exception;
@@ -27,7 +27,7 @@ fn rm_to_round(cpu: &mut RVCPU, rm: u8) -> Round {
         0b011 => Round::TowardPositive,
         0b100 => Round::NearestTiesToAway,
         0b111 => {
-            let rm = cpu.csr.get_by_type_existing::<Fcsr>().get_rm();
+            let rm = Fcsr::get_rm(&cpu.csr);
             rm_to_round(cpu, rm as u8)
         }
         _ => {
@@ -55,9 +55,7 @@ pub fn status_to_fflags(status: Status) -> u8 {
 pub fn save_fflags_to_cpu(cpu: &mut RVCPU) {
     let fflags = status_to_fflags(cpu.fpu.last_status());
 
-    cpu.csr
-        .get_by_type_existing::<Fcsr>()
-        .set_fflags(fflags as WordType);
+    Fcsr::set_fflags(&mut cpu.csr, fflags as CsrDataType);
 }
 
 pub(super) fn exec_float_load<F>(info: RVInstrInfo, cpu: &mut RVCPU) -> Result<(), Exception>

@@ -14,6 +14,7 @@ use crate::riscv::{
 };
 
 #[rustfmt::skip]
+#[derive(Default)]
 pub struct RVSExtCsrRegfile {
     // S
     // @shadow sstatus:     CsrItem,
@@ -53,14 +54,15 @@ impl NamedCsr for Sstatus {
     }
 
     #[inline(always)]
-    fn read(regfile: &mut CsrRegfile) -> CsrDataType {
+    fn read(regfile: &CsrRegfile) -> CsrDataType {
         Mstatus::read(regfile) & Self::SHADOW_MASK
     }
 
     #[inline(always)]
     fn write(regfile: &mut CsrRegfile, new_value: CsrDataType) {
         let old = Mstatus::read(regfile);
-        let merged = (old & !Self::SHADOW_MASK) | (new_value & Self::SHADOW_MASK);
+        let merged =
+            (old & !Self::DEFAULT_WRITABLE_MASK) | (new_value & Self::DEFAULT_WRITABLE_MASK);
         Mstatus::write(regfile, merged);
     }
 
@@ -107,14 +109,15 @@ impl NamedCsr for Sie {
     }
 
     #[inline(always)]
-    fn read(regfile: &mut CsrRegfile) -> CsrDataType {
+    fn read(regfile: &CsrRegfile) -> CsrDataType {
         Mie::read(regfile) & Self::SHADOW_MASK
     }
 
     #[inline(always)]
     fn write(regfile: &mut CsrRegfile, new_value: CsrDataType) {
         let old = Mie::read(regfile);
-        let merged = (old & !Self::SHADOW_MASK) | (new_value & Self::SHADOW_MASK);
+        let merged =
+            (old & !Self::DEFAULT_WRITABLE_MASK) | (new_value & Self::DEFAULT_WRITABLE_MASK);
         Mie::write(regfile, merged);
     }
 
@@ -154,14 +157,15 @@ impl NamedCsr for Sip {
     }
 
     #[inline(always)]
-    fn read(regfile: &mut CsrRegfile) -> CsrDataType {
+    fn read(regfile: &CsrRegfile) -> CsrDataType {
         Mip::read(regfile) & Self::SHADOW_MASK
     }
 
     #[inline(always)]
     fn write(regfile: &mut CsrRegfile, new_value: CsrDataType) {
         let old = Mip::read(regfile);
-        let merged = (old & !Self::SHADOW_MASK) | (new_value & Self::SHADOW_MASK);
+        let merged =
+            (old & !Self::DEFAULT_WRITABLE_MASK) | (new_value & Self::DEFAULT_WRITABLE_MASK);
         Mip::write(regfile, merged);
     }
 

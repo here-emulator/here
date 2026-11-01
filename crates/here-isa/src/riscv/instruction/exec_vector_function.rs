@@ -1,8 +1,5 @@
 use crate::DebugTarget;
-use crate::riscv::csr_reg::NamedCsrReg;
-use crate::riscv::csr_reg::csr_macro::Vcsr;
-use crate::riscv::csr_reg::csr_macro::Vl;
-use crate::riscv::csr_reg::csr_macro::Vtype;
+use crate::riscv::csr_reg::{CsrDataType, Vcsr, Vl, Vtype};
 use crate::riscv::executor::RVCPU;
 use crate::riscv::instruction::RVInstrInfo;
 use crate::riscv::instruction::exec_function::ExecMove;
@@ -70,7 +67,6 @@ where
     T: VectorConfigFieldExtractor,
 {
     normal_vector_exec(cpu, |cpu, _vstart| {
-        let mut vtype_csr = cpu.csr.get_by_type::<Vtype>().unwrap();
         if let RVInstrInfo::V {
             rs1,
             rs2,
@@ -82,17 +78,15 @@ where
             let imm = (func6 as WordType) << 6 | (vm as WordType) << 5 | (rs2 as WordType);
             let configfield = T::exec(imm, rs1, cpu);
 
-            if let Some(maxvl) = vtype_csr.vsetvl(configfield.vtype) {
+            if let Some(maxvl) = Vtype::vsetvl(&mut cpu.csr, configfield.vtype as CsrDataType) {
+                let maxvl = maxvl as WordType;
                 let vl = configfield.input_len.min(maxvl);
                 let vlmul = ((configfield.vtype & 0b111) as u8).into();
                 let vsew = (((configfield.vtype >> 3) & 0b111) as u8).into();
                 let vta = ((configfield.vtype >> 6) & 1) != 0;
                 let vma = ((configfield.vtype >> 7) & 1) != 0;
 
-                cpu.csr
-                    .write_directly(Vl::get_index(), vl)
-                    .then_some(())
-                    .unwrap();
+                Vl::set_vl_directly(&mut cpu.csr, vl as CsrDataType);
                 cpu.vector.set_config((vlmul, vsew, vta, vma, vl as u16));
                 cpu.write_reg(vd, vl);
 
@@ -813,7 +807,7 @@ where
 }
 
 fn fixed_point_rounding_mode(cpu: &mut RVCPU) -> FixedPointRoundingMode {
-    match cpu.csr.get_by_type_existing::<Vcsr>().get_vxrm() {
+    match Vcsr::get_vxrm(&cpu.csr) {
         0 => FixedPointRoundingMode::RoundToNearestUp,
         1 => FixedPointRoundingMode::RoundToNearestEven,
         2 => FixedPointRoundingMode::RoundDown,
@@ -824,7 +818,7 @@ fn fixed_point_rounding_mode(cpu: &mut RVCPU) -> FixedPointRoundingMode {
 
 fn finish_fixed_point_op(cpu: &mut RVCPU, saturated: bool) {
     if saturated {
-        cpu.csr.get_by_type_existing::<Vcsr>().set_vxsat_directly(1);
+        Vcsr::set_vxsat_directly(&mut cpu.csr, 1);
     }
 }
 
@@ -1517,9 +1511,7 @@ mod test {
     use crate::riscv::cpu_tester::TestCPUBuilder;
     use crate::riscv::cpu_tester::run_test_exec;
     use crate::riscv::cpu_tester::run_test_exec_decode;
-    use crate::riscv::csr_reg::NamedCsrReg;
-    use crate::riscv::csr_reg::csr_macro::Mstatus;
-    use crate::riscv::csr_reg::csr_macro::Vstart;
+    use crate::riscv::csr_reg::{Mstatus, NamedCsr, Vstart};
     use crate::riscv::instruction::instr_table::RiscvInstr;
     use crate::riscv::mmu::VirtAddrManager;
     use crate::riscv::vector::VLEN_BYTE;
@@ -1583,7 +1575,7 @@ mod test {
             |builder| {
                 builder
                     .vector_status(Vlmul::M1, Vsew::E32, false, false)
-                    .csr(Vstart::get_index(), 2)
+                    .csr(Vstart::as_addr(), 2)
                     .reg_vec(1, 1, &u32_vec_to_bytes(&vs1))
                     .reg_vec(1, 2, &u32_vec_to_bytes(&vs2))
                     .reg_vec(1, 3, &u32_vec_to_bytes(&old_vd))
@@ -1592,7 +1584,7 @@ mod test {
             |checker| {
                 checker
                     .reg_vec(3, &expected)
-                    .csr(Vstart::get_index(), 0)
+                    .csr(Vstart::as_addr(), 0)
                     .pc(0x2004)
             },
         );
@@ -1732,8 +1724,8 @@ mod test {
         }
         let mmio = MemoryMapIO::from_ram(ram_ref.clone());
         let mut cpu = RVCPU::from_vaddr_manager(VirtAddrManager::from_ram_and_mmio(ram_ref, mmio));
-        cpu.csr.get_by_type_existing::<Mstatus>().set_fs(1); // Enable FPU by default for convienience
-        cpu.csr.get_by_type_existing::<Mstatus>().set_vs_directly(1);
+        Mstatus::set_fs(&mut cpu.csr, 1); // Enable FPU by default for convienience
+        Mstatus::set_vs_directly(&mut cpu.csr, 1);
         cpu.vector.set_config((
             TEST_VLMUL,
             TEST_VSEW,
@@ -1802,8 +1794,8 @@ mod test {
         }
         let mmio = MemoryMapIO::from_ram(ram_ref.clone());
         let mut cpu = RVCPU::from_vaddr_manager(VirtAddrManager::from_ram_and_mmio(ram_ref, mmio));
-        cpu.csr.get_by_type_existing::<Mstatus>().set_fs(1);
-        cpu.csr.get_by_type_existing::<Mstatus>().set_vs_directly(1);
+        Mstatus::set_fs(&mut cpu.csr, 1);
+        Mstatus::set_vs_directly(&mut cpu.csr, 1);
         cpu.vector
             .set_config((Vlmul::M4, Vsew::E32, false, false, 13));
         cpu.vector
@@ -1848,7 +1840,7 @@ mod test {
 
         assert_eq!(result, Err(Exception::LoadMisaligned));
         CPUChecker::new(&mut cpu)
-            .csr(Vstart::get_index(), 1)
+            .csr(Vstart::as_addr(), 1)
             .reg_vec(4, &[0x1234_5678u32, 0xaaaa_aaaa, 0xaaaa_aaaa, 0xaaaa_aaaa])
             .pc(0x2000);
     }
@@ -1860,7 +1852,7 @@ mod test {
             .collect();
         let mut builder = TestCPUBuilder::new()
             .vector_status(Vlmul::M1, Vsew::E32, false, false)
-            .csr(Vstart::get_index(), 2)
+            .csr(Vstart::as_addr(), 2)
             .reg(1, TEST_DATA_BASE);
         for (index, value) in data.iter().enumerate() {
             builder = builder.mem(
@@ -1888,7 +1880,7 @@ mod test {
         expected[0] = 0xaaaa_aaaa;
         expected[1] = 0xaaaa_aaaa;
         CPUChecker::new(&mut cpu)
-            .csr(Vstart::get_index(), 0)
+            .csr(Vstart::as_addr(), 0)
             .reg_vec(4, &expected)
             .pc(0x2004);
     }
@@ -1984,8 +1976,8 @@ mod test {
         }
         let mmio = MemoryMapIO::from_ram(ram_ref.clone());
         let mut cpu = RVCPU::from_vaddr_manager(VirtAddrManager::from_ram_and_mmio(ram_ref, mmio));
-        cpu.csr.get_by_type_existing::<Mstatus>().set_fs(1); // Enable FPU by default for convienience
-        cpu.csr.get_by_type_existing::<Mstatus>().set_vs_directly(1);
+        Mstatus::set_fs(&mut cpu.csr, 1); // Enable FPU by default for convienience
+        Mstatus::set_vs_directly(&mut cpu.csr, 1);
         cpu.vector.set_config((
             TEST_VLMUL,
             TEST_VSEW,
@@ -2027,8 +2019,8 @@ mod test {
 
         let mmio = MemoryMapIO::from_ram(ram_ref.clone());
         let mut cpu = RVCPU::from_vaddr_manager(VirtAddrManager::from_ram_and_mmio(ram_ref, mmio));
-        cpu.csr.get_by_type_existing::<Mstatus>().set_fs(1);
-        cpu.csr.get_by_type_existing::<Mstatus>().set_vs_directly(1);
+        Mstatus::set_fs(&mut cpu.csr, 1);
+        Mstatus::set_vs_directly(&mut cpu.csr, 1);
         cpu.vector.set_config((
             TEST_VLMUL,
             TEST_VSEW,
@@ -2091,8 +2083,8 @@ mod test {
         let ram_ref = Rc::new(UnsafeCell::new(Ram::new()));
         let mmio = MemoryMapIO::from_ram(ram_ref.clone());
         let mut cpu = RVCPU::from_vaddr_manager(VirtAddrManager::from_ram_and_mmio(ram_ref, mmio));
-        cpu.csr.get_by_type_existing::<Mstatus>().set_fs(1);
-        cpu.csr.get_by_type_existing::<Mstatus>().set_vs_directly(1);
+        Mstatus::set_fs(&mut cpu.csr, 1);
+        Mstatus::set_vs_directly(&mut cpu.csr, 1);
         cpu.vector.set_config((
             TEST_VLMUL,
             TEST_VSEW,
@@ -2166,8 +2158,8 @@ mod test {
         }
         let mmio = MemoryMapIO::from_ram(ram_ref.clone());
         let mut cpu = RVCPU::from_vaddr_manager(VirtAddrManager::from_ram_and_mmio(ram_ref, mmio));
-        cpu.csr.get_by_type_existing::<Mstatus>().set_fs(1);
-        cpu.csr.get_by_type_existing::<Mstatus>().set_vs_directly(1);
+        Mstatus::set_fs(&mut cpu.csr, 1);
+        Mstatus::set_vs_directly(&mut cpu.csr, 1);
         cpu.vector
             .set_config((Vlmul::M4, Vsew::E32, false, false, 13));
         let mut source = vec![0u8; VLEN_BYTE * Vlmul::M4.get_lmul() as usize];
@@ -2237,8 +2229,8 @@ mod test {
         let ram_ref = Rc::new(UnsafeCell::new(Ram::new()));
         let mmio = MemoryMapIO::from_ram(ram_ref.clone());
         let mut cpu = RVCPU::from_vaddr_manager(VirtAddrManager::from_ram_and_mmio(ram_ref, mmio));
-        cpu.csr.get_by_type_existing::<Mstatus>().set_fs(1);
-        cpu.csr.get_by_type_existing::<Mstatus>().set_vs_directly(1);
+        Mstatus::set_fs(&mut cpu.csr, 1);
+        Mstatus::set_vs_directly(&mut cpu.csr, 1);
         cpu.vector.set_config((
             TEST_VLMUL,
             TEST_VSEW,
@@ -2283,8 +2275,8 @@ mod test {
 
         let mmio = MemoryMapIO::from_ram(ram_ref.clone());
         let mut cpu = RVCPU::from_vaddr_manager(VirtAddrManager::from_ram_and_mmio(ram_ref, mmio));
-        cpu.csr.get_by_type_existing::<Mstatus>().set_fs(1);
-        cpu.csr.get_by_type_existing::<Mstatus>().set_vs_directly(1);
+        Mstatus::set_fs(&mut cpu.csr, 1);
+        Mstatus::set_vs_directly(&mut cpu.csr, 1);
         cpu.vector.set_config((
             TEST_VLMUL,
             TEST_VSEW,

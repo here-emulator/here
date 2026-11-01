@@ -5,8 +5,7 @@ use std::marker::PhantomData;
 pub(super) use super::exec_float_function::*;
 use super::normal_exec;
 
-use crate::riscv::csr_reg::NamedCsrReg;
-use crate::riscv::csr_reg::csr_macro::Minstret;
+use crate::riscv::csr_reg::{Minstret, NamedCsr};
 use crate::riscv::executor::RVCPU;
 use crate::riscv::instruction::RVInstrInfo;
 use crate::riscv::trap::Exception;
@@ -91,7 +90,7 @@ where
         std::unreachable!();
     }
 
-    cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+    Minstret::wrapping_add(&mut cpu.csr, 1);
     Ok(())
 }
 
@@ -137,7 +136,7 @@ pub(super) fn exec_csrw<const UIMM: bool>(
         let imm = imm.truncate_to_bits(12);
 
         // Check write permission before read CSR.
-        if cpu.csr.is_write_priv_legal(imm) == false {
+        if !cpu.csr.is_write_priv_legal(imm, cpu.privilege_level()) {
             return Err(Exception::IllegalInstruction);
         }
 
@@ -154,8 +153,8 @@ pub(super) fn exec_csrw<const UIMM: bool>(
 
         cpu.write_csr(imm, new_val)?;
 
-        if imm != Minstret::get_index() {
-            cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+        if imm != Minstret::as_addr() {
+            Minstret::wrapping_add(&mut cpu.csr, 1);
         }
     }
 
@@ -187,7 +186,7 @@ pub(super) fn exec_csr_bit<const SET: bool, const UIMM: bool>(
         cpu.reg_file.write(rd, value);
     } else {
         // Check write permission before read CSR.
-        if cpu.csr.is_write_priv_legal(imm) == false {
+        if !cpu.csr.is_write_priv_legal(imm, cpu.privilege_level()) {
             return Err(Exception::IllegalInstruction);
         }
 
@@ -197,8 +196,8 @@ pub(super) fn exec_csr_bit<const SET: bool, const UIMM: bool>(
         let data = if SET { value | rhs } else { value & !rhs };
         cpu.write_csr(imm, data)?;
 
-        if imm != Minstret::get_index() {
-            cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+        if imm != Minstret::as_addr() {
+            Minstret::wrapping_add(&mut cpu.csr, 1);
         }
     }
 

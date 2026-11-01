@@ -2,13 +2,9 @@ use std::thread;
 
 use super::*;
 use crate::riscv::cpu_tester::*;
-use crate::riscv::csr_reg::NamedCsrReg;
-use crate::riscv::csr_reg::csr_index;
-use crate::riscv::csr_reg::csr_macro::Mcause;
-use crate::riscv::csr_reg::csr_macro::Mcycle;
-use crate::riscv::csr_reg::csr_macro::Mepc;
-use crate::riscv::csr_reg::csr_macro::Minstret;
-use crate::riscv::csr_reg::csr_macro::Mtvec;
+use crate::riscv::csr_reg::{
+    Fcsr, Fflags, Mcause, Mcycle, Mepc, Minstret, Misa, Mstatus, Mtvec, NamedCsr, Vtype,
+};
 use crate::riscv::vector::VLEN;
 use here_types::UnsignedInteger;
 use here_types::as_signed_i128;
@@ -29,8 +25,8 @@ fn test_step_batch_executes_requested_cycles() {
     cpu.step_batch(3);
 
     assert_eq!(cpu.pc, ram_config::BASE_ADDR + 12);
-    assert_eq!(cpu.csr.get_by_type_existing::<Mcycle>().data(), 3);
-    assert_eq!(cpu.csr.get_by_type_existing::<Minstret>().data(), 3);
+    assert_eq!(Mcycle::read(&cpu.csr), 3);
+    assert_eq!(Minstret::read(&cpu.csr), 3);
 }
 
 #[test]
@@ -77,7 +73,7 @@ fn test_step_batch_debug_stops_without_affecting_normal_execution() {
     assert!(result.hook_stopped);
     assert_eq!(debug.pc, normal.pc);
     assert_eq!(debug.reg_file[1], normal.reg_file[1]);
-    assert_eq!(debug.csr.get_by_type_existing::<Mcycle>().data(), 2);
+    assert_eq!(Mcycle::read(&debug.csr), 2);
     assert_eq!(hook.0[0].0, ram_config::BASE_ADDR);
     assert_eq!(hook.0[1].0, ram_config::BASE_ADDR + 4);
     assert!(hook.0.iter().all(|step| step.1.is_some()));
@@ -92,7 +88,7 @@ fn test_step_batch_zero_is_noop() {
     cpu.step_batch(0);
 
     assert_eq!(cpu.pc, pc);
-    assert_eq!(cpu.csr.get_by_type_existing::<Mcycle>().data(), 0);
+    assert_eq!(Mcycle::read(&cpu.csr), 0);
 }
 
 #[test]
@@ -102,7 +98,7 @@ fn test_step_batch_continues_after_exception() {
         .mem_base(0, 0xffff_ffff_u32)
         .mem_base(0x100, 0x0010_8093_u32) // addi x1, x1, 1
         .mem_base(0x104, 0x0010_8093_u32)
-        .csr(Mtvec::get_index(), handler)
+        .csr(Mtvec::as_addr(), handler)
         .build();
 
     cpu.step_batch(3);
@@ -110,11 +106,11 @@ fn test_step_batch_continues_after_exception() {
     assert_eq!(cpu.reg_file[1], 2);
     assert_eq!(cpu.pc, handler + 8);
     assert_eq!(
-        cpu.csr.get_by_type_existing::<Mcause>().data(),
+        Mcause::read(&cpu.csr) as WordType,
         Exception::IllegalInstruction.into()
     );
     assert_eq!(
-        cpu.csr.get_by_type_existing::<Mepc>().data(),
+        Mepc::read(&cpu.csr) as WordType,
         ram_config::BASE_ADDR
     );
 }
@@ -437,7 +433,7 @@ fn test_rv32_f() {
 
     run_test_exec_decode(
         0x00102573, // frflags a0 => csrrs a0, fflags, x0
-        |builder| builder.csr(csr_index::fcsr, 0b11011011),
+        |builder| builder.csr(Fcsr::as_addr(), 0b11011011),
         |checker| checker.reg(10, 0b11011),
     );
 
@@ -456,13 +452,13 @@ fn test_rv32_f() {
     run_test_exec_decode(
         0xc0051553, // fcvt.w.s a0,fa0,rtz
         |builder| builder.reg_f32(10, -1.1),
-        |checker| checker.reg(10, negative_of(1)).csr(csr_index::fflags, 1),
+        |checker| checker.reg(10, negative_of(1)).csr(Fflags::as_addr(), 1),
     );
 
     run_test_exec_decode(
         0xc0051553, // fcvt.w.s a0,fa0,rtz
         |builder| builder.reg_f32(10, -1.0),
-        |checker| checker.reg(10, negative_of(1)).csr(csr_index::fflags, 0),
+        |checker| checker.reg(10, negative_of(1)).csr(Fflags::as_addr(), 0),
     );
 
     // Cannot represent in dest format.
@@ -472,7 +468,7 @@ fn test_rv32_f() {
         |checker| {
             checker
                 .reg(10, negative_of(1).wrapping_shl(31))
-                .csr(csr_index::fflags, 0x10)
+                .csr(Fflags::as_addr(), 0x10)
         },
     );
 
@@ -882,7 +878,7 @@ fn test_default_csr_value() {
     #[cfg(feature = "riscv32")]
     assert_eq!(
         cpu.csr
-            .read_uncheck_privilege(csr_index::mstatus)
+            .read_uncheck_privilege(Mstatus::as_addr())
             .unwrap()
             .extract_bits(32, 33),
         1
@@ -891,7 +887,7 @@ fn test_default_csr_value() {
     #[cfg(feature = "riscv64")]
     assert_eq!(
         cpu.csr
-            .read_uncheck_privilege(csr_index::mstatus)
+            .read_uncheck_privilege(Mstatus::as_addr())
             .unwrap()
             .extract_range(32, 33),
         2
@@ -901,7 +897,7 @@ fn test_default_csr_value() {
 #[test]
 fn test_cpu_test_builder_enables_vector_isa() {
     let cpu = TestCPUBuilder::new().build();
-    let misa = cpu.csr.read_uncheck_privilege(csr_index::misa).unwrap();
+    let misa = cpu.csr.read_uncheck_privilege(Misa::as_addr()).unwrap();
     let v_bit = 1 << (b'V' - b'A');
     assert_ne!(misa & v_bit, 0);
 }
@@ -962,7 +958,7 @@ fn test_vector_config() {
         |checker| {
             checker
                 .reg(3, VLEN as WordType * 2 / 32)
-                .csr(Vtype::get_index(), 0b00_010_001)
+                .csr(Vtype::as_addr(), 0b00_010_001)
                 .pc(0x2004)
         },
     );
@@ -980,7 +976,7 @@ fn test_vector_config() {
         |checker| {
             checker
                 .reg(3, VLEN as WordType * 2 / 32)
-                .csr(Vtype::get_index(), 0b00_010_001)
+                .csr(Vtype::as_addr(), 0b00_010_001)
                 .pc(0x2004)
         },
     );
@@ -998,7 +994,7 @@ fn test_vector_config() {
         |checker| {
             checker
                 .reg(3, VLEN as WordType * 2 / 64)
-                .csr(Vtype::get_index(), 0b00_011_001)
+                .csr(Vtype::as_addr(), 0b00_011_001)
                 .pc(0x2004)
         },
     );
@@ -1009,7 +1005,7 @@ fn test_vector_config() {
         |checker| {
             checker
                 .reg(3, VLEN as WordType * 2 / 32)
-                .csr(Vtype::get_index(), 0b00_010_001)
+                .csr(Vtype::as_addr(), 0b00_010_001)
                 .pc(0x2004)
         },
     );
@@ -1020,7 +1016,7 @@ fn test_vector_config() {
         |checker| {
             checker
                 .reg(3, VLEN as WordType * 2 / 32)
-                .csr(Vtype::get_index(), 0b00_010_001)
+                .csr(Vtype::as_addr(), 0b00_010_001)
                 .pc(0x2004)
         },
     );
@@ -1031,7 +1027,7 @@ fn test_vector_config() {
         |checker| {
             checker
                 .reg(3, VLEN as WordType * 2 / 32)
-                .csr(Vtype::get_index(), 0b00_010_001)
+                .csr(Vtype::as_addr(), 0b00_010_001)
                 .pc(0x2004)
         },
     );
@@ -1043,7 +1039,7 @@ fn test_vector_config() {
         |checker| {
             checker
                 .reg(3, 2)
-                .csr(Vtype::get_index(), 0b00_010_001)
+                .csr(Vtype::as_addr(), 0b00_010_001)
                 .pc(0x2004)
         },
     );

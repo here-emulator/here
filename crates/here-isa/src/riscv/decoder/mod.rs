@@ -8,8 +8,7 @@ use crate::riscv::instruction::InstrFormat;
 use crate::riscv::instruction::RVInstrInfo;
 use crate::riscv::instruction::instr_table::*;
 use crate::riscv::isa_builder::DEFAULT_ISA;
-use crate::riscv::isa_builder::ISABuilder;
-use crate::riscv::isa_builder::IsaParseError;
+use crate::riscv::isa_builder::{Extension, ISABuilder, IsaParseError};
 use here_types::WordType;
 use here_types::debug_unreachable;
 use here_types::sign_extend;
@@ -41,8 +40,8 @@ pub struct Decoder {
     compress_decoder: compress_decoder::CompressedDecoder,
     /// `misa` extension bitmap of the ISA this decoder was built for.
     extension_bits: WordType,
+    extensions: std::collections::HashSet<Extension>,
 }
-
 impl Decoder {
     pub fn new() -> Self {
         Self::from_isa_str(DEFAULT_ISA).expect("DEFAULT_ISA must be valid")
@@ -58,9 +57,13 @@ impl Decoder {
     pub fn extension_bits(&self) -> WordType {
         self.extension_bits
     }
+    pub fn extensions(&self) -> std::collections::HashSet<Extension> {
+        self.extensions.clone()
+    }
 
     fn from_builder(builder: ISABuilder) -> Self {
         let extension_bits = builder.extension_bits();
+        let extensions = builder.extensions();
 
         #[allow(unused_mut)]
         let mut isa = builder.build();
@@ -71,10 +74,11 @@ impl Decoder {
             isa.extend_from_slice(TABLE_RVCUSTOM1);
         }
 
-        Self::from_isa(isa, extension_bits)
+        let mut decoder = Self::from_isa(isa, extension_bits);
+        decoder.extensions = extensions;
+        decoder
     }
 }
-
 fn is_compressed(desc: &RVInstrDesc) -> bool {
     desc.key & 0b11 != 0b11
 }
@@ -104,7 +108,8 @@ impl Decoder {
             compress_decoder: compress,
             funct_decoder: funct,
             mask_decoder: mask,
-            extension_bits: extension_bits,
+            extension_bits,
+            extensions: std::collections::HashSet::new(),
         }
     }
 

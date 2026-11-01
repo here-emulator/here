@@ -1,3 +1,4 @@
+use crate::riscv::csr_reg::{NamedCsr, Satp};
 use crate::riscv::executor::RVCPU;
 use crate::riscv::trap::Exception;
 use here_types::WordType;
@@ -10,7 +11,7 @@ impl RVCPU {
                     return Ok(time as WordType);
                 }
             }
-        } else if let Some(data) = self.csr.read_checked(addr) {
+        } else if let Some(data) = self.csr.read_checked(addr, self.privilege_level()) {
             return Ok(data);
         }
 
@@ -19,16 +20,17 @@ impl RVCPU {
 
     /// Write a CSR and apply CPU-wide side effects.
     pub fn write_csr(&mut self, addr: WordType, data: WordType) -> Result<(), Exception> {
-        if !self.csr.write_checked(addr, data) {
+        if !self.csr.write_checked(addr, data, self.privilege_level()) {
             log::warn!("Failed to write CSR {:#x} with data {:#x}", addr, data);
             return Err(Exception::IllegalInstruction);
         }
 
         // satp.MODE changes take effect immediately, without an SFENCE.VMA.
-        if addr == Satp::get_index() {
-            let satp = self.csr.get_by_type_existing::<Satp>();
-            self.memory.set_mode(satp.get_mode() as u8);
-            self.memory.set_root_ppn(satp.get_ppn() as u64);
+        if addr == Satp::as_addr() {
+            let mode = Satp::get_mode(&self.csr) as u8;
+            let ppn = Satp::get_ppn(&self.csr) as u64;
+            self.memory.set_mode(mode);
+            self.memory.set_root_ppn(ppn);
             self.memory.flush_tlb();
             self.flush_icache();
         }

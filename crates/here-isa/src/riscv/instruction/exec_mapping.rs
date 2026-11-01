@@ -1,8 +1,7 @@
 use crate::DebugTarget;
 use crate::fpu::soft_float::*;
 use crate::riscv::csr_reg::PrivilegeLevel;
-use crate::riscv::csr_reg::csr_macro::Minstret;
-use crate::riscv::csr_reg::csr_macro::Mstatus;
+use crate::riscv::csr_reg::{Minstret, Mstatus};
 use crate::riscv::executor::RVCPU;
 use crate::riscv::instruction::RVInstrInfo;
 use crate::riscv::instruction::exec_atomic_function::*;
@@ -97,7 +96,7 @@ pub(in crate::riscv) fn get_exec_func(
             } else {
                 std::unreachable!();
             }
-            cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+            Minstret::wrapping_add(&mut cpu.csr, 1);
             Ok(())
         },
 
@@ -115,7 +114,7 @@ pub(in crate::riscv) fn get_exec_func(
                 std::unreachable!();
             }
 
-            cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+            Minstret::wrapping_add(&mut cpu.csr, 1);
             Ok(())
         },
 
@@ -124,7 +123,7 @@ pub(in crate::riscv) fn get_exec_func(
                 let value = cpu.pc.wrapping_add(imm); // imm has been sign_extended
                 cpu.reg_file.write(rd, value);
                 cpu.pc = cpu.pc.wrapping_add(4);
-                cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+                Minstret::wrapping_add(&mut cpu.csr, 1);
                 Ok(())
             } else {
                 std::unreachable!();
@@ -135,7 +134,7 @@ pub(in crate::riscv) fn get_exec_func(
             if let RVInstrInfo::U { rd, imm } = inst_info {
                 cpu.reg_file.write(rd, imm); // imm has been sign_extended
                 cpu.pc = cpu.pc.wrapping_add(4);
-                cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+                Minstret::wrapping_add(&mut cpu.csr, 1);
                 Ok(())
             } else {
                 std::unreachable!();
@@ -159,7 +158,7 @@ pub(in crate::riscv) fn get_exec_func(
             cpu.flush_icache();
             cpu.flush_tlb();
             cpu.pc = cpu.pc.wrapping_add(4);
-            cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+            Minstret::wrapping_add(&mut cpu.csr, 1);
             Ok(())
         },
 
@@ -176,7 +175,7 @@ pub(in crate::riscv) fn get_exec_func(
             }
             TrapController::mret(cpu);
 
-            cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+            Minstret::wrapping_add(&mut cpu.csr, 1);
             Ok(())
         },
         RiscvInstr::WFI => exec_nop,
@@ -320,7 +319,7 @@ pub(in crate::riscv) fn get_exec_func(
             }
 
             cpu.pc = cpu.pc.wrapping_add(4);
-            cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+            Minstret::wrapping_add(&mut cpu.csr, 1);
             Ok(())
         },
 
@@ -332,13 +331,13 @@ pub(in crate::riscv) fn get_exec_func(
                 return Err(Exception::IllegalInstruction);
             }
             if cpu.get_current_privilege() == PrivilegeLevel::S
-                && cpu.csr.get_by_type_existing::<Mstatus>().get_tsr() == 1
+                && Mstatus::get_tsr(&cpu.csr) == 1
             {
                 return Err(Exception::IllegalInstruction);
             }
 
             TrapController::sret(cpu);
-            cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+            Minstret::wrapping_add(&mut cpu.csr, 1);
             Ok(())
         },
 
@@ -347,7 +346,7 @@ pub(in crate::riscv) fn get_exec_func(
                 return Err(Exception::IllegalInstruction);
             }
             if cpu.get_current_privilege() == PrivilegeLevel::S
-                && cpu.csr.get_by_type_existing::<Mstatus>().get_tvm() == 1
+                && Mstatus::get_tvm(&cpu.csr) == 1
             {
                 return Err(Exception::IllegalInstruction);
             }
@@ -356,7 +355,7 @@ pub(in crate::riscv) fn get_exec_func(
             cpu.flush_icache();
 
             cpu.write_pc(cpu.pc.wrapping_add(4));
-            cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+            Minstret::wrapping_add(&mut cpu.csr, 1);
             Ok(())
         },
 

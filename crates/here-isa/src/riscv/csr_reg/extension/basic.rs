@@ -2,13 +2,17 @@ use here_types::{BIT_ONES_ARRAY, XLEN};
 
 use crate::riscv::{
     csr_reg::{
+        PrivilegeLevel,
         extension::registe_csr,
-        regfile::{CsrDataType, CsrIndex, CsrItem, CsrRegfile, CsrValidator, NamedCsr, SubExtCsrRegfile},
+        regfile::{
+            CsrDataType, CsrIndex, CsrItem, CsrRegfile, CsrValidator, NamedCsr, SubExtCsrRegfile,
+        },
     },
-    isa_builder::Extension,
+    isa_builder::{Extension, misa_bit},
 };
 
 #[rustfmt::skip]
+#[derive(Default)]
 pub struct RVBasicCsrRegfile {
     pub(super) xstatus:        CsrItem,
     pub(super) misa:           CsrItem,
@@ -40,7 +44,34 @@ impl SubExtCsrRegfile for RVBasicCsrRegfile {
 
 impl Mstatus {
     fn validate_custom(regfile: &mut CsrRegfile, new_value: CsrDataType) -> CsrDataType {
-        todo!()
+        let mpp = (new_value & Self::xstatus_mpp_mask) >> Self::xstatus_mpp_offset;
+        let ext = regfile.context.extension;
+        let mpp_legal = match PrivilegeLevel::try_from(mpp as u8) {
+            Ok(PrivilegeLevel::M) => true,
+            Ok(PrivilegeLevel::S) => (ext & misa_bit('S')) != 0,
+            Ok(PrivilegeLevel::U) => (ext & misa_bit('U')) != 0,
+            Ok(PrivilegeLevel::HS) => (ext & misa_bit('H')) != 0,
+            Err(_) => false,
+        };
+
+        if mpp_legal {
+            new_value
+        } else {
+            let old_mpp = regfile.basic_csr.xstatus.data & Self::xstatus_mpp_mask;
+            (new_value & !Self::xstatus_mpp_mask) | old_mpp
+        }
+    }
+}
+
+impl Mtvec {
+    fn validate_custom(regfile: &mut CsrRegfile, new_value: CsrDataType) -> CsrDataType {
+        let mode = new_value & 0b11;
+        if mode <= 1 {
+            new_value
+        } else {
+            let old_mode = regfile.basic_csr.mtvec.data & 0b11;
+            (new_value & !0b11) | old_mode
+        }
     }
 }
 
@@ -126,7 +157,7 @@ gen_csr_regfile! {
             13, 1, hgeie; // Hypervisor Guest External Interrupt Enable
         ];
 
-        Mtvec, Extension::Zicsr, basic_csr, mtvec, CsrIndex::Direct(0x305), [
+        Mtvec, Extension::Zicsr, basic_csr, mtvec, CsrIndex::Direct(0x305), @validate_custom [
             0, 2, mode;
             2, XLEN - 2, base;
         ];
@@ -215,14 +246,15 @@ impl NamedCsr for Cycle {
     }
 
     #[inline(always)]
-    fn read(regfile: &mut CsrRegfile) -> CsrDataType {
+    fn read(regfile: &CsrRegfile) -> CsrDataType {
         Mcycle::read(regfile) & Self::SHADOW_MASK
     }
 
     #[inline(always)]
     fn write(regfile: &mut CsrRegfile, new_value: CsrDataType) {
         let old = Mcycle::read(regfile);
-        let merged = (old & !Self::SHADOW_MASK) | (new_value & Self::SHADOW_MASK);
+        let merged =
+            (old & !Self::DEFAULT_WRITABLE_MASK) | (new_value & Self::DEFAULT_WRITABLE_MASK);
         Mcycle::write(regfile, merged);
     }
 
@@ -257,14 +289,15 @@ impl NamedCsr for Instret {
     }
 
     #[inline(always)]
-    fn read(regfile: &mut CsrRegfile) -> CsrDataType {
+    fn read(regfile: &CsrRegfile) -> CsrDataType {
         Minstret::read(regfile) & Self::SHADOW_MASK
     }
 
     #[inline(always)]
     fn write(regfile: &mut CsrRegfile, new_value: CsrDataType) {
         let old = Minstret::read(regfile);
-        let merged = (old & !Self::SHADOW_MASK) | (new_value & Self::SHADOW_MASK);
+        let merged =
+            (old & !Self::DEFAULT_WRITABLE_MASK) | (new_value & Self::DEFAULT_WRITABLE_MASK);
         Minstret::write(regfile, merged);
     }
 
@@ -281,3 +314,18 @@ gen_csr_bitfield!(
         0, XLEN, instret, RO;
     ]
 );
+
+impl Minstret {
+    #[inline]
+    pub fn wrapping_add(regfile: &mut CsrRegfile, rhs: CsrDataType) {
+        let v = Self::get_minstret(regfile).wrapping_add(rhs);
+        Self::set_minstret(regfile, v);
+    }
+}
+
+impl Misa {
+    #[inline]
+    pub fn c_enabled(regfile: &CsrRegfile) -> bool {
+        (Self::get_extension(regfile) & 0b100) != 0
+    }
+}

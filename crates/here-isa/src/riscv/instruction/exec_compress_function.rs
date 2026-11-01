@@ -2,7 +2,7 @@
 // Maybe we can reuse common exec function once we find a good way to handle the PC increment.
 
 use crate::fpu::FloatPoint;
-use crate::riscv::csr_reg::csr_macro::Minstret;
+use crate::riscv::csr_reg::Minstret;
 use crate::riscv::executor::RVCPU;
 use crate::riscv::instruction::RVInstrInfo;
 use crate::riscv::instruction::exec_function::ExecAdd;
@@ -55,7 +55,7 @@ where
         debug_unreachable!();
     }
 
-    cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+    Minstret::wrapping_add(&mut cpu.csr, 1);
     Ok(())
 }
 
@@ -73,7 +73,7 @@ pub(super) fn exec_compress_jump<const LINK: bool>(
     }
     cpu.pc = target;
 
-    cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+    Minstret::wrapping_add(&mut cpu.csr, 1);
     Ok(())
 }
 
@@ -97,7 +97,7 @@ pub(super) fn exec_compress_jump_reg<const LINK: bool>(
     if LINK {
         cpu.reg_file.write(1, t);
     }
-    cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+    Minstret::wrapping_add(&mut cpu.csr, 1);
     Ok(())
 }
 

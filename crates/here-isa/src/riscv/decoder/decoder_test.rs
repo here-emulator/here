@@ -1,4 +1,4 @@
-use crate::riscv::csr_reg::csr_index;
+use crate::riscv::csr_reg::{Fflags, NamedCsr};
 use crate::riscv::instruction::RVInstrInfo;
 use crate::riscv::instruction::instr_table::RiscvInstr;
 use crate::riscv::isa_builder::TEST_ISA;
@@ -242,7 +242,7 @@ fn test_deocder_csr() {
         RVInstrInfo::I {
             rs1: 0,
             rd: 11,
-            imm: csr_index::fflags,
+            imm: Fflags::as_addr(),
         },
     );
 

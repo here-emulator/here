@@ -12,6 +12,11 @@ pub mod f;
 pub mod s;
 pub mod v;
 
+pub use basic::*;
+pub use f::*;
+pub use s::*;
+pub use v::*;
+
 pub(self) fn registe_csr(
     regfile: &mut CsrRegfile,
     addr: CsrIndex,

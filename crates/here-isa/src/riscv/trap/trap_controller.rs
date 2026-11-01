@@ -1,8 +1,8 @@
 use crate::DebugTarget;
-use crate::riscv::csr_reg::NamedCsrReg;
-use crate::riscv::csr_reg::PrivilegeLevel;
-use crate::riscv::csr_reg::csr_index;
-use crate::riscv::csr_reg::csr_macro::*;
+use crate::riscv::csr_reg::{
+    CsrDataType, Mcause, Medeleg, Mepc, Mideleg, Mie, Mip, Mstatus, Mtval, Mtvec, NamedCsr,
+    PrivilegeLevel, Scause, Sepc, Sstatus, Stval, Stvec,
+};
 use crate::riscv::executor::RVCPU;
 use crate::riscv::trap::Exception;
 use crate::riscv::trap::Trap;
@@ -21,17 +21,18 @@ impl TrapController {
     //                M-Mode
     // ======================================
     fn is_exception_delegated_m_mode(cpu: &mut RVCPU, exception: Exception) -> bool {
-        let medeleg_val = cpu.csr.get_by_type_existing::<Medeleg>().data();
+        let medeleg_val = Medeleg::read(&cpu.csr);
         (medeleg_val & (1 << exception as u8)) != 0
     }
 
     fn is_interrupt_delegated_m_mode(cpu: &mut RVCPU, interrupt: Interrupt) -> bool {
-        let mideleg = cpu.csr.get_by_type_existing::<Mideleg>();
         match interrupt {
             Interrupt::MachineExternal | Interrupt::MachineSoft | Interrupt::MachineTimer => false,
-            Interrupt::SupervisorExternal | Interrupt::UserExternal => mideleg.get_seip() != 0,
-            Interrupt::SupervisorSoft | Interrupt::UserSoft => mideleg.get_ssip() != 0,
-            Interrupt::SupervisorTimer | Interrupt::UserTimer => mideleg.get_stip() != 0,
+            Interrupt::SupervisorExternal | Interrupt::UserExternal => {
+                Mideleg::get_seip(&cpu.csr) != 0
+            }
+            Interrupt::SupervisorSoft | Interrupt::UserSoft => Mideleg::get_ssip(&cpu.csr) != 0,
+            Interrupt::SupervisorTimer | Interrupt::UserTimer => Mideleg::get_stip(&cpu.csr) != 0,
             Interrupt::Unknown => {
                 unreachable!()
             }
@@ -46,98 +47,89 @@ impl TrapController {
     }
 
     fn send_trap_signal_m_mode(cpu: &mut RVCPU, cause: Trap, trap_value: WordType) {
-        cpu.csr
-            .get_by_type_existing::<Mstatus>()
-            .set_mpp(cpu.csr.privelege_level() as u8 as WordType);
-        cpu.csr.set_current_privileged(PrivilegeLevel::M);
-        cpu.csr
-            .write_uncheck_privilege(Mcause::get_index(), cause.into());
-        cpu.csr.write_uncheck_privilege(Mepc::get_index(), cpu.pc);
+        let prev_priv = cpu.privilege_level() as u8 as CsrDataType;
+        Mstatus::set_mpp(&mut cpu.csr, prev_priv);
+        cpu.set_current_privilege(PrivilegeLevel::M);
 
-        cpu.csr
-            .write_uncheck_privilege(csr_index::mtval, trap_value);
+        let cause_val: WordType = cause.into();
+        Mcause::write(&mut cpu.csr, cause_val as CsrDataType);
+        Mepc::write(&mut cpu.csr, cpu.pc as CsrDataType);
+        Mtval::write(&mut cpu.csr, trap_value as CsrDataType);
 
-        let mstatus = cpu.csr.get_by_type_existing::<Mstatus>();
-        mstatus.set_mpie(mstatus.get_mie());
-        mstatus.set_mie(0);
+        let mie = Mstatus::get_mie(&cpu.csr);
+        Mstatus::set_mpie(&mut cpu.csr, mie);
+        Mstatus::set_mie(&mut cpu.csr, 0);
 
-        let mtvec = cpu.csr.get_by_type_existing::<Mtvec>();
-        cpu.write_pc(Self::next_pc_by_tvec(
-            cause,
-            mtvec.get_mode(),
-            mtvec.get_base(),
-        ));
+        let mode = Mtvec::get_mode(&cpu.csr) as WordType;
+        let base = Mtvec::get_base(&cpu.csr) as WordType;
+        cpu.write_pc(Self::next_pc_by_tvec(cause, mode, base));
     }
 
     pub fn mret(cpu: &mut RVCPU) {
-        let mstatus = cpu.csr.get_by_type_existing::<Mstatus>();
-        mstatus.set_mie(mstatus.get_mpie());
-        mstatus.set_mpie(1);
-        cpu.write_pc(cpu.csr.read_uncheck_privilege(Mepc::get_index()).unwrap());
+        let mpie = Mstatus::get_mpie(&cpu.csr);
+        Mstatus::set_mie(&mut cpu.csr, mpie);
+        Mstatus::set_mpie(&mut cpu.csr, 1);
+        cpu.write_pc(Mepc::read(&cpu.csr) as WordType);
 
-        let new_priv: u8 = mstatus.get_mpp() as u8;
+        let new_priv: u8 = Mstatus::get_mpp(&cpu.csr) as u8;
 
         if new_priv != PrivilegeLevel::M as u8 {
-            mstatus.set_mprv(0);
+            Mstatus::set_mprv(&mut cpu.csr, 0);
         }
 
-        cpu.csr.set_current_privileged(
+        cpu.set_current_privilege(
             PrivilegeLevel::try_from(new_priv)
                 .expect("mstatus.mpp must contain a valid privilege level"),
         );
-        mstatus.set_mpp(0);
+        Mstatus::set_mpp(&mut cpu.csr, 0);
     }
 
     // ======================================
     //                S-Mode
     // ======================================
     fn send_trap_signal_s_mode(cpu: &mut RVCPU, cause: Trap, trap_value: WordType) {
-        cpu.csr
-            .get_by_type_existing::<Sstatus>()
-            .set_spp(cpu.csr.privelege_level() as u8 as WordType);
-        cpu.csr.set_current_privileged(PrivilegeLevel::S);
+        let prev_priv = cpu.privilege_level() as u8 as CsrDataType;
+        Sstatus::set_spp(&mut cpu.csr, prev_priv);
+        cpu.set_current_privilege(PrivilegeLevel::S);
 
-        assert!(cpu.csr.write_directly(Scause::get_index(), cause.into()));
-        assert!(cpu.csr.write_directly(Sepc::get_index(), cpu.pc));
+        let cause_val: WordType = cause.into();
+        Scause::write_directly(&mut cpu.csr, cause_val as CsrDataType);
+        Sepc::write_directly(&mut cpu.csr, cpu.pc as CsrDataType);
+        Stval::write_directly(&mut cpu.csr, trap_value as CsrDataType);
 
-        assert!(cpu.csr.write_directly(Stval::get_index(), trap_value));
+        let sie = Sstatus::get_sie(&cpu.csr);
+        Sstatus::set_spie(&mut cpu.csr, sie);
+        Sstatus::set_sie(&mut cpu.csr, 0);
 
-        let sstatus = cpu.csr.get_by_type_existing::<Sstatus>();
-        sstatus.set_spie(sstatus.get_sie());
-        sstatus.set_sie(0);
-
-        let stvec = cpu.csr.get_by_type_existing::<Stvec>();
-        cpu.write_pc(Self::next_pc_by_tvec(
-            cause,
-            stvec.get_mode(),
-            stvec.get_base(),
-        ));
+        let mode = Stvec::get_mode(&cpu.csr) as WordType;
+        let base = Stvec::get_base(&cpu.csr) as WordType;
+        cpu.write_pc(Self::next_pc_by_tvec(cause, mode, base));
     }
 
     pub fn sret(cpu: &mut RVCPU) {
-        let sstatus = cpu.csr.get_by_type_existing::<Sstatus>();
-        sstatus.set_sie(sstatus.get_spie());
-        sstatus.set_spie(1);
-        cpu.write_pc(cpu.csr.read_uncheck_privilege(Sepc::get_index()).unwrap());
+        let spie = Sstatus::get_spie(&cpu.csr);
+        Sstatus::set_sie(&mut cpu.csr, spie);
+        Sstatus::set_spie(&mut cpu.csr, 1);
+        cpu.write_pc(Sepc::read(&cpu.csr) as WordType);
 
-        let new_priv: u8 = sstatus.get_spp() as u8;
+        let new_priv: u8 = Sstatus::get_spp(&cpu.csr) as u8;
 
         // If new_priv != M, then `MPRV` is set to 0 on execution of xRET.
         // `SPP` cannot be M, so no need to check.
-        cpu.csr.get_by_type_existing::<Mstatus>().set_mprv(0);
+        Mstatus::set_mprv(&mut cpu.csr, 0);
 
-        cpu.csr.set_current_privileged(
+        cpu.set_current_privilege(
             PrivilegeLevel::try_from(new_priv)
                 .expect("sstatus.spp must contain a valid privilege level"),
         );
-        sstatus.set_spp(PrivilegeLevel::U as u8 as WordType);
+        Sstatus::set_spp(&mut cpu.csr, PrivilegeLevel::U as u8 as CsrDataType);
     }
 
     // ======================================
     //                 Common
     // ======================================
     fn try_send_trap_signal(cpu: &mut RVCPU, cause: Trap, trap_value: WordType) -> bool {
-        let level = cpu.csr.privelege_level();
+        let level = cpu.privilege_level();
 
         if level == PrivilegeLevel::M || Self::is_delegated_m_mode(cpu, cause) == false {
             match cause {
@@ -149,7 +141,7 @@ impl TrapController {
                     // "Interrupts for higher-privilege modes, y>x, are always globally enabled
                     // regardless of the setting of the global yIE bit for the higher-privilege mode."
                     if level < PrivilegeLevel::M
-                        || cpu.csr.get_by_type_existing::<Mstatus>().get_mie() == 1
+                        || Mstatus::get_mie(&cpu.csr) == 1
                     {
                         Self::send_trap_signal_m_mode(cpu, cause, trap_value);
                         true
@@ -167,7 +159,7 @@ impl TrapController {
                 Trap::Interrupt(_) => {
                     // The same as M-Mode interrupt handling.
                     if level < PrivilegeLevel::S
-                        || cpu.csr.get_by_type_existing::<Mstatus>().get_sie() == 1
+                        || Mstatus::get_sie(&cpu.csr) == 1
                     {
                         Self::send_trap_signal_s_mode(cpu, cause, trap_value);
                         true
@@ -191,10 +183,7 @@ impl TrapController {
 
     /// Check if there is any pending interrupt that can be handled now, considering `mip` and `mie`.
     fn has_interrupt(cpu: &mut RVCPU) -> Option<Interrupt> {
-        let mip = cpu.csr.get_by_type_existing::<Mip>();
-        let mie = cpu.csr.get_by_type_existing::<Mie>();
-
-        let pending_interrupts = mip.data() & mie.data();
+        let pending_interrupts = Mip::read(&cpu.csr) & Mie::read(&cpu.csr);
 
         if pending_interrupts == 0 {
             return None;
@@ -236,6 +225,7 @@ impl TrapController {
 mod test {
     use super::*;
     use crate::riscv::cpu_tester::run_test_cpu_step;
+    use crate::riscv::csr_reg::Mscratch;
     use crate::riscv::trap::Exception;
     use here_types::ram_config;
     use here_types::ram_config::BASE_ADDR;
@@ -246,16 +236,18 @@ mod test {
     fn test_load_fault() {
         run_test_cpu_step(
             &[0x00003503], // ld a0, 0(zero)
-            |builder| builder.csr(Mtvec::get_index(), IRQ_HANDLER_ADDR),
+            |builder| builder.csr(Mtvec::as_addr(), IRQ_HANDLER_ADDR),
             |checker| {
                 checker
                     .pc(IRQ_HANDLER_ADDR)
-                    .csr(Mepc::get_index(), ram_config::BASE_ADDR)
-                    .csr(Mtval::get_index(), 0)
+                    .csr(Mepc::as_addr(), ram_config::BASE_ADDR)
+                    .csr(Mtval::as_addr(), 0)
                     .customized(|checker| {
-                        let mcause = checker.cpu.csr.get_by_type_existing::<Mcause>();
-                        assert_eq!(mcause.get_interrupt_flag(), 0);
-                        assert_eq!(mcause.get_cause(), Exception::LoadFault.into());
+                        assert_eq!(Mcause::get_interrupt_flag(&checker.cpu.csr), 0);
+                        assert_eq!(
+                            Mcause::get_cause(&checker.cpu.csr) as WordType,
+                            Exception::LoadFault.into()
+                        );
                         checker
                     })
             },
@@ -269,19 +261,21 @@ mod test {
             &[0x0017B503], // ld a0, 1(a5)
             |builder| {
                 builder
-                    .csr(Mtvec::get_index(), IRQ_HANDLER_ADDR)
+                    .csr(Mtvec::as_addr(), IRQ_HANDLER_ADDR)
                     .reg(15, BASE_LOAD_MEM)
             },
             |checker| {
                 checker
                     .pc(IRQ_HANDLER_ADDR)
-                    .csr(Mcause::get_index(), Exception::LoadMisaligned.into())
-                    .csr(Mepc::get_index(), ram_config::BASE_ADDR)
-                    .csr(Mtval::get_index(), BASE_LOAD_MEM + 1)
+                    .csr(Mcause::as_addr(), Exception::LoadMisaligned.into())
+                    .csr(Mepc::as_addr(), ram_config::BASE_ADDR)
+                    .csr(Mtval::as_addr(), BASE_LOAD_MEM + 1)
                     .customized(|checker| {
-                        let mcause = checker.cpu.csr.get_by_type_existing::<Mcause>();
-                        assert_eq!(mcause.get_interrupt_flag(), 0);
-                        assert_eq!(mcause.get_cause(), Exception::LoadMisaligned.into());
+                        assert_eq!(Mcause::get_interrupt_flag(&checker.cpu.csr), 0);
+                        assert_eq!(
+                            Mcause::get_cause(&checker.cpu.csr) as WordType,
+                            Exception::LoadMisaligned.into()
+                        );
                         checker
                     })
             },
@@ -292,15 +286,17 @@ mod test {
     fn test_store_fault() {
         run_test_cpu_step(
             &[0x00a7b023], // sd a0, 0(a5)
-            |builder| builder.csr(Mtvec::get_index(), IRQ_HANDLER_ADDR | 0b00),
+            |builder| builder.csr(Mtvec::as_addr(), IRQ_HANDLER_ADDR | 0b00),
             |checker| {
                 checker
                     .pc(IRQ_HANDLER_ADDR)
-                    .csr(Mepc::get_index(), ram_config::BASE_ADDR)
+                    .csr(Mepc::as_addr(), ram_config::BASE_ADDR)
                     .customized(|checker| {
-                        let mcause = checker.cpu.csr.get_by_type_existing::<Mcause>();
-                        assert_eq!(mcause.get_interrupt_flag(), 0);
-                        assert_eq!(mcause.get_cause(), Exception::StoreFault.into());
+                        assert_eq!(Mcause::get_interrupt_flag(&checker.cpu.csr), 0);
+                        assert_eq!(
+                            Mcause::get_cause(&checker.cpu.csr) as WordType,
+                            Exception::StoreFault.into()
+                        );
                         checker
                     })
             },
@@ -314,18 +310,20 @@ mod test {
             &[0x00a7b0a3], // sd a0, 1(a5)
             |builder| {
                 builder
-                    .csr(csr_index::mtvec, IRQ_HANDLER_ADDR)
+                    .csr(Mtvec::as_addr(), IRQ_HANDLER_ADDR)
                     .reg(15, BASE_STORE_MEM)
             },
             |checker| {
                 checker
                     .pc(IRQ_HANDLER_ADDR)
-                    .csr(Mepc::get_index(), ram_config::BASE_ADDR)
-                    .csr(Mtval::get_index(), BASE_STORE_MEM + 1)
+                    .csr(Mepc::as_addr(), ram_config::BASE_ADDR)
+                    .csr(Mtval::as_addr(), BASE_STORE_MEM + 1)
                     .customized(|checker| {
-                        let mcause = checker.cpu.csr.get_by_type_existing::<Mcause>();
-                        assert_eq!(mcause.get_interrupt_flag(), 0);
-                        assert_eq!(mcause.get_cause(), Exception::StoreMisaligned.into());
+                        assert_eq!(Mcause::get_interrupt_flag(&checker.cpu.csr), 0);
+                        assert_eq!(
+                            Mcause::get_cause(&checker.cpu.csr) as WordType,
+                            Exception::StoreMisaligned.into()
+                        );
                         checker
                     })
             },
@@ -339,17 +337,19 @@ mod test {
             &[0x00a7b023], // Any Instr. Because `PC` do not start as 0x80000000.
             |builder| {
                 builder
-                    .csr(Mtvec::get_index(), IRQ_HANDLER_ADDR | 0b00)
+                    .csr(Mtvec::as_addr(), IRQ_HANDLER_ADDR | 0b00)
                     .pc(PC_START)
             },
             |checker| {
                 checker
                     .pc(IRQ_HANDLER_ADDR)
-                    .csr(Mepc::get_index(), PC_START)
+                    .csr(Mepc::as_addr(), PC_START)
                     .customized(|checker| {
-                        let mcause = checker.cpu.csr.get_by_type_existing::<Mcause>();
-                        assert_eq!(mcause.get_interrupt_flag(), 0);
-                        assert_eq!(mcause.get_cause(), Exception::IllegalInstruction.into());
+                        assert_eq!(Mcause::get_interrupt_flag(&checker.cpu.csr), 0);
+                        assert_eq!(
+                            Mcause::get_cause(&checker.cpu.csr) as WordType,
+                            Exception::IllegalInstruction.into()
+                        );
                         checker
                     })
             },
@@ -363,17 +363,19 @@ mod test {
             &[0x00a7b023], // Any Instr. Because `PC` do not start as 0x80000000.
             |builder| {
                 builder
-                    .csr(csr_index::mtvec, IRQ_HANDLER_ADDR | 0b00)
+                    .csr(Mtvec::as_addr(), IRQ_HANDLER_ADDR | 0b00)
                     .pc(PC_START)
             },
             |checker| {
                 checker
                     .pc(IRQ_HANDLER_ADDR)
-                    .csr(Mepc::get_index(), PC_START)
+                    .csr(Mepc::as_addr(), PC_START)
                     .customized(|checker| {
-                        let mcause = checker.cpu.csr.get_by_type_existing::<Mcause>();
-                        assert_eq!(mcause.get_interrupt_flag(), 0);
-                        assert_eq!(mcause.get_cause(), Exception::InstructionFault.into());
+                        assert_eq!(Mcause::get_interrupt_flag(&checker.cpu.csr), 0);
+                        assert_eq!(
+                            Mcause::get_cause(&checker.cpu.csr) as WordType,
+                            Exception::InstructionFault.into()
+                        );
                         checker
                     })
             },
@@ -387,17 +389,19 @@ mod test {
             &[0x00a7b023], // Any Instr. Because `PC` do not start as 0x80000000.
             |builder| {
                 builder
-                    .csr(csr_index::mtvec, IRQ_HANDLER_ADDR | 0b00)
+                    .csr(Mtvec::as_addr(), IRQ_HANDLER_ADDR | 0b00)
                     .pc(PC_START)
             },
             |checker| {
                 checker
                     .pc(IRQ_HANDLER_ADDR)
-                    .csr(Mepc::get_index(), PC_START)
+                    .csr(Mepc::as_addr(), PC_START)
                     .customized(|checker| {
-                        let mcause = checker.cpu.csr.get_by_type_existing::<Mcause>();
-                        assert_eq!(mcause.get_interrupt_flag(), 0);
-                        assert_eq!(mcause.get_cause(), Exception::InstructionMisaligned.into());
+                        assert_eq!(Mcause::get_interrupt_flag(&checker.cpu.csr), 0);
+                        assert_eq!(
+                            Mcause::get_cause(&checker.cpu.csr) as WordType,
+                            Exception::InstructionMisaligned.into()
+                        );
                         checker
                     })
             },
@@ -408,8 +412,8 @@ mod test {
     fn test_swap() {
         run_test_cpu_step(
             &[0x34011173], // csrrw sp, mscratch, sp
-            |builder| builder.csr(Mscratch::get_index(), 0x114514).reg(2, 0x0721),
-            |checker| checker.csr(Mscratch::get_index(), 0x0721).reg(2, 0x114514),
+            |builder| builder.csr(Mscratch::as_addr(), 0x114514).reg(2, 0x0721),
+            |checker| checker.csr(Mscratch::as_addr(), 0x0721).reg(2, 0x114514),
         );
     }
 
@@ -433,12 +437,12 @@ mod test {
         // because cycle is readonly CSR.
         run_test_cpu_step(
             &[0xc00c1073],
-            |builder| builder.csr(Mtvec::get_index(), IRQ_HANDLER_ADDR),
+            |builder| builder.csr(Mtvec::as_addr(), IRQ_HANDLER_ADDR),
             |checker| {
                 checker
-                    .csr(Mcause::get_index(), 2) // illegal instruction
-                    .csr(Mtval::get_index(), 0xc00c1073) // instruction itself
-                    .csr(Mepc::get_index(), BASE_ADDR) // address of the instruction
+                    .csr(Mcause::as_addr(), 2) // illegal instruction
+                    .csr(Mtval::as_addr(), 0xc00c1073) // instruction itself
+                    .csr(Mepc::as_addr(), BASE_ADDR) // address of the instruction
                     .pc(IRQ_HANDLER_ADDR)
             },
         );

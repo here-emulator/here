@@ -1,7 +1,4 @@
-use crate::riscv::csr_reg::CsrRegFile;
-use crate::riscv::csr_reg::PrivilegeLevel;
-use crate::riscv::csr_reg::csr_macro::Mstatus;
-use crate::riscv::csr_reg::csr_macro::Sstatus;
+use crate::riscv::csr_reg::{CsrRegfile, Mstatus, PrivilegeLevel, Sstatus};
 use crate::riscv::executor::RVCPU;
 use crate::riscv::mmu::AccessEffect;
 use crate::riscv::mmu::AccessPolicy;
@@ -21,20 +18,21 @@ enum AccessPrivilege {
     MachineOnly,
 }
 
-fn determine_data_access_privilege(csr: &mut CsrRegFile) -> AccessPrivilege {
-    match csr.privelege_level() {
+fn determine_data_access_privilege(
+    csr: &CsrRegfile,
+    priv_level: PrivilegeLevel,
+) -> AccessPrivilege {
+    match priv_level {
         PrivilegeLevel::M => {
-            let mstatus = csr.get_by_type_existing::<Mstatus>();
-
-            if mstatus.get_mprv() == 0 {
+            if Mstatus::get_mprv(csr) == 0 {
                 AccessPrivilege::MachineOnly
             } else {
-                match PrivilegeLevel::try_from(mstatus.get_mpp() as u8)
+                match PrivilegeLevel::try_from(Mstatus::get_mpp(csr) as u8)
                     .expect("mstatus.mpp must contain a valid privilege level")
                 {
                     PrivilegeLevel::M => AccessPrivilege::MachineOnly,
                     PrivilegeLevel::S => {
-                        if mstatus.get_sum() == 0 {
+                        if Mstatus::get_sum(csr) == 0 {
                             AccessPrivilege::SupervisorOnly
                         } else {
                             AccessPrivilege::SupervisorAndUser
@@ -46,7 +44,7 @@ fn determine_data_access_privilege(csr: &mut CsrRegFile) -> AccessPrivilege {
             }
         }
         PrivilegeLevel::S => {
-            if csr.get_by_type_existing::<Sstatus>().get_sum() == 0 {
+            if Sstatus::get_sum(csr) == 0 {
                 AccessPrivilege::SupervisorOnly
             } else {
                 AccessPrivilege::SupervisorAndUser
@@ -58,7 +56,8 @@ fn determine_data_access_privilege(csr: &mut CsrRegFile) -> AccessPrivilege {
 }
 
 fn resolve_data_policy(
-    csr: &mut CsrRegFile,
+    csr: &CsrRegfile,
+    priv_level: PrivilegeLevel,
     access: AccessType,
     side_effect: bool,
 ) -> AccessPolicy {
@@ -73,14 +72,14 @@ fn resolve_data_policy(
         (true, AccessType::Write | AccessType::ReadWrite) => AccessEffect::AccessedDirty,
     };
 
-    let (masks, flags) = match determine_data_access_privilege(csr) {
+    let (masks, flags) = match determine_data_access_privilege(csr, priv_level) {
         AccessPrivilege::MachineOnly => return AccessPolicy::Direct,
         AccessPrivilege::SupervisorAndUser => (PTEFlags::empty(), PTEFlags::empty()),
         AccessPrivilege::SupervisorOnly => (PTEFlags::U, PTEFlags::empty()),
         AccessPrivilege::UserOnly => (PTEFlags::U, PTEFlags::U),
     };
 
-    if csr.get_by_type_existing::<Mstatus>().get_mxr() == 1 && access == AccessType::Read {
+    if Mstatus::get_mxr(csr) == 1 && access == AccessType::Read {
         return AccessPolicy::Translated {
             check: PermissionCheck {
                 any_of: PTEFlags::R | PTEFlags::X,
@@ -109,14 +108,14 @@ fn resolve_data_policy(
     }
 }
 
-fn resolve_ifetch_policy(csr: &CsrRegFile, side_effect: bool) -> AccessPolicy {
+fn resolve_ifetch_policy(priv_level: PrivilegeLevel, side_effect: bool) -> AccessPolicy {
     let effect = if side_effect {
         AccessEffect::Accessed
     } else {
         AccessEffect::None
     };
 
-    match csr.privelege_level() {
+    match priv_level {
         PrivilegeLevel::M => AccessPolicy::Direct,
         PrivilegeLevel::S => AccessPolicy::Translated {
             check: PermissionCheck {
@@ -156,7 +155,7 @@ impl RVCPU {
     where
         T: UnsignedInteger,
     {
-        let policy = resolve_data_policy(&mut self.csr, AccessType::Read, true);
+        let policy = resolve_data_policy(&self.csr, self.privilege_level(), AccessType::Read, true);
         let result = self.memory.read_with_policy(addr, policy);
         self.finish_memory_access(addr, result)
     }
@@ -165,7 +164,7 @@ impl RVCPU {
     where
         T: UnsignedInteger,
     {
-        let policy = resolve_data_policy(&mut self.csr, AccessType::Write, true);
+        let policy = resolve_data_policy(&self.csr, self.privilege_level(), AccessType::Write, true);
         let result = self.memory.write_with_policy(addr, data, policy);
         self.finish_memory_access(addr, result)
     }
@@ -174,7 +173,7 @@ impl RVCPU {
     where
         T: UnsignedInteger,
     {
-        let policy = resolve_data_policy(&mut self.csr, AccessType::Read, true);
+        let policy = resolve_data_policy(&self.csr, self.privilege_level(), AccessType::Read, true);
         let result = self.memory.load_reserved_with_policy(addr, policy);
         self.finish_memory_access(addr, result)
     }
@@ -183,7 +182,7 @@ impl RVCPU {
     where
         T: UnsignedInteger,
     {
-        let policy = resolve_data_policy(&mut self.csr, AccessType::Write, true);
+        let policy = resolve_data_policy(&self.csr, self.privilege_level(), AccessType::Write, true);
         let result = self
             .memory
             .store_conditional_with_policy(addr, data, policy);
@@ -200,7 +199,12 @@ impl RVCPU {
         T: UnsignedInteger,
         F: Fn(&T::AtomicType, T) -> Result<T, Exception>,
     {
-        let policy = resolve_data_policy(&mut self.csr, AccessType::ReadWrite, true);
+        let policy = resolve_data_policy(
+            &self.csr,
+            self.privilege_level(),
+            AccessType::ReadWrite,
+            true,
+        );
         let result = self
             .memory
             .fetch_and_op_amo_with_policy(addr, rhs_val, policy, f);
@@ -214,7 +218,7 @@ impl RVCPU {
     where
         T: UnsignedInteger,
     {
-        let policy = resolve_ifetch_policy(&self.csr, true);
+        let policy = resolve_ifetch_policy(self.privilege_level(), true);
         self.memory.read_with_policy(addr, policy)
     }
 
@@ -225,7 +229,7 @@ impl RVCPU {
     where
         T: UnsignedInteger,
     {
-        let policy = resolve_ifetch_policy(&self.csr, false);
+        let policy = resolve_ifetch_policy(self.privilege_level(), false);
         self.memory.read_with_policy(addr, policy)
     }
 
@@ -234,7 +238,7 @@ impl RVCPU {
         addr: u64,
         access: AccessType,
     ) -> Result<u64, PageTableError> {
-        let policy = resolve_data_policy(&mut self.csr, access, false);
+        let policy = resolve_data_policy(&self.csr, self.privilege_level(), access, false);
         self.memory.translate_for_debug_with_policy(addr, policy)
     }
 }

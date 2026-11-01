@@ -13,10 +13,7 @@ use rand::SeedableRng;
 #[cfg(test)]
 use rand_chacha::ChaCha12Rng;
 
-use crate::riscv::csr_reg::NamedCsrReg;
-use crate::riscv::csr_reg::csr_macro::Mstatus;
-use crate::riscv::csr_reg::csr_macro::Vl;
-use crate::riscv::csr_reg::csr_macro::Vtype;
+use crate::riscv::csr_reg::{CsrDataType, Mstatus, Vl, Vtype};
 use crate::riscv::decoder::Decoder;
 use crate::riscv::executor::RVCPU;
 use crate::riscv::isa_builder::TEST_ISA;
@@ -51,8 +48,8 @@ impl TestCPUBuilder {
             decoder,
             VirtAddrManager::from_ram_and_mmio(ram_ref, mmio),
         ));
-        cpu.csr.get_by_type_existing::<Mstatus>().set_fs(1); // Enable FPU by default for convienience
-        cpu.csr.get_by_type_existing::<Mstatus>().set_vs_directly(1); // Enable vector unit by default for convenience
+        Mstatus::set_fs(&mut cpu.csr, 1); // Enable FPU by default for convienience
+        Mstatus::set_vs_directly(&mut cpu.csr, 1); // Enable vector unit by default for convenience
         Self { cpu: cpu }
     }
 
@@ -84,18 +81,12 @@ impl TestCPUBuilder {
         tail_agnostic: bool,
         mask_agnostic: bool,
     ) -> Self {
-        let new_vtype = vlmul as WordType
-            | (vsew as WordType) << 3
-            | (tail_agnostic as WordType) << 6
-            | (mask_agnostic as WordType) << 7;
-        let vl = self
-            .cpu
-            .csr
-            .get_by_type::<Vtype>()
-            .unwrap()
-            .vsetvl(new_vtype)
-            .unwrap(); // set vtype csr
-        let _ = self.cpu.csr.write_directly(Vl::get_index(), vl); // set vl csr
+        let new_vtype = vlmul as CsrDataType
+            | (vsew as CsrDataType) << 3
+            | (tail_agnostic as CsrDataType) << 6
+            | (mask_agnostic as CsrDataType) << 7;
+        let vl = Vtype::vsetvl(&mut self.cpu.csr, new_vtype).unwrap(); // set vtype csr
+        Vl::set_vl_directly(&mut self.cpu.csr, vl); // set vl csr
         self.cpu
             .vector
             .set_config((vlmul, vsew, tail_agnostic, mask_agnostic, vl as u16)); // set vector config

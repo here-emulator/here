@@ -9,11 +9,7 @@ pub mod exec_mapping;
 pub mod instr_table;
 
 use crate::riscv;
-use crate::riscv::csr_reg::NamedCsrReg;
-use crate::riscv::csr_reg::csr_macro::Minstret;
-use crate::riscv::csr_reg::csr_macro::Misa;
-use crate::riscv::csr_reg::csr_macro::Mstatus;
-use crate::riscv::csr_reg::csr_macro::Vstart;
+use crate::riscv::csr_reg::{CsrDataType, Minstret, Misa, Mstatus, NamedCsr, Vstart};
 use crate::riscv::executor::RVCPU;
 use crate::riscv::instruction::exec_function::save_fflags_to_cpu;
 use crate::riscv::trap::Exception;
@@ -22,7 +18,7 @@ use here_types::WordType;
 
 #[inline]
 pub(super) fn check_jump_alignment(cpu: &mut RVCPU, target: WordType) -> Result<(), Exception> {
-    if !cpu.csr.get_by_type_existing::<Misa>().c_enabled() && (target & 0x3) != 0 {
+    if !Misa::c_enabled(&cpu.csr) && (target & 0x3) != 0 {
         cpu.pending_tval = Some(target);
         return Err(Exception::InstructionMisaligned);
     }
@@ -41,7 +37,7 @@ where
 {
     f(cpu)?;
     cpu.pc = cpu.pc.wrapping_add(4);
-    cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+    Minstret::wrapping_add(&mut cpu.csr, 1);
     Ok(())
 }
 
@@ -53,7 +49,7 @@ where
 {
     f(cpu)?;
     cpu.pc = cpu.pc.wrapping_add(2);
-    cpu.csr.get_by_type_existing::<Minstret>().wrapping_add(1);
+    Minstret::wrapping_add(&mut cpu.csr, 1);
     Ok(())
 }
 
@@ -68,7 +64,7 @@ pub(super) fn normal_float_exec<F>(cpu: &mut RVCPU, f: F) -> Result<(), riscv::t
 where
     F: FnOnce(&mut RVCPU) -> Result<(), riscv::trap::Exception>,
 {
-    if cpu.csr.get_by_type_existing::<Mstatus>().get_fs() == 0 {
+    if Mstatus::get_fs(&cpu.csr) == 0 {
         return Err(riscv::trap::Exception::IllegalInstruction);
     }
 
@@ -88,7 +84,7 @@ pub(super) fn normal_compress_float_exec<F>(
 where
     F: FnOnce(&mut RVCPU) -> Result<(), riscv::trap::Exception>,
 {
-    if cpu.csr.get_by_type_existing::<Mstatus>().get_fs() == 0 {
+    if Mstatus::get_fs(&cpu.csr) == 0 {
         return Err(riscv::trap::Exception::IllegalInstruction);
     }
 
@@ -128,10 +124,7 @@ fn finish_vector_memory_access(cpu: &mut RVCPU, err: VectorMemException) -> Exce
     // Only precise memory faults carry an element index. Other errors are
     // raised as-is and do not pretend to be resumable traps.
     if let Some(index) = err.fault_index() {
-        cpu.csr
-            .write_directly(Vstart::get_index(), index as WordType)
-            .then_some(())
-            .unwrap();
+        Vstart::write_directly(&mut cpu.csr, index as CsrDataType);
     }
     err.exception()
 }
@@ -142,21 +135,18 @@ where
     F: FnOnce(&mut RVCPU, usize) -> Result<(), E>,
     E: VectorExecError,
 {
-    if cpu.csr.get_by_type_existing::<Mstatus>().get_vs() == 0 {
+    if Mstatus::get_vs(&cpu.csr) == 0 {
         return Err(riscv::trap::Exception::IllegalInstruction);
     }
 
-    let vstart = cpu.csr.get_by_type_existing::<Vstart>().get_vstart() as usize;
+    let vstart = Vstart::get_vstart(&cpu.csr) as usize;
     normal_exec(cpu, |cpu| {
         f(cpu, vstart).map_err(|err| err.finish_vector_exec_error(cpu))
     })?;
 
     // Any successfully retired vector instruction completes all resumable work.
     // Precise memory traps return before this point and preserve their fault index.
-    cpu.csr
-        .write_directly(Vstart::get_index(), 0)
-        .then_some(())
-        .unwrap();
+    Vstart::write_directly(&mut cpu.csr, 0);
 
     // TODO: updata vector registers status.
 
