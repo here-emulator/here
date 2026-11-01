@@ -2,6 +2,9 @@ use log::error;
 
 use crate::riscv::csr_reg::regfile::{CsrIndex, CsrReadFn, CsrRegfile, CsrWriteFn};
 
+#[macro_use]
+pub mod r#macro;
+
 pub mod basic;
 pub mod f;
 pub mod s;

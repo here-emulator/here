@@ -1,0 +1,129 @@
+/// Generate a single CSR register.
+macro_rules! gen_csr_reg {
+    (
+        $name:ident, $extension:expr, $sub_regfile:ident, $field:ident, $index:expr,
+        $(@$validate_tag:ident)? [
+            $( $bit:expr, $len:expr, $fname:ident );* $(;)?
+        ]
+    ) => {
+        pub struct $name {}
+
+        gen_csr_reg!(@impl_validator $name, $sub_regfile, $field $(, @$validate_tag)?);
+
+        impl NamedCsr for $name {
+            const INDEX: CsrIndex = $index;
+            const EXTENSION: Extension = $extension;
+
+            fn register(regfile: &mut CsrRegfile) {
+                registe_csr(regfile, Self::INDEX, (Self::read, Self::write));
+            }
+
+            #[inline(always)]
+            fn read(regfile: &mut CsrRegfile) -> CsrDataType {
+                regfile.$sub_regfile.$field.data
+            }
+
+            #[inline(always)]
+            fn write(regfile: &mut CsrRegfile, new_value: CsrDataType) {
+                let validated_value = Self::validate(regfile, new_value);
+                regfile.$sub_regfile.$field.data = validated_value;
+            }
+
+            #[inline(always)]
+            fn write_directly(regfile: &mut CsrRegfile, new_value: CsrDataType) {
+                regfile.$sub_regfile.$field.data = new_value;
+            }
+        }
+
+        impl $name {
+            $(
+                // Offset
+                #[allow(non_upper_case_globals)]
+                const ${concat($field, _, $fname, _offset)}: usize = if $bit >= 0 {
+                    ($bit as isize) as usize
+                } else {
+                    ((XLEN as isize) + ($bit as isize)) as usize
+                };
+
+                // Mask
+                #[allow(non_upper_case_globals)]
+                const ${concat($field, _, $fname, _mask)}: CsrDataType =
+                    BIT_ONES_ARRAY[$len as usize] << Self::${concat($field, _, $fname, _offset)};
+
+                // Get value
+                #[inline]
+                pub fn ${concat(get_, $fname)}(regfile: &mut CsrRegfile) -> CsrDataType {
+                    (regfile.$sub_regfile.$field.data & Self::${concat($field, _, $fname, _mask)})
+                        >> Self::${concat($field, _, $fname, _offset)}
+                }
+
+                // Set value
+                #[inline]
+                pub fn ${concat(set_, $fname)}(
+                    regfile: &mut CsrRegfile,
+                    ${concat(new_, $fname)}: CsrDataType,
+                ) {
+                    regfile.$sub_regfile.$field.data &= !Self::${concat($field, _, $fname, _mask)};
+                    let ${concat(new_, $fname)} = (${concat(new_, $fname)}
+                        << Self::${concat($field, _, $fname, _offset)})
+                        & Self::${concat($field, _, $fname, _mask)};
+                    regfile.$sub_regfile.$field.data |= ${concat(new_, $fname)};
+                }
+
+                // Set Read Only
+                #[inline]
+                pub fn ${concat(set_, $fname, _readonly)}(regfile: &mut CsrRegfile) {
+                    regfile.$sub_regfile.$field.mask &= !Self::${concat($field, _, $fname, _mask)};
+                }
+            )*
+        }
+    };
+
+    (@impl_validator $name:ident, $sub_regfile:ident, $field:ident, @validate_custom) => {
+        impl CsrValidator<$name> for $name {
+            fn validate(regfile: &mut CsrRegfile, new_value: CsrDataType) -> CsrDataType {
+                let value = regfile.$sub_regfile.$field.mask & new_value;
+                Self::validate_custom(regfile, value)
+            }
+        }
+    };
+
+    (@impl_validator $name:ident, $sub_regfile:ident, $field:ident) => {
+        impl CsrValidator<$name> for $name {
+            fn validate(regfile: &mut CsrRegfile, new_value: CsrDataType) -> CsrDataType {
+                regfile.$sub_regfile.$field.mask & new_value
+            }
+        }
+    };
+}
+
+/// Generate a sub-extension CSR Regfile registration and all its NamedCsr types.
+macro_rules! gen_csr_regfile {
+    (
+        $regfile_type:ty {
+            $(
+                $name:ident, $extension:expr, $sub_regfile:ident, $field:ident, $index:expr,
+                $(@$validate_tag:ident)? [
+                    $( $bit:expr, $len:expr, $fname:ident );* $(;)?
+                ]
+            );* $(;)?
+        }
+    ) => {
+        impl $regfile_type {
+            fn macro_register(regfile: &mut CsrRegfile) {
+                $(
+                    $name::register(regfile);
+                )*
+            }
+        }
+
+        $(
+            gen_csr_reg!(
+                $name, $extension, $sub_regfile, $field, $index,
+                $(@$validate_tag)? [
+                    $( $bit, $len, $fname );*
+                ]
+            );
+        )*
+    };
+}
