@@ -20,6 +20,7 @@ pub struct RVSExtCsrRegfile {
     // @shadow sstatus:     CsrItem,
     // @shadow sie:         CsrItem,
     stvec:          CsrItem,
+    scounteren:     CsrItem,
     sscratch:       CsrItem,
     sepc:           CsrItem,
     scause:         CsrItem,
@@ -200,6 +201,10 @@ gen_csr_regfile! {
         Stvec, Extension::Zicsr, rvs_csr, stvec, CsrIndex::Direct(0x105), [
             0, 2, mode;
             2, XLEN - 2, base;
+        ];
+
+        Scounteren, Extension::Zicsr, rvs_csr, scounteren, CsrIndex::Direct(0x106), [
+            0, XLEN, scounteren, RO;
         ];
 
         Sscratch, Extension::Zicsr, rvs_csr, sscratch, CsrIndex::Direct(0x140), [
