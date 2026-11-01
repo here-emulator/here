@@ -109,10 +109,7 @@ fn test_step_batch_continues_after_exception() {
         Mcause::read(&cpu.csr) as WordType,
         Exception::IllegalInstruction.into()
     );
-    assert_eq!(
-        Mepc::read(&cpu.csr) as WordType,
-        ram_config::BASE_ADDR
-    );
+    assert_eq!(Mepc::read(&cpu.csr) as WordType, ram_config::BASE_ADDR);
 }
 
 #[test]

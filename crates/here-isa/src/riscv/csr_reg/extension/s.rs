@@ -52,7 +52,13 @@ impl NamedCsr for Sstatus {
     const EXTENSION: Extension = Extension::Zicsr;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self {}, Self::INDEX, (Self::read, Self::write), None);
+        registe_csr(
+            regfile,
+            Self {},
+            Self::INDEX,
+            (Self::read, Self::write),
+            None,
+        );
     }
 
     #[inline(always)]
@@ -108,7 +114,13 @@ impl NamedCsr for Sie {
     const EXTENSION: Extension = Extension::Zicsr;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self {}, Self::INDEX, (Self::read, Self::write), None);
+        registe_csr(
+            regfile,
+            Self {},
+            Self::INDEX,
+            (Self::read, Self::write),
+            None,
+        );
     }
 
     #[inline(always)]
@@ -157,7 +169,13 @@ impl NamedCsr for Sip {
     const EXTENSION: Extension = Extension::Zicsr;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self {}, Self::INDEX, (Self::read, Self::write), None);
+        registe_csr(
+            regfile,
+            Self {},
+            Self::INDEX,
+            (Self::read, Self::write),
+            None,
+        );
     }
 
     #[inline(always)]

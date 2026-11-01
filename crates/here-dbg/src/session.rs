@@ -96,7 +96,8 @@ impl<B: Board> RvdbSession<B> {
     }
 
     pub fn render_output(&self, output: &CommandOutput) -> String {
-        self.printer.render(output, |addr| self.dbg.csr_name_by_addr(addr))
+        self.printer
+            .render(output, |addr| self.dbg.csr_name_by_addr(addr))
     }
 
     pub fn load_symbol_file_bytes(&mut self, bytes: Vec<u8>) -> Result<(), String> {

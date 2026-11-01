@@ -140,9 +140,7 @@ impl TrapController {
                 Trap::Interrupt(_) => {
                     // "Interrupts for higher-privilege modes, y>x, are always globally enabled
                     // regardless of the setting of the global yIE bit for the higher-privilege mode."
-                    if level < PrivilegeLevel::M
-                        || Mstatus::get_mie(&cpu.csr) == 1
-                    {
+                    if level < PrivilegeLevel::M || Mstatus::get_mie(&cpu.csr) == 1 {
                         Self::send_trap_signal_m_mode(cpu, cause, trap_value);
                         true
                     } else {
@@ -158,9 +156,7 @@ impl TrapController {
                 }
                 Trap::Interrupt(_) => {
                     // The same as M-Mode interrupt handling.
-                    if level < PrivilegeLevel::S
-                        || Mstatus::get_sie(&cpu.csr) == 1
-                    {
+                    if level < PrivilegeLevel::S || Mstatus::get_sie(&cpu.csr) == 1 {
                         Self::send_trap_signal_s_mode(cpu, cause, trap_value);
                         true
                     } else {

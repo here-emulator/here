@@ -116,7 +116,6 @@ pub(crate) fn misa_bit(letter: char) -> WordType {
     1 << (letter as u8 - b'A')
 }
 
-
 /// Builds the decoder's instruction set from a collection of [`Extension`]s.
 ///
 /// ```

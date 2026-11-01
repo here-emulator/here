@@ -330,9 +330,7 @@ pub(in crate::riscv) fn get_exec_func(
             if cpu.get_current_privilege() < PrivilegeLevel::S {
                 return Err(Exception::IllegalInstruction);
             }
-            if cpu.get_current_privilege() == PrivilegeLevel::S
-                && Mstatus::get_tsr(&cpu.csr) == 1
-            {
+            if cpu.get_current_privilege() == PrivilegeLevel::S && Mstatus::get_tsr(&cpu.csr) == 1 {
                 return Err(Exception::IllegalInstruction);
             }
 
@@ -345,9 +343,7 @@ pub(in crate::riscv) fn get_exec_func(
             if cpu.get_current_privilege() < PrivilegeLevel::S {
                 return Err(Exception::IllegalInstruction);
             }
-            if cpu.get_current_privilege() == PrivilegeLevel::S
-                && Mstatus::get_tvm(&cpu.csr) == 1
-            {
+            if cpu.get_current_privilege() == PrivilegeLevel::S && Mstatus::get_tvm(&cpu.csr) == 1 {
                 return Err(Exception::IllegalInstruction);
             }
 

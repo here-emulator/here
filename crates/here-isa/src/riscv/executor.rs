@@ -306,11 +306,7 @@ impl RVCPU {
     }
 
     pub fn instruction_alignment(&mut self) -> WordType {
-        if Misa::c_enabled(&self.csr) {
-            2
-        } else {
-            4
-        }
+        if Misa::c_enabled(&self.csr) { 2 } else { 4 }
     }
 
     fn ifetch(&mut self) -> Result<RawInstr, ExceptionInfo> {

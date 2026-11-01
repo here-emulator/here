@@ -40,7 +40,13 @@ impl NamedCsr for Fcsr {
     const EXTENSION: Extension = Extension::F;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self {}, Self::INDEX, (Self::read, Self::write), None);
+        registe_csr(
+            regfile,
+            Self {},
+            Self::INDEX,
+            (Self::read, Self::write),
+            None,
+        );
     }
 
     #[inline(always)]

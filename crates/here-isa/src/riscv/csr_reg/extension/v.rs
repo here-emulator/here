@@ -7,8 +7,8 @@ use crate::riscv::{
             CsrDataType, CsrIndex, CsrItem, CsrRegfile, CsrValidator, NamedCsr, SubExtCsrRegfile,
         },
     },
-    vector::VLEN_BYTE,
     isa_builder::Extension,
+    vector::VLEN_BYTE,
 };
 
 #[rustfmt::skip]
@@ -51,7 +51,13 @@ impl NamedCsr for Vcsr {
     const EXTENSION: Extension = Extension::V;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self {}, Self::INDEX, (Self::read, Self::write), None);
+        registe_csr(
+            regfile,
+            Self {},
+            Self::INDEX,
+            (Self::read, Self::write),
+            None,
+        );
     }
 
     #[inline(always)]

@@ -243,7 +243,13 @@ impl NamedCsr for Cycle {
     const EXTENSION: Extension = Extension::Zicsr;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self {}, Self::INDEX, (Self::read, Self::write), None);
+        registe_csr(
+            regfile,
+            Self {},
+            Self::INDEX,
+            (Self::read, Self::write),
+            None,
+        );
     }
 
     #[inline(always)]
@@ -287,7 +293,13 @@ impl NamedCsr for Instret {
     const EXTENSION: Extension = Extension::Zicsr;
 
     fn register(regfile: &mut CsrRegfile) {
-        registe_csr(regfile, Self {}, Self::INDEX, (Self::read, Self::write), None);
+        registe_csr(
+            regfile,
+            Self {},
+            Self::INDEX,
+            (Self::read, Self::write),
+            None,
+        );
     }
 
     #[inline(always)]

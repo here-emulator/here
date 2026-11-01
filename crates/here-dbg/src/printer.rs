@@ -398,7 +398,12 @@ impl Printer {
             } => {
                 match event {
                     debugger::DebugEvent::StepCompleted => {
-                        writeln!(text, "Completed, next: {}", palette.format_instr(instr, csr_name)).unwrap();
+                        writeln!(
+                            text,
+                            "Completed, next: {}",
+                            palette.format_instr(instr, csr_name)
+                        )
+                        .unwrap();
                     }
                     debugger::DebugEvent::BreakpointHit => {
                         writeln!(

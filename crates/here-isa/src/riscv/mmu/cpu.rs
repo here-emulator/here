@@ -164,7 +164,8 @@ impl RVCPU {
     where
         T: UnsignedInteger,
     {
-        let policy = resolve_data_policy(&self.csr, self.privilege_level(), AccessType::Write, true);
+        let policy =
+            resolve_data_policy(&self.csr, self.privilege_level(), AccessType::Write, true);
         let result = self.memory.write_with_policy(addr, data, policy);
         self.finish_memory_access(addr, result)
     }
@@ -182,7 +183,8 @@ impl RVCPU {
     where
         T: UnsignedInteger,
     {
-        let policy = resolve_data_policy(&self.csr, self.privilege_level(), AccessType::Write, true);
+        let policy =
+            resolve_data_policy(&self.csr, self.privilege_level(), AccessType::Write, true);
         let result = self
             .memory
             .store_conditional_with_policy(addr, data, policy);

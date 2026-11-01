@@ -111,10 +111,7 @@ fn jit_fallback_executes_exactly_one_cycle_before_resuming_jit() {
     assert_eq!(board.run_cycles(2), 2);
     assert_eq!(board.cpu.read_pc(), ram_config::BASE_ADDR + 8);
     assert_eq!(board.cpu.read_reg(1), 13);
-    assert_eq!(
-        board.cpu_mut().debug_csr(Mcycle::as_addr(), None),
-        Some(2)
-    );
+    assert_eq!(board.cpu_mut().debug_csr(Mcycle::as_addr(), None), Some(2));
     assert_eq!(
         board.cpu_mut().debug_csr(Minstret::as_addr(), None),
         Some(2)
@@ -355,10 +352,7 @@ fn test_clint_timer_interrupt() {
     board.step();
     assert!(board.cpu_mut().read_pc() == interrupt_handler_addr);
 
-    let mcause = board
-        .cpu_mut()
-        .debug_csr(Mcause::as_addr(), None)
-        .unwrap();
+    let mcause = board.cpu_mut().debug_csr(Mcause::as_addr(), None).unwrap();
     assert_eq!(mcause, (1u64 << (XLEN - 1)) | 0b11)
 }
 
