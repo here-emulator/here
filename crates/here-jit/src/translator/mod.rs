@@ -4,8 +4,8 @@
 //! - branch + mov => cmov
 
 use crate::make_ir;
+use here_isa::riscv::cpu::RVCPU;
 use here_isa::riscv::decoder::DecodeInstr;
-use here_isa::riscv::executor::RVCPU;
 use here_isa::riscv::instruction::RVInstrInfo;
 use here_isa::riscv::instruction::instr_table::RiscvInstr;
 use here_types::WordType;

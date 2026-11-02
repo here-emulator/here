@@ -13,7 +13,7 @@ use crate::riscv::{
             v::RVVExtCsrRegfile,
         },
     },
-    isa_builder::{Extension, ISABuilder, IsaParseError},
+    isa_builder::{Extension, ISABuilder},
 };
 
 pub type CsrDataType = u64;
@@ -52,8 +52,8 @@ pub struct CsrRegfile {
     // pub(self) s_indirect_map: BTreeMap<(u8, u64), (CsrReadFn, CsrWriteFn)>,
 }
 
-impl Default for CsrRegfile {
-    fn default() -> Self {
+impl CsrRegfile {
+    fn zero_init() -> Self {
         Self {
             basic_csr: RVBasicCsrRegfile::default(),
             rvs_csr: RVSExtCsrRegfile::default(),
@@ -64,17 +64,9 @@ impl Default for CsrRegfile {
             name_map: BiMap::new(),
         }
     }
-}
 
-impl CsrRegfile {
-    /// Builds a CSR register file for the ISA described by `isa`,
-    /// e.g. `"RV64IMAFDC_Zicsr_Zifencei"`. See [`ISABuilder`].
-    pub fn from_isa_str(isa: &str) -> Result<Self, IsaParseError> {
-        Ok(Self::from_builder(isa.parse::<ISABuilder>()?))
-    }
-
-    pub(crate) fn from_builder(builder: ISABuilder) -> Self {
-        let mut regfile = Self::default();
+    pub(crate) fn from_builder(builder: &ISABuilder) -> Self {
+        let mut regfile = Self::zero_init();
         regfile.context = CsrContext {
             extension: builder.extension_bits(),
             xlen: XLEN as u8,
@@ -159,6 +151,11 @@ impl CsrRegfile {
         Some(read_fn(self) as WordType)
     }
 
+    pub fn has_extension(&self, ext: char) -> bool {
+        let ext = ext.to_ascii_uppercase() as u8;
+        (self.context.extension & (1 << (ext - 'A' as u8))) != 0
+    }
+
     pub fn addr_by_name(&self, name: &str) -> Option<WordType> {
         let key = name.to_lowercase();
         self.name_map
@@ -201,7 +198,7 @@ pub trait NamedCsr: Sized + CsrValidator<Self> {
     fn as_addr() -> WordType {
         match Self::INDEX {
             CsrIndex::Direct(addr) => addr as WordType,
-            _ => panic!("CSR does not have a direct address"),
+            _ => todo!(),
         }
     }
 }
@@ -212,11 +209,15 @@ mod test {
             CsrRegfile, Cycle, Fcsr, Mcause, Mcycle, Mepc, Mie, Mip, Mstatus, Mtvec, NamedCsr,
             PrivilegeLevel, Sie, Sip, Sstatus, Vcsr, Vxrm, Vxsat,
         },
-        isa_builder::TEST_ISA,
+        isa_builder::{ISABuilder, TEST_ISA},
     };
 
     fn new_all_ext_regfile() -> CsrRegfile {
-        CsrRegfile::from_isa_str(TEST_ISA).expect("TEST_ISA must be valid")
+        CsrRegfile::from_builder(
+            &TEST_ISA
+                .parse::<ISABuilder>()
+                .expect("TEST_ISA must be valid"),
+        )
     }
 
     #[test]

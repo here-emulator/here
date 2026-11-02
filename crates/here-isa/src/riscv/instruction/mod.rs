@@ -9,8 +9,8 @@ pub mod exec_mapping;
 pub mod instr_table;
 
 use crate::riscv;
-use crate::riscv::csr_reg::{CsrDataType, Minstret, Misa, Mstatus, NamedCsr, Vstart};
-use crate::riscv::executor::RVCPU;
+use crate::riscv::cpu::RVCPU;
+use crate::riscv::csr_reg::{CsrDataType, Minstret, Mstatus, NamedCsr, Vstart};
 use crate::riscv::instruction::exec_function::save_fflags_to_cpu;
 use crate::riscv::trap::Exception;
 use crate::riscv::vector::VectorMemException;
@@ -18,7 +18,7 @@ use here_types::WordType;
 
 #[inline]
 pub(super) fn check_jump_alignment(cpu: &mut RVCPU, target: WordType) -> Result<(), Exception> {
-    if !Misa::c_enabled(&cpu.csr) && (target & 0x3) != 0 {
+    if !cpu.csr.has_extension('C') && (target & 0x3) != 0 {
         cpu.pending_tval = Some(target);
         return Err(Exception::InstructionMisaligned);
     }

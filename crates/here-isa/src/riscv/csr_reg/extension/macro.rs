@@ -45,13 +45,13 @@ macro_rules! gen_csr_bitfield {
                     regfile: &mut CsrRegfile,
                     ${concat(new_, $fname)}: CsrDataType,
                 ) {
-                    let mut data = Self::read(regfile);
-                    data &= !Self::${concat($field, _, $fname, _mask)};
-                    let ${concat(new_, $fname)} = (${concat(new_, $fname)}
+                    let mut data = Self::read(regfile); // read old csr
+                    data &= !Self::${concat($field, _, $fname, _mask)}; // Clear Bitfield
+                    let ${concat(new_, $fname)} = (${concat(new_, $fname)} // (new_value << offset) & bitfield_mask
                         << Self::${concat($field, _, $fname, _offset)})
                         & Self::${concat($field, _, $fname, _mask)};
-                    data |= ${concat(new_, $fname)};
-                    Self::write(regfile, data);
+                    data |= ${concat(new_, $fname)}; // set new bitfield
+                    Self::write(regfile, data); // write new csr
                 }
 
                 // Set value directly without validation

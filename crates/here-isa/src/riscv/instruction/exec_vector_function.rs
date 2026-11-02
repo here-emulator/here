@@ -1,6 +1,6 @@
 use crate::DebugTarget;
+use crate::riscv::cpu::RVCPU;
 use crate::riscv::csr_reg::{CsrDataType, Vcsr, Vl, Vtype};
-use crate::riscv::executor::RVCPU;
 use crate::riscv::instruction::RVInstrInfo;
 use crate::riscv::instruction::exec_function::ExecMove;
 use crate::riscv::instruction::normal_vector_exec;

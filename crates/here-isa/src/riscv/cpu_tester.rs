@@ -13,9 +13,9 @@ use rand::SeedableRng;
 #[cfg(test)]
 use rand_chacha::ChaCha12Rng;
 
+use crate::riscv::cpu::RVCPU;
 use crate::riscv::csr_reg::{CsrDataType, Mstatus, Vl, Vtype};
-use crate::riscv::decoder::Decoder;
-use crate::riscv::executor::RVCPU;
+use crate::riscv::isa_builder::ISABuilder;
 use crate::riscv::isa_builder::TEST_ISA;
 use crate::riscv::mmu::VirtAddrManager;
 use crate::riscv::vector::types::Vlmul;
@@ -43,9 +43,10 @@ impl TestCPUBuilder {
     pub fn new() -> Self {
         let ram_ref = Rc::new(UnsafeCell::new(Ram::new()));
         let mmio = MemoryMapIO::from_ram(ram_ref.clone());
-        let decoder = Decoder::from_isa_str(TEST_ISA).expect("TEST_ISA must be valid");
-        let mut cpu = Box::new(RVCPU::from_decoder(
-            decoder,
+        let mut cpu = Box::new(RVCPU::from_isa_builder(
+            &TEST_ISA
+                .parse::<ISABuilder>()
+                .expect("TEST_ISA must be valid"),
             VirtAddrManager::from_ram_and_mmio(ram_ref, mmio),
         ));
         Mstatus::set_fs(&mut cpu.csr, 1); // Enable FPU by default for convienience

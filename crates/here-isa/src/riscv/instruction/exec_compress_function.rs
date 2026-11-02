@@ -2,8 +2,8 @@
 // Maybe we can reuse common exec function once we find a good way to handle the PC increment.
 
 use crate::fpu::FloatPoint;
+use crate::riscv::cpu::RVCPU;
 use crate::riscv::csr_reg::Minstret;
-use crate::riscv::executor::RVCPU;
 use crate::riscv::instruction::RVInstrInfo;
 use crate::riscv::instruction::exec_function::ExecAdd;
 use crate::riscv::instruction::exec_function::ExecTrait;

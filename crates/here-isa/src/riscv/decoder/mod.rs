@@ -9,7 +9,6 @@ use crate::riscv::instruction::RVInstrInfo;
 use crate::riscv::instruction::instr_table::*;
 use crate::riscv::isa_builder::DEFAULT_ISA;
 use crate::riscv::isa_builder::ISABuilder;
-use crate::riscv::isa_builder::IsaParseError;
 use here_types::WordType;
 use here_types::debug_unreachable;
 use here_types::sign_extend;
@@ -39,28 +38,18 @@ pub struct Decoder {
     funct_decoder: funct_decoder::Decoder,
     mask_decoder: mask_decoder::MaskDecoder,
     compress_decoder: compress_decoder::CompressedDecoder,
-    /// `misa` extension bitmap of the ISA this decoder was built for.
-    extension_bits: WordType,
 }
 
 impl Decoder {
     pub fn new() -> Self {
-        Self::from_isa_str(DEFAULT_ISA).expect("DEFAULT_ISA must be valid")
+        Self::from_builder(
+            &DEFAULT_ISA
+                .parse::<ISABuilder>()
+                .expect("DEFAULT_ISA must be valid"),
+        )
     }
 
-    /// Builds a decoder for the ISA described by `isa`,
-    /// e.g. `"RV64IMAFDC_Zicsr_Zifencei"`. See [`ISABuilder`].
-    pub fn from_isa_str(isa: &str) -> Result<Self, IsaParseError> {
-        Ok(Self::from_builder(isa.parse::<ISABuilder>()?))
-    }
-
-    /// The `misa` extension bitmap of the ISA this decoder decodes.
-    pub fn extension_bits(&self) -> WordType {
-        self.extension_bits
-    }
-    fn from_builder(builder: ISABuilder) -> Self {
-        let extension_bits = builder.extension_bits();
-
+    pub fn from_builder(builder: &ISABuilder) -> Self {
         #[allow(unused_mut)]
         let mut isa = builder.build();
 
@@ -70,7 +59,7 @@ impl Decoder {
             isa.extend_from_slice(TABLE_RVCUSTOM1);
         }
 
-        Self::from_isa(isa, extension_bits)
+        Self::from_isa(isa)
     }
 }
 
@@ -79,7 +68,7 @@ fn is_compressed(desc: &RVInstrDesc) -> bool {
 }
 
 impl Decoder {
-    pub fn from_isa(instrs: Vec<RVInstrDesc>, extension_bits: WordType) -> Self {
+    pub fn from_isa(instrs: Vec<RVInstrDesc>) -> Self {
         let compress =
             CompressedDecoder::from_isa(instrs.iter().filter(|d| is_compressed(d)).cloned());
 
@@ -103,7 +92,6 @@ impl Decoder {
             compress_decoder: compress,
             funct_decoder: funct,
             mask_decoder: mask,
-            extension_bits: extension_bits,
         }
     }
 

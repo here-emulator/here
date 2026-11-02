@@ -3,9 +3,9 @@ use crate::backend::codegen::CodeGenTrait;
 use crate::ir::*;
 use crate::jit_buffer::JitBuffer;
 use crate::make_ir;
+use here_isa::riscv::cpu::RVCPU;
 use here_isa::riscv::cpu_tester::CPUChecker;
 use here_isa::riscv::cpu_tester::TestCPUBuilder;
-use here_isa::riscv::executor::RVCPU;
 use here_types::WordType;
 
 use crate::runtime::JitContext;

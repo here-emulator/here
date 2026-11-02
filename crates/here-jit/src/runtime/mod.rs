@@ -1,10 +1,10 @@
 use std::hint::cold_path;
 
 use here_isa::cache::*;
+use here_isa::riscv::cpu::ExecutorBackend;
+use here_isa::riscv::cpu::RVCPU;
 #[cfg(any(test, feature = "test-support"))]
 use here_isa::riscv::decoder::DecodeInstr;
-use here_isa::riscv::executor::ExecutorBackend;
-use here_isa::riscv::executor::RVCPU;
 use here_types::WordType;
 
 use super::*;

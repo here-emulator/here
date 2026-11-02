@@ -2,8 +2,8 @@ use std::cmp;
 use std::sync::atomic;
 use std::sync::atomic::Ordering;
 
+use crate::riscv::cpu::RVCPU;
 use crate::riscv::csr_reg::Minstret;
-use crate::riscv::executor::RVCPU;
 use crate::riscv::instruction::RVInstrInfo;
 use crate::riscv::trap::Exception;
 use here_types::TruncateFrom;

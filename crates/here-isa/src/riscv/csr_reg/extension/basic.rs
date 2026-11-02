@@ -336,10 +336,3 @@ impl Minstret {
         Self::set_minstret(regfile, v);
     }
 }
-
-impl Misa {
-    #[inline]
-    pub fn c_enabled(regfile: &CsrRegfile) -> bool {
-        (Self::get_extension(regfile) & 0b100) != 0
-    }
-}

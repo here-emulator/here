@@ -1,17 +1,17 @@
 use crate::ISATypes;
 use crate::InstrLen;
+use crate::riscv::cpu::RVCPU;
 use crate::riscv::decoder::DecodeInstr;
-use crate::riscv::executor::RVCPU;
 use crate::riscv::instruction::instr_table::RVInstrDesc;
 use here_types::WordType;
 
 pub mod address;
+pub mod cpu;
 #[cfg(any(test, feature = "test-support"))]
 pub mod cpu_tester;
 pub mod csr_reg;
 mod debug_target;
 pub mod decoder;
-pub mod executor;
 pub mod instruction;
 pub mod isa_builder;
 pub mod mmu;

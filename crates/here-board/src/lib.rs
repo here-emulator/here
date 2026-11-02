@@ -5,9 +5,9 @@ use std::str::FromStr;
 
 use here_device::plic::types::PlicContextId;
 use here_device::virtio::virtio_device::VirtIODeviceEnum;
-use here_isa::riscv::executor::BatchResult;
-use here_isa::riscv::executor::ExecutionHook;
-use here_isa::riscv::executor::RVCPU;
+use here_isa::riscv::cpu::BatchResult;
+use here_isa::riscv::cpu::ExecutionHook;
+use here_isa::riscv::cpu::RVCPU;
 
 pub mod builder;
 #[cfg(feature = "native")]

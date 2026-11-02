@@ -31,10 +31,10 @@ use here_device::sample_timer::SAMPLE_TIMER_INTERRUPT_ID;
 use here_device::sample_timer::SAMPLE_TIMER_SIZE;
 use here_isa::DebugTarget;
 use here_isa::riscv::address::Address;
-use here_isa::riscv::decoder::Decoder;
-use here_isa::riscv::executor::ExecutorBackend;
-use here_isa::riscv::executor::InterpreterBackend;
+use here_isa::riscv::cpu::ExecutorBackend;
+use here_isa::riscv::cpu::InterpreterBackend;
 use here_isa::riscv::isa_builder::DEFAULT_ISA;
+use here_isa::riscv::isa_builder::ISABuilder;
 use here_types::WordType;
 use here_types::ram_config;
 
@@ -400,10 +400,6 @@ fn load_program(args: &Args) -> Result<(Ram, Option<ELFLoader>), String> {
 }
 
 fn build_board(args: &Args) -> Result<VirtBoard, String> {
-    let decoder = Decoder::from_isa_str(&args.isa).unwrap_or_else(|e| {
-        eprintln!("Invalid ISA string {:?}: {}", args.isa, e);
-        std::process::exit(2);
-    });
     if args.executor != ExecutorBackendKind::Jit && (args.dump_jit.is_some() || args.jit_stats) {
         eprintln!("--dump-jit and --jit-stats require --executor jit");
         std::process::exit(2);
@@ -441,14 +437,19 @@ fn build_board(args: &Args) -> Result<VirtBoard, String> {
         }
     }
 
-    let mut builder = RVBoardBuilder::new(ram)
-        .with_decoder(decoder)
-        .with_initial_registers(initial_registers)
-        .with_executor_backend(executor_backend)
-        .add_power_manager(POWER_MANAGER_BASE, POWER_MANAGER_SIZE)
-        .add_clint(CLINT_BASE, CLINT_SIZE)
-        .add_plic(PLIC_BASE, PLIC_SIZE)
-        .add_uart(UART_BASE, UART_SIZE, UART_IRQ, UartIoMode::Stdio);
+    let mut builder = RVBoardBuilder::new(
+        ram,
+        args.isa.parse::<ISABuilder>().unwrap_or_else(|e| {
+            eprintln!("Invalid ISA string {:?}: {}", args.isa, e);
+            std::process::exit(2);
+        }),
+    )
+    .with_initial_registers(initial_registers)
+    .with_executor_backend(executor_backend)
+    .add_power_manager(POWER_MANAGER_BASE, POWER_MANAGER_SIZE)
+    .add_clint(CLINT_BASE, CLINT_SIZE)
+    .add_plic(PLIC_BASE, PLIC_SIZE)
+    .add_uart(UART_BASE, UART_SIZE, UART_IRQ, UartIoMode::Stdio);
 
     for device in &args.devices {
         builder = builder.add_virtio_device(

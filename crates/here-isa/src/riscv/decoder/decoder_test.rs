@@ -79,7 +79,7 @@ impl Checker {
 
     fn from_isa_str(isa: &str) -> Self {
         Checker {
-            decoder: Decoder::from_isa_str(isa).unwrap(),
+            decoder: Decoder::from_builder(&isa.parse::<ISABuilder>().unwrap()),
         }
     }
 

@@ -1,8 +1,8 @@
 use crate::DebugTarget;
 use crate::fpu::soft_float::*;
+use crate::riscv::cpu::RVCPU;
 use crate::riscv::csr_reg::PrivilegeLevel;
 use crate::riscv::csr_reg::{Minstret, Mstatus};
-use crate::riscv::executor::RVCPU;
 use crate::riscv::instruction::RVInstrInfo;
 use crate::riscv::instruction::exec_atomic_function::*;
 use crate::riscv::instruction::exec_compress_function::*;

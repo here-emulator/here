@@ -1,5 +1,5 @@
+use crate::riscv::cpu::RVCPU;
 use crate::riscv::csr_reg::{CsrRegfile, Mstatus, PrivilegeLevel, Sstatus};
-use crate::riscv::executor::RVCPU;
 use crate::riscv::mmu::AccessEffect;
 use crate::riscv::mmu::AccessPolicy;
 use crate::riscv::mmu::AccessType;

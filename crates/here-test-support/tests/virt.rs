@@ -10,11 +10,11 @@ use here_device::clock::Clock;
 use here_device::ram::Ram;
 use here_isa::DebugTarget;
 use here_isa::riscv::address::Address;
+use here_isa::riscv::cpu::ExecutionHook;
+use here_isa::riscv::cpu::RVCPU;
 use here_isa::riscv::csr_reg::{
     Mcause, Mcycle, Mie, Minstret, Mip, Mstatus, Mtvec, NamedCsr, Satp,
 };
-use here_isa::riscv::executor::ExecutionHook;
-use here_isa::riscv::executor::RVCPU;
 use here_test_support::board_from_binary;
 use here_test_support::jit_board_from_binary;
 use here_test_support::standard_builder;

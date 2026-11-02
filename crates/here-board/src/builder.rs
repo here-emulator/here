@@ -32,10 +32,10 @@ use here_device::ram::Ram;
 use here_device::uart16550a::Uart16550A;
 use here_device::uart16550a::UartBytePort;
 use here_isa::DebugTarget;
-use here_isa::riscv::decoder::Decoder;
-use here_isa::riscv::executor::ExecutorBackend;
-use here_isa::riscv::executor::InterpreterBackend;
-use here_isa::riscv::executor::RVCPU;
+use here_isa::riscv::cpu::ExecutorBackend;
+use here_isa::riscv::cpu::InterpreterBackend;
+use here_isa::riscv::cpu::RVCPU;
+use here_isa::riscv::isa_builder::ISABuilder;
 use here_isa::riscv::mmu::VirtAddrManager;
 use here_types::Interrupt;
 use here_types::WordType;
@@ -48,7 +48,7 @@ pub struct RVBoardBuilder {
 
     // CPU
     mmio_items: Vec<MemoryMapItem>,
-    decoder: Option<Decoder>,
+    isa_builder: ISABuilder,
     initial_registers: Vec<(u8, WordType)>,
 
     // UART
@@ -71,7 +71,7 @@ impl RVBoardBuilder {
     const MTIMECMP_OFFSET: u64 = 0x4000;
 
     // Loader may init Ram before RVBoard init.
-    pub fn new(ram: Ram) -> Self {
+    pub fn new(ram: Ram, isa_builder: ISABuilder) -> Self {
         Self {
             ram_ref: Rc::new(UnsafeCell::new(ram)),
             plic: Box::new(PLIC::new()),
@@ -80,7 +80,7 @@ impl RVBoardBuilder {
             id_allocators: HashMap::new(),
 
             // CPU
-            decoder: None,
+            isa_builder,
             initial_registers: Vec::new(),
 
             // UART
@@ -95,11 +95,6 @@ impl RVBoardBuilder {
             clint_mmio: None,
             plic_mmio: None,
         }
-    }
-
-    pub fn with_decoder(mut self, decoder: Decoder) -> Self {
-        self.decoder = Some(decoder);
-        self
     }
 
     pub fn with_initial_registers(mut self, registers: Vec<(u8, WordType)>) -> Self {
@@ -271,8 +266,7 @@ impl RVBoardBuilder {
         let vaddr_manager = VirtAddrManager::from_ram_and_mmio(ram_ref.clone(), mmio);
 
         // build rvcpu.
-        let decoder = self.decoder.take().unwrap_or_else(Decoder::new);
-        let mut cpu = Box::new(RVCPU::from_decoder(decoder, vaddr_manager));
+        let mut cpu = Box::new(RVCPU::from_isa_builder(&self.isa_builder, vaddr_manager));
 
         // init cpu regfile.
         for (register, value) in self.initial_registers {
@@ -366,11 +360,12 @@ mod tests {
     use here_device::aclint::CLINT_SIZE;
     use here_device::plic::PLIC_SIZE;
     use here_device::power_manager::POWER_MANAGER_SIZE;
+    use here_isa::riscv::isa_builder::DEFAULT_ISA;
     #[test]
     #[should_panic]
     fn test_rvboard_builder_missing_clint() {
         let ram = Ram::new();
-        let _ = RVBoardBuilder::new(ram)
+        let _ = RVBoardBuilder::new(ram, DEFAULT_ISA.parse().unwrap())
             .add_power_manager(POWER_MANAGER_BASE, POWER_MANAGER_SIZE)
             .add_plic(PLIC_BASE, PLIC_SIZE)
             .build();
@@ -380,7 +375,7 @@ mod tests {
     #[should_panic]
     fn test_rvboard_builder_missing_plic() {
         let ram = Ram::new();
-        let _ = RVBoardBuilder::new(ram)
+        let _ = RVBoardBuilder::new(ram, DEFAULT_ISA.parse().unwrap())
             .add_power_manager(POWER_MANAGER_BASE, POWER_MANAGER_SIZE)
             .add_clint(CLINT_BASE, CLINT_SIZE)
             .build();
@@ -397,6 +392,7 @@ mod native_tests {
     use here_device::power_manager::POWER_MANAGER_SIZE;
     use here_device::virtio::virtio_block::init_block_file;
     use here_device::virtio::virtio_device::VirtIODeviceEnum;
+    use here_isa::riscv::isa_builder::DEFAULT_ISA;
 
     fn add_default_mmio_devices(builder: RVBoardBuilder) -> RVBoardBuilder {
         builder
@@ -408,7 +404,7 @@ mod native_tests {
     #[test]
     fn test_rvboard_builder_basic() {
         let ram = Ram::new();
-        add_default_mmio_devices(RVBoardBuilder::new(ram)).build();
+        add_default_mmio_devices(RVBoardBuilder::new(ram, DEFAULT_ISA.parse().unwrap())).build();
     }
 
     #[test]
@@ -432,7 +428,8 @@ mod native_tests {
             },
         ];
 
-        let mut builder = add_default_mmio_devices(RVBoardBuilder::new(ram));
+        let mut builder =
+            add_default_mmio_devices(RVBoardBuilder::new(ram, DEFAULT_ISA.parse().unwrap()));
         for config in devices {
             builder = builder.add_virtio_device(
                 VIRTIO_MMIO_BASE,
@@ -455,7 +452,7 @@ mod native_tests {
         let _ = init_block_file(file_path.to_str().unwrap(), 1, |_| &buf);
 
         let ram = Ram::new();
-        add_default_mmio_devices(RVBoardBuilder::new(ram))
+        add_default_mmio_devices(RVBoardBuilder::new(ram, DEFAULT_ISA.parse().unwrap()))
             .add_uart(UART_BASE, UART_SIZE, UART_IRQ, UartIoMode::External)
             .add_virtio_device(
                 VIRTIO_MMIO_BASE,

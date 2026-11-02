@@ -20,10 +20,10 @@ use here_device::plic::PLIC;
 use here_device::power_manager::POWER_OFF_CODE;
 use here_device::power_manager::POWER_STATUS;
 use here_device::uart16550a::UartBytePort;
-use here_isa::riscv::executor::BatchResult;
-use here_isa::riscv::executor::ExecutionHook;
-use here_isa::riscv::executor::ExecutorBackend;
-use here_isa::riscv::executor::RVCPU;
+use here_isa::riscv::cpu::BatchResult;
+use here_isa::riscv::cpu::ExecutionHook;
+use here_isa::riscv::cpu::ExecutorBackend;
+use here_isa::riscv::cpu::RVCPU;
 
 #[cfg(feature = "native")]
 use crate::task_spawner::TaskHandle;

@@ -1,4 +1,4 @@
-use here_isa::riscv::executor::RVCPU;
+use here_isa::riscv::cpu::RVCPU;
 
 use super::JitContext;
 use super::JitExit;

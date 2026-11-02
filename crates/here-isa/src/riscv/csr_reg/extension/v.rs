@@ -29,12 +29,6 @@ impl SubExtCsrRegfile for RVVExtCsrRegfile {
     }
 }
 
-impl RVVExtCsrRegfile {
-    pub(crate) fn register_into(regfile: &mut CsrRegfile) {
-        <Self as SubExtCsrRegfile>::register(regfile);
-    }
-}
-
 #[derive(Debug)]
 pub struct Vcsr {}
 

@@ -10,10 +10,10 @@ use here_isa::ISATypes;
 use here_isa::riscv::RawInstr;
 use here_isa::riscv::RiscvTypes;
 use here_isa::riscv::address::Address;
+use here_isa::riscv::cpu::ExecutionHook;
+use here_isa::riscv::cpu::RVCPU;
 use here_isa::riscv::csr_reg::{Mcycle, NamedCsr, PrivilegeLevel};
 use here_isa::riscv::decoder::DecodeInstr;
-use here_isa::riscv::executor::ExecutionHook;
-use here_isa::riscv::executor::RVCPU;
 use here_isa::riscv::instruction::RVInstrInfo;
 use here_isa::riscv::instruction::instr_table::RiscvInstr;
 use here_isa::riscv::mmu::AccessType;
@@ -666,13 +666,13 @@ mod test {
             &mut self,
             steps: u64,
             hook: &mut H,
-        ) -> here_isa::riscv::executor::BatchResult {
+        ) -> here_isa::riscv::cpu::BatchResult {
             self.cpu.step_batch_with_hook(steps, hook)
         }
 
-        fn step_batch(&mut self, steps: u64) -> here_isa::riscv::executor::BatchResult {
+        fn step_batch(&mut self, steps: u64) -> here_isa::riscv::cpu::BatchResult {
             self.cpu.step_batch(steps);
-            here_isa::riscv::executor::BatchResult {
+            here_isa::riscv::cpu::BatchResult {
                 cycles: steps,
                 hook_stopped: false,
             }

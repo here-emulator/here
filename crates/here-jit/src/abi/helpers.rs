@@ -11,7 +11,7 @@
 //! Helpers can trap (via [`JitContext::raise`]), which should be an extremely cold path.
 
 use crate::runtime::JitContext;
-use here_isa::riscv::executor::RVCPU;
+use here_isa::riscv::cpu::RVCPU;
 use here_types::WordType;
 
 // TODO: consider rewriting with proc macro

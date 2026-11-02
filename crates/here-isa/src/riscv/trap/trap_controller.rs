@@ -1,9 +1,9 @@
 use crate::DebugTarget;
+use crate::riscv::cpu::RVCPU;
 use crate::riscv::csr_reg::{
     CsrDataType, Mcause, Medeleg, Mepc, Mideleg, Mie, Mip, Mstatus, Mtval, Mtvec, NamedCsr,
     PrivilegeLevel, Scause, Sepc, Sstatus, Stval, Stvec,
 };
-use crate::riscv::executor::RVCPU;
 use crate::riscv::trap::Exception;
 use crate::riscv::trap::Trap;
 use here_types::Interrupt;

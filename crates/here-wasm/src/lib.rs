@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::panic;
 use std::rc::Rc;
 
+use here_isa::riscv::isa_builder::DEFAULT_ISA;
 use wasm_bindgen::prelude::*;
 
 use crate::nostd_repl::AsyncREPL;
@@ -31,7 +32,7 @@ use here_types::REGFILE_CNT;
 
 /// Assembles the standard virt board used by the wasm frontend.
 fn build_board(ram: Ram) -> VirtBoard {
-    RVBoardBuilder::new(ram)
+    RVBoardBuilder::new(ram, DEFAULT_ISA.parse().unwrap())
         .add_power_manager(POWER_MANAGER_BASE, POWER_MANAGER_SIZE)
         .add_clint(CLINT_BASE, CLINT_SIZE)
         .add_plic(PLIC_BASE, PLIC_SIZE)

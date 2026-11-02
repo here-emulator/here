@@ -1,5 +1,5 @@
+use crate::riscv::cpu::RVCPU;
 use crate::riscv::csr_reg::{NamedCsr, Satp};
-use crate::riscv::executor::RVCPU;
 use crate::riscv::trap::Exception;
 use here_types::WordType;
 

@@ -17,6 +17,7 @@ use crate::riscv::instruction::RVInstrInfo;
 use crate::riscv::instruction::exec_mapping::get_exec_func;
 use crate::riscv::instruction::instr_table::RiscvInstr;
 use crate::riscv::isa_builder::DEFAULT_ISA;
+use crate::riscv::isa_builder::ISABuilder;
 use crate::riscv::mmu::VirtAddrManager;
 use crate::riscv::trap::Exception;
 use crate::riscv::trap::trap_controller::TrapController;
@@ -113,17 +114,16 @@ impl Drop for RVCPU {
 
 impl RVCPU {
     pub(crate) fn from_vaddr_manager(v_memory: VirtAddrManager) -> Self {
-        Self::from_decoder(Decoder::new(), v_memory)
+        Self::from_isa_builder(&DEFAULT_ISA.parse::<ISABuilder>().unwrap(), v_memory)
     }
 
-    pub fn from_decoder(decoder: Decoder, v_memory: VirtAddrManager) -> Self {
-        let mut csr = CsrRegfile::from_isa_str(DEFAULT_ISA).expect("DEFAULT_ISA must be valid");
+    pub fn from_isa_builder(isa_builder: &ISABuilder, v_memory: VirtAddrManager) -> Self {
+        let mut csr = CsrRegfile::from_builder(&isa_builder);
+        let decoder = Decoder::from_builder(&isa_builder);
 
-        let ext = decoder.extension_bits();
+        let ext = isa_builder.extension_bits();
         csr.context.extension = ext;
-        if (ext & (1 << (b'V' - b'A'))) != 0 && csr.addr_by_name("vcsr").is_none() {
-            crate::riscv::csr_reg::RVVExtCsrRegfile::register_into(&mut csr);
-        }
+
         let mxl = if WordType::BITS == 32 {
             1
         } else {
@@ -306,7 +306,7 @@ impl RVCPU {
     }
 
     pub fn instruction_alignment(&mut self) -> WordType {
-        if Misa::c_enabled(&self.csr) { 2 } else { 4 }
+        if self.csr.has_extension('C') { 2 } else { 4 }
     }
 
     fn ifetch(&mut self) -> Result<RawInstr, ExceptionInfo> {

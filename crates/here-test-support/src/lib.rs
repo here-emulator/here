@@ -16,13 +16,15 @@ use here_device::aclint::CLINT_SIZE;
 use here_device::plic::PLIC_SIZE;
 use here_device::power_manager::POWER_MANAGER_SIZE;
 use here_device::ram::Ram;
-use here_isa::riscv::executor::ExecutorBackend;
+use here_isa::riscv::cpu::ExecutorBackend;
+use here_isa::riscv::isa_builder::DEFAULT_ISA;
+use here_isa::riscv::isa_builder::ISABuilder;
 
 /// Adds the standard virt machine's base devices to `ram`.
 ///
 /// Callers append optional devices (VirtIO, sample timer, ...) themselves.
 pub fn standard_builder(ram: Ram, uart_io: UartIoMode) -> RVBoardBuilder {
-    RVBoardBuilder::new(ram)
+    RVBoardBuilder::new(ram, DEFAULT_ISA.parse::<ISABuilder>().unwrap())
         .add_power_manager(POWER_MANAGER_BASE, POWER_MANAGER_SIZE)
         .add_clint(CLINT_BASE, CLINT_SIZE)
         .add_plic(PLIC_BASE, PLIC_SIZE)

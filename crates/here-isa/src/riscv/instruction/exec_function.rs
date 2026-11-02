@@ -5,8 +5,8 @@ use std::marker::PhantomData;
 pub(super) use super::exec_float_function::*;
 use super::normal_exec;
 
+use crate::riscv::cpu::RVCPU;
 use crate::riscv::csr_reg::{Minstret, NamedCsr};
-use crate::riscv::executor::RVCPU;
 use crate::riscv::instruction::RVInstrInfo;
 use crate::riscv::trap::Exception;
 use here_types::TruncateFrom;
